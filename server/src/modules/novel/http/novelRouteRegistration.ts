@@ -11,6 +11,7 @@ import { registerNovelCharacterMindRoutes } from "../characters/http/novelCharac
 import { registerNovelCharacterPreparationRoutes } from "../characters/http/novelCharacterPreparationRoutes";
 import { registerNovelCharacterResourceRoutes } from "../characters/http/novelCharacterResourceRoutes";
 import { registerNovelCharacterSyncRoutes } from "../characters/http/novelCharacterSyncRoutes";
+import { registerNovelChangeProposalRoutes } from "../proposal/http/novelChangeProposalRoutes";
 import { registerNovelCharacterVisibleProfileRoutes } from "../characters/http/novelCharacterVisibleProfileRoutes";
 import { registerNovelFramingRoutes } from "../setup/http/novelFramingRoutes";
 import { registerNovelPlanningRoutes } from "../planning/http/novelPlanningRoutes";
@@ -166,6 +167,8 @@ export function registerNovelHttpRoutes(router: Router, services: NovelHttpServi
     router,
     idParamsSchema,
   });
+
+  registerNovelChangeProposalRoutes(router);
 
   registerNovelCharacterVisibleProfileRoutes({
     router,

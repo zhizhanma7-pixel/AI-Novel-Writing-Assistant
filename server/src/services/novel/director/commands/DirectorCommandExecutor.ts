@@ -12,6 +12,11 @@ import {
   type DirectorWorkflowSeedPayload,
 } from "../runtime/novelDirectorHelpers";
 import type { DirectorTakeoverRequest } from "@ai-novel/shared/types/novelDirector";
+import {
+  changeProposalApplyService,
+  changeProposalReviewService,
+  changeProposalService,
+} from "../../proposal";
 
 export type DirectorCommandExecutionOutcome = "completed" | "cancelled";
 
@@ -170,6 +175,45 @@ export class DirectorCommandExecutor {
           },
         });
         await this.recordCommandResult(pipelineCommand.taskId, pipelineCommand.id, { snapshot });
+        return this.resolveCommandOutcome(pipelineCommand.taskId);
+      }
+      case "review_proposal": {
+        const request = pipelineCommand.payload.proposalReviewRequest;
+        if (!request) {
+          throw new AppError("Director proposal review payload is missing.", 400);
+        }
+        const current = await changeProposalService.getProposal(request.novelId, request.proposalId);
+        if (current.taskId !== pipelineCommand.taskId) {
+          throw new AppError("Change proposal does not belong to this director task.", 400);
+        }
+        const proposal = request.decision === "execute"
+          ? await changeProposalApplyService.executeProposal(request.novelId, request.proposalId)
+          : request.decision === "reject"
+          ? await changeProposalReviewService.rejectProposal(request.novelId, request.proposalId, {
+              expectedVersion: request.expectedVersion,
+              reason: request.reason,
+            })
+          : request.decision === "replan"
+            ? await changeProposalService.regenerateProposal(request.novelId, request.proposalId, {
+                ...(request.regenerateInput ?? {}),
+                submitForReview: request.regenerateInput?.submitForReview ?? true,
+              })
+            : await changeProposalReviewService.approveProposal(request.novelId, request.proposalId, {
+                expectedVersion: request.expectedVersion,
+                itemDecisions: request.itemDecisions,
+              });
+        await this.recordCommandResult(pipelineCommand.taskId, pipelineCommand.id, { proposal });
+        await prisma.novelWorkflowTask.updateMany({
+          where: { id: pipelineCommand.taskId },
+          data: {
+            status: "waiting_approval",
+            currentStage: "AI 自动导演",
+            currentItemKey: "proposal_review_complete",
+            currentItemLabel: "变更提案审阅完成",
+            checkpointType: null,
+            checkpointSummary: null,
+          },
+        });
         return this.resolveCommandOutcome(pipelineCommand.taskId);
       }
       case "workspace_analysis": {

@@ -188,6 +188,7 @@ export class DirectorStateProposalResolutionService {
       where: {
         novelId: input.novelId,
         status: "pending_review",
+        changeProposalId: null,
         proposalType: { in: AUTO_RESOLUTION_TYPES as unknown as string[] },
         ...(input.chapterId ? { OR: [{ chapterId: input.chapterId }, { chapterId: null }] } : {}),
       },

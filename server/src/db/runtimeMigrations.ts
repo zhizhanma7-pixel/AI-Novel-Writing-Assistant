@@ -105,6 +105,56 @@ const REQUIRED_COLUMN_BACKFILLS = [
     columnName: "sourceInputCharCount",
     columnDefinition: `"sourceInputCharCount" INTEGER`,
   },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "changeProposalId",
+    columnDefinition: `"changeProposalId" TEXT`,
+  },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "changePath",
+    columnDefinition: `"changePath" TEXT`,
+  },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "operation",
+    columnDefinition: `"operation" TEXT`,
+  },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "category",
+    columnDefinition: `"category" TEXT`,
+  },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "severity",
+    columnDefinition: `"severity" TEXT`,
+  },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "beforeJson",
+    columnDefinition: `"beforeJson" TEXT`,
+  },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "afterJson",
+    columnDefinition: `"afterJson" TEXT`,
+  },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "userEditedPayloadJson",
+    columnDefinition: `"userEditedPayloadJson" TEXT`,
+  },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "reviewDecision",
+    columnDefinition: `"reviewDecision" TEXT`,
+  },
+  {
+    tableName: "StateChangeProposal",
+    columnName: "sourceRefsJson",
+    columnDefinition: `"sourceRefsJson" TEXT`,
+  },
 ] as const;
 
 function resolveSqliteDatabasePath(): string | null {

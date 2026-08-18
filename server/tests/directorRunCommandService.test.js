@@ -406,6 +406,29 @@ test("director command service queues approve gate as a one-shot command", async
   }
 });
 
+test("director command service queues task-bound proposal review on the existing command lane", async () => {
+  const harness = createHarness();
+  try {
+    const accepted = await harness.service.enqueueReviewProposalCommand("task-1", {
+      novelId: "novel-1",
+      proposalId: "proposal-1",
+      decision: "partial",
+      expectedVersion: 1,
+      itemDecisions: [{ id: "change-1", decision: "accepted" }],
+    });
+
+    assert.equal(accepted.status, "queued");
+    assert.equal(accepted.commandType, "review_proposal");
+    assert.equal(harness.commands.length, 1);
+    const payload = JSON.parse(harness.commands[0].payloadJson);
+    assert.equal(payload.proposalReviewRequest.proposalId, "proposal-1");
+    assert.equal(payload.proposalReviewRequest.decision, "partial");
+    assert.equal(harness.task.currentItemKey, "review_proposal");
+  } finally {
+    harness.restore();
+  }
+});
+
 test("director command service queues policy updates without directly mutating runtime policy", async () => {
   const harness = createHarness();
   try {

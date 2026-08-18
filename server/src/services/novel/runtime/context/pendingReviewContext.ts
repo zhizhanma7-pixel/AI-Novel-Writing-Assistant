@@ -5,6 +5,7 @@ export function buildBlockingPendingReviewProposalWhere(novelId: string, chapter
   return {
     novelId,
     status: "pending_review" as const,
+    changeProposalId: null,
     OR: [
       { chapterId },
       { chapterId: null },

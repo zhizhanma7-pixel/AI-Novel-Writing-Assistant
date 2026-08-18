@@ -95,6 +95,9 @@ interface PersistedProposalRow {
   payloadJson: string;
   evidenceJson: string | null;
   validationNotesJson: string | null;
+  changeProposalId?: string | null;
+  userEditedPayloadJson?: string | null;
+  reviewDecision?: string | null;
 }
 
 export class StateCommitService {
@@ -166,6 +169,17 @@ export class StateCommitService {
         novelId: input.novelId,
         id: { in: proposalIds },
         status: "pending_review",
+        OR: [
+          { changeProposalId: null },
+          {
+            changeProposal: {
+              is: {
+                status: { in: ["approved", "partially_approved"] },
+              },
+            },
+            reviewDecision: { in: ["accepted", "modified"] },
+          },
+        ],
       },
     });
     if (rows.length === 0) {
@@ -537,6 +551,9 @@ export class StateCommitService {
     }
 
     if (proposal.proposalType !== "character_state_update") {
+      if (!AUTO_COMMIT_TYPES.has(proposal.proposalType) && !ALWAYS_REVIEW_TYPES.has(proposal.proposalType)) {
+        throw new Error(`No state proposal applier is registered for ${proposal.proposalType}.`);
+      }
       return;
     }
 
@@ -569,7 +586,7 @@ export class StateCommitService {
       riskLevel: row.riskLevel as StateChangeProposal["riskLevel"],
       status: row.status as StateChangeProposal["status"],
       summary: row.summary,
-      payload: JSON.parse(row.payloadJson) as Record<string, unknown>,
+      payload: JSON.parse(row.userEditedPayloadJson ?? row.payloadJson) as Record<string, unknown>,
       evidence: this.parseStringArray(row.evidenceJson),
       validationNotes,
     };

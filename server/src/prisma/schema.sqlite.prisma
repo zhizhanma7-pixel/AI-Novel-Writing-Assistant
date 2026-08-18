@@ -412,6 +412,7 @@ model Novel {
   storyStateSnapshots StoryStateSnapshot[]
   canonicalStateVersions CanonicalStateVersion[]
   stateChangeProposals StateChangeProposal[]
+  changeProposals    ChangeProposal[]
   openConflicts      OpenConflict[]
   payoffLedgerItems  PayoffLedgerItem[]
   artifactSyncCheckpoints ChapterArtifactSyncCheckpoint[]
@@ -696,6 +697,7 @@ model Chapter {
   storyStateSnapshots StoryStateSnapshot[]
   canonicalStateVersions CanonicalStateVersion[]
   stateChangeProposals StateChangeProposal[]
+  changeProposals  ChangeProposal[]
   openConflicts      OpenConflict[]
   storyPlans      StoryPlan[]
   replanRuns      ReplanRun[]
@@ -2219,6 +2221,7 @@ model NovelWorkflowTask {
   directorEvents     DirectorEvent[]
   directorArtifacts  DirectorArtifact[]
   directorLlmUsageRecords DirectorLlmUsageRecord[]
+  changeProposals    ChangeProposal[]
   intentVersions     NovelIntentVersion[]
   creationStudioConfirmation CreationStudioConfirmation?
   createdAt          DateTime                @default(now())
@@ -2874,6 +2877,38 @@ model CanonicalStateVersion {
   @@index([chapterId])
 }
 
+model ChangeProposal {
+  id                 String   @id @default(cuid())
+  novelId            String
+  chapterId          String?
+  taskId             String?
+  proposalType       String
+  version            Int      @default(1)
+  supersedesId       String?
+  status             String   @default("draft")
+  outlineFidelity    String?
+  summary            String
+  reasoningSummary   String?
+  sourceRefsJson     String?
+  warningsJson       String?
+  expectedStateJson  String?
+  approvedAt         DateTime?
+  executedAt         DateTime?
+  novel              Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  chapter            Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  task               NovelWorkflowTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  supersedes         ChangeProposal?  @relation("ChangeProposalVersion", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy       ChangeProposal[] @relation("ChangeProposalVersion")
+  changes            StateChangeProposal[]
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([novelId, status, updatedAt])
+  @@index([taskId, status])
+  @@index([chapterId, createdAt])
+  @@index([supersedesId])
+}
+
 model StateChangeProposal {
   id                   String   @id @default(cuid())
   novelId              String
@@ -2889,9 +2924,20 @@ model StateChangeProposal {
   evidenceJson         String?
   validationNotesJson  String?
   committedVersionId   String?
+  changeProposalId     String?
+  changePath           String?
+  operation            String?
+  category             String?
+  severity             String?
+  beforeJson           String?
+  afterJson            String?
+  userEditedPayloadJson String?
+  reviewDecision       String?
+  sourceRefsJson       String?
   novel                Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
   chapter              Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
   committedVersion     CanonicalStateVersion? @relation("CommittedStateChangeVersion", fields: [committedVersionId], references: [id], onDelete: SetNull)
+  changeProposal       ChangeProposal? @relation(fields: [changeProposalId], references: [id], onDelete: SetNull)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -2899,6 +2945,7 @@ model StateChangeProposal {
   @@index([chapterId, createdAt])
   @@index([status, riskLevel, createdAt])
   @@index([committedVersionId])
+  @@index([changeProposalId, status])
 }
 
 model StoryPlan {

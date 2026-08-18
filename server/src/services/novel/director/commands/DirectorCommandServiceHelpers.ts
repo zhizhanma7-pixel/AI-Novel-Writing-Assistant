@@ -15,6 +15,10 @@ import type {
   DirectorStepCalibrationRequest,
 } from "@ai-novel/shared/types/novelDirector";
 import type { DirectorRuntimePolicyUpdateRequest } from "@ai-novel/shared/types/directorRuntime";
+import type {
+  ProposedChangeItemDecision,
+  RegenerateChangeProposalInput,
+} from "@ai-novel/shared/types/changeProposal";
 
 export interface DirectorCommandPayload {
   candidatesRequest?: DirectorCandidatesRequest;
@@ -27,6 +31,15 @@ export interface DirectorCommandPayload {
   forceResume?: boolean;
   takeoverRequest?: DirectorTakeoverRequest;
   policyUpdateRequest?: DirectorRuntimePolicyUpdateRequest;
+  proposalReviewRequest?: {
+    novelId: string;
+    proposalId: string;
+    decision: "approve" | "partial" | "reject" | "replan" | "execute";
+    itemDecisions?: ProposedChangeItemDecision[];
+    expectedVersion?: number;
+    reason?: string;
+    regenerateInput?: RegenerateChangeProposalInput;
+  };
   workspaceAnalysisRequest?: {
     novelId: string;
     workflowTaskId?: string | null;
@@ -120,7 +133,7 @@ export function resourceClassForCommand(commandType: string): string {
   if (commandType === "workspace_analysis" || commandType === "manual_edit_impact") {
     return "state_resolution";
   }
-  if (commandType === "policy_update" || commandType === "approve_gate") {
+  if (commandType === "policy_update" || commandType === "approve_gate" || commandType === "review_proposal") {
     return "state_resolution";
   }
   if (commandType === "confirm_candidate") {
@@ -179,6 +192,15 @@ export function buildAcceptedTaskState(commandType: DirectorRunCommandType): {
       currentStage: "AI 自动导演",
       currentItemKey: "policy_update",
       currentItemLabel: "已提交运行策略调整，等待 AI 按新策略推进",
+      checkpointType: null,
+      checkpointSummary: null,
+    };
+  }
+  if (commandType === "review_proposal") {
+    return {
+      currentStage: "AI 自动导演",
+      currentItemKey: "review_proposal",
+      currentItemLabel: "变更提案审阅命令已提交",
       checkpointType: null,
       checkpointSummary: null,
     };

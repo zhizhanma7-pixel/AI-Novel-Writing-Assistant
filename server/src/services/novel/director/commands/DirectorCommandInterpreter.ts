@@ -14,6 +14,7 @@ export type DirectorPipelineCommandIntent =
   | "retry"
   | "takeover"
   | "approve_gate"
+  | "review_proposal"
   | "policy_update"
   | "workspace_analysis"
   | "manual_edit_impact"
@@ -44,6 +45,7 @@ const SUPPORTED_COMMANDS = new Set<DirectorPipelineCommandIntent>([
   "retry",
   "takeover",
   "approve_gate",
+  "review_proposal",
   "policy_update",
   "workspace_analysis",
   "manual_edit_impact",

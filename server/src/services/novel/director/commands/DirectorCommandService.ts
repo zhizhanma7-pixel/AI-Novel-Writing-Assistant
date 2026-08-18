@@ -50,6 +50,7 @@ const EXECUTION_COMMAND_TYPES: DirectorRunCommandType[] = [
   "retry",
   "takeover",
   "approve_gate",
+  "review_proposal",
   "policy_update",
   "workspace_analysis",
   "manual_edit_impact",
@@ -219,6 +220,17 @@ export class DirectorCommandService {
         continuationMode: "resume",
         forceResume: true,
       },
+    });
+  }
+
+  async enqueueReviewProposalCommand(
+    taskId: string,
+    input: NonNullable<DirectorCommandPayload["proposalReviewRequest"]>,
+  ): Promise<DirectorCommandAcceptedResponse> {
+    return this.enqueueExecutionCommand({
+      taskId,
+      commandType: "review_proposal",
+      payload: { proposalReviewRequest: input },
     });
   }
 
