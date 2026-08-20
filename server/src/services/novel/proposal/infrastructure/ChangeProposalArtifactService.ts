@@ -8,6 +8,7 @@ import {
   ArtifactWriter,
   type DirectorArtifactWriteInput,
 } from "../../director/runtime/DirectorArtifactGateway";
+import { buildDirectorArtifactId } from "../../director/runtime/DirectorArtifactLedger";
 
 export interface ChangeProposalArtifactSnapshot {
   id: string;
@@ -85,7 +86,23 @@ export class ChangeProposalArtifactService {
   }
 
   async markStatus(snapshot: ChangeProposalArtifactSnapshot): Promise<void> {
-    await this.writer.upsert(writeInput(snapshot));
+    const input = writeInput(snapshot);
+    const artifactId = buildDirectorArtifactId({
+      type: input.artifactType,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      table: input.contentTable,
+      id: input.contentId,
+    });
+    const existing = await prisma.directorArtifact.findUnique({
+      where: { id: artifactId },
+      select: { source: true, protectedUserContent: true },
+    });
+    await this.writer.upsert({
+      ...input,
+      source: existing?.source as DirectorArtifactWriteInput["source"] ?? input.source,
+      protectedUserContent: existing?.protectedUserContent ?? input.protectedUserContent,
+    });
   }
 }
 

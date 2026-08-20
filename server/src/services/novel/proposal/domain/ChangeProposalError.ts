@@ -4,7 +4,8 @@ export type ChangeProposalErrorCode =
   | "version_conflict"
   | "stale_proposal"
   | "invalid_review"
-  | "no_approved_changes";
+  | "no_approved_changes"
+  | "unsupported_change";
 
 const STATUS_BY_CODE: Record<ChangeProposalErrorCode, number> = {
   not_found: 404,
@@ -13,6 +14,7 @@ const STATUS_BY_CODE: Record<ChangeProposalErrorCode, number> = {
   stale_proposal: 409,
   invalid_review: 400,
   no_approved_changes: 409,
+  unsupported_change: 409,
 };
 
 export class ChangeProposalError extends Error {

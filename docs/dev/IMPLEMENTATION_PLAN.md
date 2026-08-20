@@ -34,8 +34,9 @@
 
 1. ChangeProposal 可创建为 draft 或 pending_review，并保留 source refs、用户可见依据、warning 和版本链。
 2. 用户可整体批准、部分批准、修改后批准或拒绝；非法状态转换和并发写入不会静默覆盖。
-3. 执行只提交 accepted / modified 项，rejected 项不会进入正式状态。
+3. 执行只提交 accepted / modified 且已有正式 applier 的项目；rejected 项不会进入正式状态，未支持类型不会把信封标成 executed。
 4. 来源 artifact、artifact dependency 或章节内容变化时，批准和执行均阻止 stale proposal。
 5. 带 taskId 的审阅动作复用 DirectorRunCommand；手动提案可直接走相同服务。
 6. 旧 pending-review 自动处理链只读取 `changeProposalId = null` 的历史独立记录。
 7. PostgreSQL / SQLite schema 与迁移保持一致，服务端构建与 Proposal Core 聚焦测试通过。
+8. 关系信任值从 62 被 AI 建议为 52、再由用户改成 55 后，正式关系态只写入 55。

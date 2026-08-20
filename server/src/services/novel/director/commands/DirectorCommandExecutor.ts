@@ -4,7 +4,10 @@ import { NovelWorkflowService } from "../../workflow/NovelWorkflowService";
 import { mergeSeedPayload, parseSeedPayload } from "../../workflow/novelWorkflow.shared";
 import { DirectorCommandInterpreter } from "./DirectorCommandInterpreter";
 import { DirectorCommandService } from "./DirectorCommandService";
-import type { DirectorCommandPayload } from "./DirectorCommandServiceHelpers";
+import {
+  buildProposalReviewResultTaskState,
+  type DirectorCommandPayload,
+} from "./DirectorCommandServiceHelpers";
 import { DirectorStateStore } from "../DirectorStateStore";
 import { NovelDirectorService } from "../NovelDirectorService";
 import {
@@ -201,17 +204,14 @@ export class DirectorCommandExecutor {
             : await changeProposalReviewService.approveProposal(request.novelId, request.proposalId, {
                 expectedVersion: request.expectedVersion,
                 itemDecisions: request.itemDecisions,
+                unlistedDecision: request.unlistedDecision,
               });
         await this.recordCommandResult(pipelineCommand.taskId, pipelineCommand.id, { proposal });
         await prisma.novelWorkflowTask.updateMany({
           where: { id: pipelineCommand.taskId },
           data: {
-            status: "waiting_approval",
-            currentStage: "AI 自动导演",
-            currentItemKey: "proposal_review_complete",
-            currentItemLabel: "变更提案审阅完成",
-            checkpointType: null,
-            checkpointSummary: null,
+            ...buildProposalReviewResultTaskState(proposal.status),
+            heartbeatAt: new Date(),
           },
         });
         return this.resolveCommandOutcome(pipelineCommand.taskId);

@@ -190,6 +190,7 @@ export function registerNovelChangeProposalRoutes(router: Router): void {
           decision: "approve",
           expectedVersion: req.body.expectedVersion,
           itemDecisions: req.body.itemDecisions,
+          unlistedDecision: req.body.unlistedDecision,
         });
         if (queued) {
           res.status(202).json({
@@ -223,6 +224,7 @@ export function registerNovelChangeProposalRoutes(router: Router): void {
           decision: "partial",
           expectedVersion: req.body.expectedVersion,
           itemDecisions: req.body.itemDecisions,
+          unlistedDecision: req.body.unlistedDecision,
         });
         if (queued) {
           res.status(202).json({

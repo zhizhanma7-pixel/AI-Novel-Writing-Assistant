@@ -41,10 +41,17 @@ executed / superseded -> 终态
 
 ## Policy、任务与审计复用
 
-- `DirectorPolicyEngine` 接受 `proposalSeverity` 和 `outlineFidelity`。major 或 strict 提案需要人工批准；minor 提案继续遵循现有导演策略。
+- `DirectorPolicyEngine` 已预留 `proposalSeverity` 和 `outlineFidelity` 输入，但章节 Proposal Step 尚未接线。Proposal Core 当前对所有信封都要求显式审阅；按自治等级自动放行 minor 提案属于 Phase 2 接线范围。
 - 带 `taskId` 的批准、部分批准、拒绝、再生和执行请求通过 `review_proposal` DirectorRunCommand 排队，HTTP 返回 202，不创建第二套队列。
 - 提案被索引为 `change_proposal` DirectorArtifact，并沿用 artifact dependency 进行 stale 检测。
 - 事件沿用 `DirectorEvent`，记录 `proposal_created`、`proposal_reviewed`、`proposal_applied` 和 `proposal_superseded`。
+- `record` 类型 source ref 在本阶段只用于来源展示与追踪；确定性 stale 检查覆盖 Director Artifact、其依赖版本与 Chapter 内容哈希。
+
+## Apply 边界
+
+- `character_state_update`、`character_resource_update` 和 `relation_state_update` 有正式状态 applier。
+- 其他旧 `StateChangeProposal` 类型继续保持 ledger-only 兼容，供既有章节状态账本使用；Change Proposal 若批准了这些类型，执行接口会明确返回“不支持正式写入”，不会把信封标成 executed。
+- 章节执行 Proposal 的 AI 生产者、`Expected vs Actual` 对比和自动导演正文前置暂停属于 Phase 2，当前只有后端创建与审阅入口。
 
 ## HTTP API
 

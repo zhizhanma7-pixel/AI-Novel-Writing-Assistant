@@ -11,6 +11,7 @@ Change Proposal 后端核心：把多条 `StateChangeProposal` 组织成可版�
 - 扩展现有 Director Command / Policy、Artifact / Event 类型与旧 pending-review 查询边界。
 - 新增 PostgreSQL / SQLite 配对 schema 和 migration。
 - 新增 Proposal Core、schema migration、command 与 policy 聚焦测试。
+- 新增真实 SQLite 验收测试，覆盖关系值编辑、正式落库、任务 checkpoint 与 artifact 人工来源保护。
 - 新增 `docs/wiki/workflows/change-proposal-review.md` 记录长期工作流规则。
 
 完整文件清单以 `git diff main...feat/change-proposal-core` 为准。
@@ -25,6 +26,18 @@ Change Proposal 后端核心：把多条 `StateChangeProposal` 组织成可版�
 
 小说模块新增 Change Proposal 的列表、详情、创建、提交审阅、逐项编辑、批准、部分批准、拒绝、再生和执行接口。绑定导演任务的批准、拒绝、再生与执行通过 `review_proposal` 命令排队。
 
+部分审批现在要求显式指定每一项，或通过 `unlistedDecision` 声明未列项的处理方式；逐项 `after` 修改会同步改写可执行 payload。
+
+## Review Remediation
+
+- H1：引入覆盖全部九种状态类型的显式 applier registry。角色状态、角色资源和角色关系走正式状态写入；其余 ledger-only 类型在 Change Proposal 执行前返回 `unsupported_change`，不会伪装成 executed。
+- H2：逐项 `after` / `editedValue` 通过类型与 path 映射写回 `userEditedPayloadJson`，执行前再次校验 diff 值和 payload 一致。
+- M3：文档明确 Proposal policy 输入为 Phase 2 接线项；Phase 1 一律显式审阅。
+- M4：pending proposal 会生产 `proposal_review_required` checkpoint，Director 审阅命令完成后按实际 proposal status 清理或保留 checkpoint。
+- M5：Planner、replan、章节 pending-review context 与角色资源 context 统一复用 `changeProposalId: null` 的 legacy 查询边界。
+- M6：artifact 状态更新保留 `user_edited` 来源和 `protectedUserContent`。
+- L7/L8：record source ref 的追踪边界已写入 wiki；部分审批不再隐式拒绝未列项。
+
 ## Tests Added
 
 - Proposal 创建、批准、拒绝、部分批准、修改后批准、stale 拦截、执行、非法转换和版本再生。
@@ -32,17 +45,21 @@ Change Proposal 后端核心：把多条 `StateChangeProposal` 组织成可版�
 - SQLite migration 结构与外键检查。
 - PostgreSQL / SQLite Prisma schema 同步检查。
 - Director command lane 与 proposal policy 决策检查。
+- 未列项审批模式、ledger-only 执行阻断和 legacy pending-review 隔离。
+- 真实 SQLite：关系 trust `62 -> AI 52 -> user 55` 后只写入 55，并验证当前关系阶段、checkpoint 和 artifact 来源。
 
 ## Verification
 
 - `@ai-novel/shared` build：通过。
 - `@ai-novel/server` build：通过。
-- Proposal Core、schema migration、director policy 共 28 项聚焦测试：通过。
-- Director command proposal review 专项测试 1 项：通过。
-- 现有 `directorRunCommandService.test.js` 中与本功能无关的 `runtime.worker_stale` policy 用例在当前基线上失败；本阶段不修改该恢复策略。
+- Proposal Core、真实 SQLite、schema migration、legacy pending-review 与 State Commit 共 34 项聚焦测试：通过。
+- Director command proposal review checkpoint 专项测试：通过。
+- `pnpm --filter @ai-novel/server test` 已运行构建和完整 fast suite；仓库当前全量 fast baseline 仍有多组不在 Proposal 范围内的失败，包括默认 SQLite 缺表、旧导出/策略断言和 LLM stub 契约漂移。本阶段不扩张修复范围。
+- 单独运行 `directorRunCommandService.test.js` 时，Proposal command/checkpoint 用例通过；同文件现有 `runtime.worker_stale` policy 用例仍为 `queued !== failed`。
 
 ## Known Risks
 
 - 本阶段没有 Proposal 审阅 UI，API 主要供后续客户端和章节 Proposal Step 接入。
 - record 类型 source ref 当前用于来源追踪；stale 的确定性校验覆盖 Director Artifact、其依赖版本和 Chapter 内容哈希。
-- `StateCommitService` 现有 proposal type 的具体 applier 覆盖范围未在本阶段扩张；Change Proposal 不绕过该服务直接写业务表。
+- 章节执行 Proposal 的 AI 生产者、Expected vs Actual 对比和自治等级 policy 接线属于 Phase 2。
+- event、information disclosure、conflict、payoff、world rule 和 book contract 目前保持 ledger-only；它们在拥有正式状态 applier 前不能通过 Change Proposal 标记为 executed。

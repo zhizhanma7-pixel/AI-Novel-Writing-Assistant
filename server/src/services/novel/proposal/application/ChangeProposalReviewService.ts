@@ -9,9 +9,14 @@ import {
   type RejectChangeProposalInput,
   type ReviewChangeProposalInput,
 } from "@ai-novel/shared/types/changeProposal";
+import { stateChangeProposalTypeSchema } from "@ai-novel/shared/types/canonicalState";
 import { prisma } from "../../../../db/prisma";
 import { directorAutomationLedgerEventService } from "../../director/runtime/DirectorAutomationLedgerEventService";
 import { ChangeProposalError } from "../domain/ChangeProposalError";
+import {
+  applyEditedValueToPayload,
+  resolveEditedValueFromPayload,
+} from "../domain/ProposedChangeValueMapper";
 import {
   assertChangeProposalTransition,
   assertExpectedProposalVersion,
@@ -58,6 +63,20 @@ function artifactSnapshot(proposal: ChangeProposal) {
   };
 }
 
+function parseJsonRecord(value: string | null | undefined): Record<string, unknown> {
+  if (!value?.trim()) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function decisionMap(decisions: ProposedChangeItemDecision[] | undefined) {
   if (!decisions) {
     return null;
@@ -102,11 +121,25 @@ export class ChangeProposalReviewService {
     if (!item) {
       throw new ChangeProposalError("not_found", "Proposed change was not found.");
     }
-    const userEditedPayloadJson = input.payload !== undefined
-      ? JSON.stringify(input.payload)
-      : input.after !== undefined
-        ? item.userEditedPayloadJson ?? item.payloadJson
-        : undefined;
+    const basePayload = input.payload
+      ?? parseJsonRecord(item.userEditedPayloadJson ?? item.payloadJson);
+    const editedPayload = input.after !== undefined
+      ? applyEditedValueToPayload({
+          proposalType: stateChangeProposalTypeSchema.parse(item.proposalType),
+          path: item.changePath ?? "",
+          payload: basePayload,
+          editedValue: input.after,
+        })
+      : basePayload;
+    const userEditedPayloadJson = JSON.stringify(editedPayload);
+    const proposalType = stateChangeProposalTypeSchema.parse(item.proposalType);
+    const effectiveAfter = input.after !== undefined
+      ? { mapped: true as const, value: input.after }
+      : resolveEditedValueFromPayload({
+          proposalType,
+          path: item.changePath ?? "",
+          payload: editedPayload,
+        });
     await prisma.$transaction(async (tx) => {
       const lockedProposal = await tx.changeProposal.updateMany({
         where: {
@@ -134,9 +167,7 @@ export class ChangeProposalReviewService {
           ...(userEditedPayloadJson !== undefined
             ? { userEditedPayloadJson }
             : {}),
-          ...(input.after !== undefined
-            ? { afterJson: JSON.stringify(input.after) }
-            : {}),
+          afterJson: effectiveAfter.mapped ? JSON.stringify(effectiveAfter.value) : null,
           reviewDecision: null,
           status: "pending_review",
         },
@@ -193,22 +224,55 @@ export class ChangeProposalReviewService {
 
     const resolved = row.changes.map((change) => {
       const explicit = byId?.get(change.id);
-      const decision = explicit?.decision
-        ?? (byId ? "rejected" : (change.userEditedPayloadJson ? "modified" : "accepted"));
-      const editedPayloadJson = explicit?.editedPayload !== undefined
-        ? JSON.stringify(explicit.editedPayload)
-        : change.userEditedPayloadJson;
-      if (decision === "modified" && !editedPayloadJson) {
+      if (
+        change.userEditedPayloadJson
+        && explicit?.decision === "accepted"
+      ) {
         throw new ChangeProposalError(
           "invalid_review",
-          `Modified proposed change ${change.id} requires an edited payload.`,
+          `Proposed change ${change.id} was edited and must be approved as modified or regenerated.`,
         );
       }
+      const unlistedDecision = change.userEditedPayloadJson
+        ? "modified"
+        : input.unlistedDecision;
+      const decision = explicit?.decision
+        ?? (byId
+          ? unlistedDecision
+          : (change.userEditedPayloadJson ? "modified" : "accepted"));
+      if (!decision) {
+        throw new ChangeProposalError(
+          "invalid_review",
+          `Review decision for proposed change ${change.id} is missing. Set unlistedDecision or include every item.`,
+        );
+      }
+      const baseEditedPayload = explicit?.editedPayload
+        ?? parseJsonRecord(change.userEditedPayloadJson ?? change.payloadJson);
+      const editedPayload = explicit?.editedValue !== undefined
+        ? applyEditedValueToPayload({
+            proposalType: stateChangeProposalTypeSchema.parse(change.proposalType),
+            path: change.changePath ?? "",
+            payload: baseEditedPayload,
+            editedValue: explicit.editedValue,
+          })
+        : baseEditedPayload;
+      const editedPayloadJson = decision === "modified"
+        ? JSON.stringify(editedPayload)
+        : null;
+      const effectiveAfter = explicit?.editedValue !== undefined
+        ? { mapped: true as const, value: explicit.editedValue }
+        : resolveEditedValueFromPayload({
+            proposalType: stateChangeProposalTypeSchema.parse(change.proposalType),
+            path: change.changePath ?? "",
+            payload: editedPayload,
+          });
       return {
         change,
         decision,
         editedPayloadJson,
-        editedValue: explicit?.editedValue,
+        editedAfterJson: decision === "modified" && effectiveAfter.mapped
+          ? JSON.stringify(effectiveAfter.value)
+          : null,
       };
     });
     const approvedCount = resolved.filter((item) => item.decision !== "rejected").length;
@@ -246,8 +310,8 @@ export class ChangeProposalReviewService {
             status: item.decision === "rejected" ? "rejected" : "pending_review",
             reviewDecision: item.decision,
             userEditedPayloadJson: item.editedPayloadJson,
-            ...(item.editedValue !== undefined
-              ? { afterJson: JSON.stringify(item.editedValue) }
+            ...(item.decision === "modified"
+              ? { afterJson: item.editedAfterJson }
               : {}),
           },
         });

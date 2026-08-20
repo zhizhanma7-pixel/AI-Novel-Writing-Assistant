@@ -338,11 +338,26 @@ test("Phase 1 ChangeProposal core", async (t) => {
       const created = await proposalService.createProposal("novel-1", proposalInput());
       const partial = await reviewService.approveProposal("novel-1", created.id, {
         itemDecisions: [{ id: created.changes[0].id, decision: "accepted" }],
+        unlistedDecision: "rejected",
       });
 
       assert.equal(partial.status, "partially_approved");
       assert.equal(partial.changes[0].reviewDecision, "accepted");
       assert.equal(partial.changes[1].reviewDecision, "rejected");
+    });
+
+    await t.test("partial decisions cannot silently reject unlisted changes", async () => {
+      store = makeStore();
+      const { proposalService, reviewService } = services();
+      const created = await proposalService.createProposal("novel-1", proposalInput());
+
+      await assert.rejects(
+        reviewService.approveProposal("novel-1", created.id, {
+          itemDecisions: [{ id: created.changes[0].id, decision: "accepted" }],
+        }),
+        (error) => error.code === "invalid_review",
+      );
+      assert.ok(created.changes.every((change) => change.reviewDecision === null));
     });
 
     await t.test("edit proposed value before approval", async () => {
@@ -363,6 +378,38 @@ test("Phase 1 ChangeProposal core", async (t) => {
       assert.equal(approved.changes[0].after, "negotiate");
     });
 
+    await t.test("full payload edits keep the displayed after value in sync", async () => {
+      store = makeStore();
+      const { proposalService, reviewService } = services();
+      const created = await proposalService.createProposal("novel-1", proposalInput());
+      await reviewService.editProposedChange("novel-1", created.id, created.changes[0].id, {
+        payload: { characterId: "hero", currentGoal: "bargain" },
+      });
+      const approved = await reviewService.approveProposal("novel-1", created.id);
+
+      assert.equal(approved.changes[0].after, "bargain");
+      assert.equal(approved.changes[0].userEditedPayload.currentGoal, "bargain");
+    });
+
+    await t.test("modified approval payload becomes both diff and executable value", async () => {
+      store = makeStore();
+      const { proposalService, reviewService, applyService } = services();
+      const created = await proposalService.createProposal("novel-1", proposalInput());
+      const approved = await reviewService.approveProposal("novel-1", created.id, {
+        itemDecisions: [{
+          id: created.changes[0].id,
+          decision: "modified",
+          editedPayload: { characterId: "hero", currentGoal: "prepare" },
+        }],
+        unlistedDecision: "rejected",
+      });
+
+      assert.equal(approved.changes[0].after, "prepare");
+      assert.equal(approved.changes[0].userEditedPayload.currentGoal, "prepare");
+      const executed = await applyService.executeProposal("novel-1", created.id);
+      assert.equal(executed.status, "executed");
+    });
+
     await t.test("concurrent proposal review prevents a late item edit", async () => {
       store = makeStore();
       const { proposalService, reviewService } = services();
@@ -377,6 +424,39 @@ test("Phase 1 ChangeProposal core", async (t) => {
         (error) => error.code === "version_conflict",
       );
       assert.equal(store.changes.get(created.changes[0].id).userEditedPayloadJson, null);
+    });
+
+    await t.test("edited relation after value updates the executable trust score", async () => {
+      store = makeStore();
+      const { proposalService, reviewService } = services();
+      const input = proposalInput();
+      input.changes = [{
+        proposalType: "relation_state_update",
+        path: "Character.hero.relationship.partner.trust",
+        operation: "replace",
+        category: "relationship",
+        severity: "major",
+        before: 62,
+        after: 52,
+        payload: {
+          sourceCharacterId: "hero",
+          targetCharacterId: "partner",
+          trustScore: 52,
+        },
+        reason: "Trust decreases after the confrontation.",
+        sourceRefs: [],
+        evidence: ["They stop sharing information."],
+      }];
+      const created = await proposalService.createProposal("novel-1", input);
+      await reviewService.editProposedChange("novel-1", created.id, created.changes[0].id, {
+        expectedVersion: 1,
+        after: 55,
+      });
+      const approved = await reviewService.approveProposal("novel-1", created.id);
+
+      assert.equal(approved.changes[0].reviewDecision, "modified");
+      assert.equal(approved.changes[0].after, 55);
+      assert.equal(approved.changes[0].userEditedPayload.trustScore, 55);
     });
 
     await t.test("stale proposal cannot be approved", async () => {
@@ -426,6 +506,7 @@ test("Phase 1 ChangeProposal core", async (t) => {
       const created = await proposalService.createProposal("novel-1", proposalInput());
       const partial = await reviewService.approveProposal("novel-1", created.id, {
         itemDecisions: [{ id: created.changes[0].id, decision: "accepted" }],
+        unlistedDecision: "rejected",
       });
       const executed = await applyService.executeProposal("novel-1", created.id);
 
@@ -434,6 +515,22 @@ test("Phase 1 ChangeProposal core", async (t) => {
       assert.equal(store.changes.get(partial.changes[0].id).status, "committed");
       assert.equal(store.changes.get(partial.changes[1].id).status, "rejected");
       assert.equal(store.events.at(-1).type, "proposal_applied");
+    });
+
+    await t.test("approved ledger-only changes remain unsupported instead of claiming execution", async () => {
+      store = makeStore();
+      const { proposalService, reviewService, applyService } = services();
+      const input = proposalInput();
+      input.changes = [input.changes[1]];
+      const created = await proposalService.createProposal("novel-1", input);
+      await reviewService.approveProposal("novel-1", created.id);
+
+      await assert.rejects(
+        applyService.executeProposal("novel-1", created.id),
+        (error) => error.code === "unsupported_change",
+      );
+      assert.equal(store.proposals.get(created.id).status, "approved");
+      assert.deepEqual(store.committedBatches, []);
     });
 
     await t.test("invalid state transition", async () => {

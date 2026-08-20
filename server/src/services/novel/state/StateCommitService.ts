@@ -7,7 +7,6 @@ import type {
 import { characterResourceUpdatePayloadSchema } from "@ai-novel/shared/types/characterResource";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../../db/prisma";
-import { characterResourceLedgerService } from "../characterResource/CharacterResourceLedgerService";
 import { compactText as compactResourceText, normalizeResourceKey } from "../characterResource/characterResourceShared";
 import { characterResourceValidationService } from "../characterResource/CharacterResourceValidationService";
 import { canonicalStateService } from "./CanonicalStateService";
@@ -20,6 +19,7 @@ import {
   normalizeContentProvenance,
   resolveProposalSourceQuality,
 } from "./stateProposalSourceQuality";
+import { applyStateChangeProposal } from "./StateProposalApplierRegistry";
 
 const AUTO_COMMIT_TYPES = new Set<StateChangeProposal["proposalType"]>([
   "event_record",
@@ -533,44 +533,7 @@ export class StateCommitService {
     tx: Prisma.TransactionClient,
     proposal: StateChangeProposal,
   ): Promise<void> {
-    if (proposal.proposalType === "character_resource_update") {
-      const payload = characterResourceUpdatePayloadSchema.safeParse(proposal.payload);
-      if (!payload.success) {
-        return;
-      }
-      await characterResourceLedgerService.applyCommittedUpdate(tx, {
-        novelId: proposal.novelId,
-        chapterId: proposal.chapterId ?? null,
-        chapterOrder: typeof payload.data.chapterOrder === "number" ? payload.data.chapterOrder : null,
-        payload: payload.data,
-        evidence: proposal.evidence,
-        validationNotes: proposal.validationNotes,
-        riskLevel: proposal.riskLevel,
-      });
-      return;
-    }
-
-    if (proposal.proposalType !== "character_state_update") {
-      if (!AUTO_COMMIT_TYPES.has(proposal.proposalType) && !ALWAYS_REVIEW_TYPES.has(proposal.proposalType)) {
-        throw new Error(`No state proposal applier is registered for ${proposal.proposalType}.`);
-      }
-      return;
-    }
-
-    const payload = parseJsonRecord(proposal.payload);
-    const characterId = typeof payload.characterId === "string" ? payload.characterId : "";
-    if (!characterId) {
-      return;
-    }
-
-    await tx.character.update({
-      where: { id: characterId },
-      data: {
-        currentState: typeof payload.currentState === "string" ? compactText(payload.currentState) || null : null,
-        currentGoal: typeof payload.currentGoal === "string" ? compactText(payload.currentGoal) || null : null,
-        lastEvolvedAt: new Date(),
-      },
-    }).catch(() => null);
+    await applyStateChangeProposal(tx, proposal);
   }
 
   private toProposal(row: PersistedProposalRow): StateChangeProposal {

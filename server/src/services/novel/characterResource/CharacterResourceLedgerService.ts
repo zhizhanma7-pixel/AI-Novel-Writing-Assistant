@@ -13,6 +13,7 @@ import {
   normalizeResourceKey,
   stringifyJson,
 } from "./characterResourceShared";
+import { buildLegacyPendingReviewWhere } from "../state/legacyPendingReviewWhere";
 
 function riskLevelFromItem(item: CharacterResourceLedgerItem): "none" | "info" | "warn" | "high" {
   if (item.riskSignals.some((signal) => signal.severity === "critical" || signal.severity === "high")) {
@@ -189,9 +190,8 @@ export class CharacterResourceLedgerService {
       }),
       prisma.stateChangeProposal.findMany({
         where: {
-          novelId,
+          ...buildLegacyPendingReviewWhere(novelId),
           proposalType: "character_resource_update",
-          status: "pending_review",
           ...(options.chapterId ? { OR: [{ chapterId: options.chapterId }, { chapterId: null }] } : {}),
         },
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],

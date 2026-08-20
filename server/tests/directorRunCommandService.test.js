@@ -2,6 +2,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { DirectorCommandService } = require("../dist/services/novel/director/commands/DirectorCommandService.js");
+const {
+  buildProposalReviewResultTaskState,
+} = require("../dist/services/novel/director/commands/DirectorCommandServiceHelpers.js");
 const { directorIssueService } = require("../dist/services/novel/director/issues/DirectorIssueService.js");
 const { prisma } = require("../dist/db/prisma.js");
 
@@ -415,6 +418,7 @@ test("director command service queues task-bound proposal review on the existing
       decision: "partial",
       expectedVersion: 1,
       itemDecisions: [{ id: "change-1", decision: "accepted" }],
+      unlistedDecision: "rejected",
     });
 
     assert.equal(accepted.status, "queued");
@@ -423,10 +427,24 @@ test("director command service queues task-bound proposal review on the existing
     const payload = JSON.parse(harness.commands[0].payloadJson);
     assert.equal(payload.proposalReviewRequest.proposalId, "proposal-1");
     assert.equal(payload.proposalReviewRequest.decision, "partial");
+    assert.equal(payload.proposalReviewRequest.unlistedDecision, "rejected");
     assert.equal(harness.task.currentItemKey, "review_proposal");
   } finally {
     harness.restore();
   }
+});
+
+test("proposal review task state exposes a real checkpoint only while review is pending", () => {
+  const pending = buildProposalReviewResultTaskState("pending_review");
+  const approved = buildProposalReviewResultTaskState("approved");
+  const executed = buildProposalReviewResultTaskState("executed");
+
+  assert.equal(pending.status, "waiting_approval");
+  assert.equal(pending.checkpointType, "proposal_review_required");
+  assert.equal(approved.status, "queued");
+  assert.equal(approved.checkpointType, null);
+  assert.equal(executed.status, "queued");
+  assert.equal(executed.currentItemKey, "proposal_executed");
 });
 
 test("director command service queues policy updates without directly mutating runtime policy", async () => {

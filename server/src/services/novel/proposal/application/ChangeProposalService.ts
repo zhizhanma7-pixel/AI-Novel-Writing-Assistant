@@ -171,6 +171,7 @@ export class ChangeProposalService {
         reasoningSummary: proposal.reasoningSummary,
       },
     });
+    await this.markTaskPendingReview(proposal);
     return this.getProposal(novelId, proposal.id);
   }
 
@@ -229,6 +230,7 @@ export class ChangeProposalService {
     }
     const proposal = await this.getProposal(novelId, proposalId);
     await this.artifactService.markStatus(this.toArtifactSnapshot(proposal));
+    await this.markTaskPendingReview(proposal);
     return proposal;
   }
 
@@ -317,6 +319,7 @@ export class ChangeProposalService {
         nextVersion: proposal.version,
       },
     });
+    await this.markTaskPendingReview(proposal);
     return this.getProposal(novelId, proposal.id);
   }
 
@@ -383,6 +386,28 @@ export class ChangeProposalService {
       sourceRefs: proposal.sourceRefs,
       content: proposal,
     };
+  }
+
+  private async markTaskPendingReview(proposal: ChangeProposal): Promise<void> {
+    if (!proposal.taskId || proposal.status !== "pending_review") {
+      return;
+    }
+    await prisma.novelWorkflowTask.updateMany({
+      where: {
+        id: proposal.taskId,
+        novelId: proposal.novelId,
+        status: { notIn: ["cancelled", "succeeded", "failed"] },
+      },
+      data: {
+        status: "waiting_approval",
+        currentStage: "AI 自动导演",
+        currentItemKey: "proposal_review_required",
+        currentItemLabel: "变更提案已准备好，请审阅后继续",
+        checkpointType: "proposal_review_required",
+        checkpointSummary: proposal.summary,
+        heartbeatAt: new Date(),
+      },
+    });
   }
 }
 

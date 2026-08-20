@@ -285,6 +285,7 @@ const appendCommandSchema = z.discriminatedUnion("commandType", [
     proposalId: z.string().trim().min(1),
     decision: z.enum(["approve", "partial", "reject", "replan", "execute"]),
     itemDecisions: z.array(proposedChangeItemDecisionSchema).min(1).max(200).optional(),
+    unlistedDecision: z.enum(["accepted", "rejected"]).optional(),
     expectedVersion: z.number().int().positive().optional(),
     reason: z.string().trim().min(1).max(1000).optional(),
     regenerateInput: regenerateChangeProposalInputSchema.optional(),

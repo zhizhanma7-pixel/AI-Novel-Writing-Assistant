@@ -2,6 +2,8 @@ import type { ChangeProposal, ChangeProposalStatus } from "@ai-novel/shared/type
 import { prisma } from "../../../../db/prisma";
 import { directorAutomationLedgerEventService } from "../../director/runtime/DirectorAutomationLedgerEventService";
 import { stateCommitService } from "../../state/StateCommitService";
+import { getStateProposalApplicationMode } from "../../state/StateProposalApplierRegistry";
+import { stateChangeProposalTypeSchema } from "@ai-novel/shared/types/canonicalState";
 import { ChangeProposalError } from "../domain/ChangeProposalError";
 import { assertChangeProposalTransition } from "../domain/ChangeProposalStateMachine";
 import { changeProposalArtifactService } from "../infrastructure/ChangeProposalArtifactService";
@@ -11,6 +13,7 @@ import {
 } from "../infrastructure/ChangeProposalMapper";
 import { changeProposalStalenessService } from "../infrastructure/ChangeProposalStalenessService";
 import { changeProposalService } from "./ChangeProposalService";
+import { assertEditedValueMatchesPayload } from "../domain/ProposedChangeValueMapper";
 
 const proposalInclude = {
   changes: {
@@ -36,6 +39,20 @@ function artifactSnapshot(proposal: ChangeProposal) {
     sourceRefs: proposal.sourceRefs,
     content: proposal,
   };
+}
+
+function parseJson(value: string | null | undefined): unknown {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  return JSON.parse(value) as unknown;
+}
+
+function parseJsonRecord(value: string | null | undefined): Record<string, unknown> {
+  const parsed = parseJson(value);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {};
 }
 
 export class ChangeProposalApplyService {
@@ -71,6 +88,40 @@ export class ChangeProposalApplyService {
         "no_approved_changes",
         "Change proposal has no approved changes to execute.",
       );
+    }
+    const ledgerOnlyChanges = approvedChanges.filter((change) => (
+      getStateProposalApplicationMode(stateChangeProposalTypeSchema.parse(change.proposalType))
+        === "ledger_only"
+    ));
+    if (ledgerOnlyChanges.length > 0) {
+      throw new ChangeProposalError(
+        "unsupported_change",
+        "Change proposal contains approved items without a formal state applier.",
+        {
+          itemIds: ledgerOnlyChanges.map((change) => change.id),
+          proposalTypes: [...new Set(ledgerOnlyChanges.map((change) => change.proposalType))],
+        },
+      );
+    }
+    for (const change of approvedChanges) {
+      if (change.reviewDecision !== "modified") {
+        continue;
+      }
+      if (!change.userEditedPayloadJson) {
+        throw new ChangeProposalError(
+          "invalid_review",
+          `Modified proposed change ${change.id} has no executable edited payload.`,
+        );
+      }
+      const editedValue = parseJson(change.afterJson);
+      if (editedValue !== undefined) {
+        assertEditedValueMatchesPayload({
+          proposalType: stateChangeProposalTypeSchema.parse(change.proposalType),
+          path: change.changePath ?? "",
+          payload: parseJsonRecord(change.userEditedPayloadJson),
+          editedValue,
+        });
+      }
     }
     const invalidStatuses = approvedChanges.filter((change) => (
       change.status !== "pending_review" && change.status !== "committed"

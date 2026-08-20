@@ -1,6 +1,7 @@
 import type { AuditReport, ReplanResult } from "@ai-novel/shared/types/novel";
 import { prisma } from "../../../db/prisma";
 import { contextAssemblyService } from "../../novel/production/ContextAssemblyService";
+import { buildLegacyPendingReviewWhere } from "../../novel/state/legacyPendingReviewWhere";
 import { payoffLedgerSyncService } from "../../payoff/PayoffLedgerSyncService";
 import type { PlannerLlmOptions } from "../plannerLlm";
 import { replanWindowDecisionService } from "../ReplanWindowDecisionService";
@@ -76,10 +77,7 @@ export class PlannerReplanService {
         },
       }),
       prisma.stateChangeProposal.count({
-        where: {
-          novelId,
-          status: "pending_review",
-        },
+        where: buildLegacyPendingReviewWhere(novelId),
       }),
       payoffLedgerSyncService.getPayoffLedger(novelId, {
         chapterOrder: targetChapter.order,

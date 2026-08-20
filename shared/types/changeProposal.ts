@@ -52,6 +52,8 @@ export const directorArtifactSourceReferenceSchema = z.object({
 });
 
 export const recordSourceReferenceSchema = z.object({
+  // Record references are traceability metadata in Proposal Core. Deterministic
+  // stale checks currently apply only to director_artifact and chapter refs.
   kind: z.literal("record"),
   table: z.string().trim().min(1).max(120),
   id: z.string().trim().min(1),
@@ -115,11 +117,28 @@ export const proposedChangeItemDecisionSchema = z.object({
   decision: proposedChangeReviewDecisionSchema,
   editedPayload: z.record(z.string(), z.unknown()).optional(),
   editedValue: z.unknown().optional(),
+}).superRefine((value, context) => {
+  const hasEditedValue = value.editedPayload !== undefined || value.editedValue !== undefined;
+  if (value.decision === "modified" && !hasEditedValue) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["decision"],
+      message: "modified decisions require editedPayload or editedValue",
+    });
+  }
+  if (value.decision !== "modified" && hasEditedValue) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["decision"],
+      message: "editedPayload and editedValue are only valid for modified decisions",
+    });
+  }
 });
 
 export const reviewChangeProposalInputSchema = z.object({
   expectedVersion: z.number().int().positive().optional(),
   itemDecisions: z.array(proposedChangeItemDecisionSchema).max(200).optional(),
+  unlistedDecision: z.enum(["accepted", "rejected"]).optional(),
 });
 
 export const rejectChangeProposalInputSchema = z.object({
