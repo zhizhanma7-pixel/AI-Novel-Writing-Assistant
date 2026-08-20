@@ -128,6 +128,7 @@ export const rejectChangeProposalInputSchema = z.object({
 }).default({});
 
 export const editProposedChangeInputSchema = z.object({
+  expectedVersion: z.number().int().positive().optional(),
   payload: z.record(z.string(), z.unknown()).optional(),
   after: z.unknown().optional(),
 }).refine(

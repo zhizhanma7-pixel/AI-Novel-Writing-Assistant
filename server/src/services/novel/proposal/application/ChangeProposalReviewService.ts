@@ -91,6 +91,7 @@ export class ChangeProposalReviewService {
   ): Promise<ChangeProposal> {
     const input = editProposedChangeInputSchema.parse(rawInput);
     const row = await this.findRow(novelId, proposalId);
+    assertExpectedProposalVersion(row.version, input.expectedVersion);
     if (row.status !== "draft" && row.status !== "pending_review") {
       throw new ChangeProposalError(
         "invalid_transition",
@@ -106,18 +107,46 @@ export class ChangeProposalReviewService {
       : input.after !== undefined
         ? item.userEditedPayloadJson ?? item.payloadJson
         : undefined;
-    await prisma.stateChangeProposal.update({
-      where: { id: itemId },
-      data: {
-        ...(userEditedPayloadJson !== undefined
-          ? { userEditedPayloadJson }
-          : {}),
-        ...(input.after !== undefined
-          ? { afterJson: JSON.stringify(input.after) }
-          : {}),
-        reviewDecision: null,
-        status: "pending_review",
-      },
+    await prisma.$transaction(async (tx) => {
+      const lockedProposal = await tx.changeProposal.updateMany({
+        where: {
+          id: proposalId,
+          novelId,
+          version: row.version,
+          status: { in: ["draft", "pending_review"] },
+        },
+        data: { updatedAt: new Date() },
+      });
+      if (lockedProposal.count !== 1) {
+        throw new ChangeProposalError(
+          "version_conflict",
+          "Change proposal changed during item editing.",
+        );
+      }
+
+      const updatedItem = await tx.stateChangeProposal.updateMany({
+        where: {
+          id: itemId,
+          changeProposalId: proposalId,
+          status: "pending_review",
+        },
+        data: {
+          ...(userEditedPayloadJson !== undefined
+            ? { userEditedPayloadJson }
+            : {}),
+          ...(input.after !== undefined
+            ? { afterJson: JSON.stringify(input.after) }
+            : {}),
+          reviewDecision: null,
+          status: "pending_review",
+        },
+      });
+      if (updatedItem.count !== 1) {
+        throw new ChangeProposalError(
+          "version_conflict",
+          "Proposed change changed during item editing.",
+        );
+      }
     });
     const proposal = await this.proposalReader.getProposal(novelId, proposalId);
     await this.artifactService.markUserEdited(artifactSnapshot(proposal));

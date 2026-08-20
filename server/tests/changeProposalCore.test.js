@@ -27,6 +27,7 @@ function makeStore() {
     stale: false,
     committedBatches: [],
     events: [],
+    editLockConflict: false,
   };
 }
 
@@ -142,6 +143,9 @@ function installPrismaHarness() {
     .filter((proposal) => matchesProposal(proposal, where))
     .map(proposalWithChanges);
   prisma.changeProposal.updateMany = async ({ where, data }) => {
+    if (store.editLockConflict && data.updatedAt instanceof Date) {
+      return { count: 0 };
+    }
     let count = 0;
     for (const proposal of store.proposals.values()) {
       if (!matchesProposal(proposal, where)) {
@@ -163,7 +167,16 @@ function installPrismaHarness() {
   prisma.stateChangeProposal.updateMany = async ({ where, data }) => {
     let count = 0;
     for (const change of store.changes.values()) {
+      if (typeof where.id === "string" && change.id !== where.id) {
+        continue;
+      }
+      if (where.id?.in && !where.id.in.includes(change.id)) {
+        continue;
+      }
       if (where.changeProposalId && change.changeProposalId !== where.changeProposalId) {
+        continue;
+      }
+      if (where.status && !matchesStatus(change.status, where.status)) {
         continue;
       }
       Object.assign(change, data, { updatedAt: new Date(change.updatedAt.getTime() + 1000) });
@@ -348,6 +361,22 @@ test("Phase 1 ChangeProposal core", async (t) => {
         currentGoal: "negotiate",
       });
       assert.equal(approved.changes[0].after, "negotiate");
+    });
+
+    await t.test("concurrent proposal review prevents a late item edit", async () => {
+      store = makeStore();
+      const { proposalService, reviewService } = services();
+      const created = await proposalService.createProposal("novel-1", proposalInput());
+      store.editLockConflict = true;
+
+      await assert.rejects(
+        reviewService.editProposedChange("novel-1", created.id, created.changes[0].id, {
+          expectedVersion: 1,
+          payload: { characterId: "hero", currentGoal: "negotiate" },
+        }),
+        (error) => error.code === "version_conflict",
+      );
+      assert.equal(store.changes.get(created.changes[0].id).userEditedPayloadJson, null);
     });
 
     await t.test("stale proposal cannot be approved", async () => {
