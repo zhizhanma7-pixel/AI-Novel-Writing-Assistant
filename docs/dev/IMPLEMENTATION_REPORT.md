@@ -38,6 +38,14 @@ Change Proposal 后端核心：把多条 `StateChangeProposal` 组织成可版�
 - M6：artifact 状态更新保留 `user_edited` 来源和 `protectedUserContent`。
 - L7/L8：record source ref 的追踪边界已写入 wiki；部分审批不再隐式拒绝未列项。
 
+## Gate Follow-up
+
+- N1：Change Proposal 信封执行保持整批事务与显式失败；legacy 独立项按行隔离，payload / 引用领域错误会拒绝坏行并继续合法项，基础设施错误仍会终止事务。
+- N2：关系阶段保留逐项记录的真实 `sourceType`。
+- N4：已通过 PATCH 保存编辑值的项可在审批时发送裸 `modified`；没有已保存编辑值时仍要求提交编辑后的值。
+- 真实 SQLite Proposal 验收测试已归入 integration 集合，fast 不再隐式依赖 Prisma engine 子进程。
+- 合并关口处置见 `CODE_REVIEW_PROPOSAL_CORE_GATE_DISPOSITION.md`，完整 fast 失败清单与差集见 `TEST_BASELINE_PROPOSAL_CORE.md`。
+
 ## Tests Added
 
 - Proposal 创建、批准、拒绝、部分批准、修改后批准、stale 拦截、执行、非法转换和版本再生。
@@ -52,9 +60,9 @@ Change Proposal 后端核心：把多条 `StateChangeProposal` 组织成可版�
 
 - `@ai-novel/shared` build：通过。
 - `@ai-novel/server` build：通过。
-- Proposal Core、真实 SQLite、schema migration、legacy pending-review 与 State Commit 共 34 项聚焦测试：通过。
+- Proposal Core、真实 SQLite、schema migration、legacy pending-review、State Commit、Director Proposal checkpoint / policy 与 pending-review context 共 46 项聚焦测试：通过。
 - Director command proposal review checkpoint 专项测试：通过。
-- `pnpm --filter @ai-novel/server test` 已运行构建和完整 fast suite；仓库当前全量 fast baseline 仍有多组不在 Proposal 范围内的失败，包括默认 SQLite 缺表、旧导出/策略断言和 LLM stub 契约漂移。本阶段不扩张修复范围。
+- `main@308ca1b` 与功能分支已用各自独立、按对应 schema 初始化的 SQLite 库枚举同一 fast 边界；main 为 51 个失败键、功能分支为 50 个，`feature - main` 差集为空。
 - 单独运行 `directorRunCommandService.test.js` 时，Proposal command/checkpoint 用例通过；同文件现有 `runtime.worker_stale` policy 用例仍为 `queued !== failed`。
 
 ## Known Risks
@@ -63,3 +71,4 @@ Change Proposal 后端核心：把多条 `StateChangeProposal` 组织成可版�
 - record 类型 source ref 当前用于来源追踪；stale 的确定性校验覆盖 Director Artifact、其依赖版本和 Chapter 内容哈希。
 - 章节执行 Proposal 的 AI 生产者、Expected vs Actual 对比和自治等级 policy 接线属于 Phase 2。
 - event、information disclosure、conflict、payoff、world rule 和 book contract 目前保持 ledger-only；它们在拥有正式状态 applier 前不能通过 Change Proposal 标记为 executed。
+- 章节增量与 Proposal 关系写入共享同一 helper；同一角色对的当前阶段遵循最后一次成功正式写入，跨来源排序的专项验收留在后续关系状态协调阶段。

@@ -224,6 +224,8 @@ export class ChangeProposalReviewService {
 
     const resolved = row.changes.map((change) => {
       const explicit = byId?.get(change.id);
+      const hasExplicitEdit = explicit?.editedPayload !== undefined
+        || explicit?.editedValue !== undefined;
       if (
         change.userEditedPayloadJson
         && explicit?.decision === "accepted"
@@ -231,6 +233,16 @@ export class ChangeProposalReviewService {
         throw new ChangeProposalError(
           "invalid_review",
           `Proposed change ${change.id} was edited and must be approved as modified or regenerated.`,
+        );
+      }
+      if (
+        explicit?.decision === "modified"
+        && !hasExplicitEdit
+        && !change.userEditedPayloadJson
+      ) {
+        throw new ChangeProposalError(
+          "invalid_review",
+          `Proposed change ${change.id} has no stored or submitted edited payload.`,
         );
       }
       const unlistedDecision = change.userEditedPayloadJson

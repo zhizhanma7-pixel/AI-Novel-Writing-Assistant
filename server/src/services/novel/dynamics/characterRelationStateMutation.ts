@@ -83,6 +83,7 @@ export async function applyCharacterRelationStateProposal(
     payload: Record<string, unknown>;
     summary: string;
     evidence: string[];
+    sourceType: string;
   },
 ): Promise<void> {
   const payload = relationStateProposalPayloadSchema.parse(input.payload);
@@ -165,7 +166,7 @@ export async function applyCharacterRelationStateProposal(
     stageLabel: payload.stageLabel || payload.dynamicLabel || relation.dynamicLabel || relation.surfaceRelation,
     stageSummary: payload.stageSummary || payload.summary || input.summary,
     nextTurnPoint: payload.nextTurnPoint,
-    sourceType: "change_proposal",
+    sourceType: input.sourceType,
     confidence: payload.confidence,
   });
 }

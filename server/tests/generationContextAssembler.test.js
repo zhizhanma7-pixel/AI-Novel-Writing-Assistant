@@ -21,6 +21,7 @@ test("blocking pending-review proposals are scoped to the current chapter plus g
   assert.deepEqual(where, {
     novelId: "novel-1",
     status: "pending_review",
+    changeProposalId: null,
     OR: [
       { chapterId: "chapter-2" },
       { chapterId: null },

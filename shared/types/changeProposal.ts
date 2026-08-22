@@ -119,13 +119,6 @@ export const proposedChangeItemDecisionSchema = z.object({
   editedValue: z.unknown().optional(),
 }).superRefine((value, context) => {
   const hasEditedValue = value.editedPayload !== undefined || value.editedValue !== undefined;
-  if (value.decision === "modified" && !hasEditedValue) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["decision"],
-      message: "modified decisions require editedPayload or editedValue",
-    });
-  }
   if (value.decision !== "modified" && hasEditedValue) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

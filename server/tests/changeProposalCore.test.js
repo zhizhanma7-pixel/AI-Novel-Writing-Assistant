@@ -391,6 +391,41 @@ test("Phase 1 ChangeProposal core", async (t) => {
       assert.equal(approved.changes[0].userEditedPayload.currentGoal, "bargain");
     });
 
+    await t.test("partial approval reuses an item payload saved by an earlier edit", async () => {
+      store = makeStore();
+      const { proposalService, reviewService } = services();
+      const created = await proposalService.createProposal("novel-1", proposalInput());
+      await reviewService.editProposedChange("novel-1", created.id, created.changes[0].id, {
+        payload: { characterId: "hero", currentGoal: "reassess" },
+      });
+      const approved = await reviewService.approveProposal("novel-1", created.id, {
+        itemDecisions: [
+          { id: created.changes[0].id, decision: "modified" },
+          { id: created.changes[1].id, decision: "rejected" },
+        ],
+      });
+
+      assert.equal(approved.status, "partially_approved");
+      assert.equal(approved.changes[0].after, "reassess");
+      assert.equal(approved.changes[0].userEditedPayload.currentGoal, "reassess");
+    });
+
+    await t.test("bare modified decisions require a stored edit", async () => {
+      store = makeStore();
+      const { proposalService, reviewService } = services();
+      const created = await proposalService.createProposal("novel-1", proposalInput());
+
+      await assert.rejects(
+        reviewService.approveProposal("novel-1", created.id, {
+          itemDecisions: [
+            { id: created.changes[0].id, decision: "modified" },
+            { id: created.changes[1].id, decision: "rejected" },
+          ],
+        }),
+        (error) => error.code === "invalid_review",
+      );
+    });
+
     await t.test("modified approval payload becomes both diff and executable value", async () => {
       store = makeStore();
       const { proposalService, reviewService, applyService } = services();

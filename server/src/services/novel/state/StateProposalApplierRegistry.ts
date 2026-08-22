@@ -79,6 +79,7 @@ const STATE_PROPOSAL_APPLIERS: Record<
       payload: proposal.payload,
       summary: proposal.summary,
       evidence: proposal.evidence,
+      sourceType: proposal.sourceType,
     }),
   },
 };
