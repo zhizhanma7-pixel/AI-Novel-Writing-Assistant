@@ -15,6 +15,10 @@ import type {
   DirectorStepCalibrationRequest,
 } from "@ai-novel/shared/types/novelDirector";
 import type { DirectorRuntimePolicyUpdateRequest } from "@ai-novel/shared/types/directorRuntime";
+import type {
+  ProposedChangeItemDecision,
+  RegenerateChangeProposalInput,
+} from "@ai-novel/shared/types/changeProposal";
 
 export interface DirectorCommandPayload {
   candidatesRequest?: DirectorCandidatesRequest;
@@ -27,6 +31,16 @@ export interface DirectorCommandPayload {
   forceResume?: boolean;
   takeoverRequest?: DirectorTakeoverRequest;
   policyUpdateRequest?: DirectorRuntimePolicyUpdateRequest;
+  proposalReviewRequest?: {
+    novelId: string;
+    proposalId: string;
+    decision: "approve" | "partial" | "reject" | "replan" | "execute";
+    itemDecisions?: ProposedChangeItemDecision[];
+    unlistedDecision?: "accepted" | "rejected";
+    expectedVersion?: number;
+    reason?: string;
+    regenerateInput?: RegenerateChangeProposalInput;
+  };
   workspaceAnalysisRequest?: {
     novelId: string;
     workflowTaskId?: string | null;
@@ -120,7 +134,7 @@ export function resourceClassForCommand(commandType: string): string {
   if (commandType === "workspace_analysis" || commandType === "manual_edit_impact") {
     return "state_resolution";
   }
-  if (commandType === "policy_update" || commandType === "approve_gate") {
+  if (commandType === "policy_update" || commandType === "approve_gate" || commandType === "review_proposal") {
     return "state_resolution";
   }
   if (commandType === "confirm_candidate") {
@@ -183,5 +197,40 @@ export function buildAcceptedTaskState(commandType: DirectorRunCommandType): {
       checkpointSummary: null,
     };
   }
+  if (commandType === "review_proposal") {
+    return {
+      currentStage: "AI 自动导演",
+      currentItemKey: "review_proposal",
+      currentItemLabel: "变更提案审阅命令已提交",
+      checkpointType: null,
+      checkpointSummary: null,
+    };
+  }
   return {};
+}
+
+export function buildProposalReviewResultTaskState(status: string) {
+  if (status === "pending_review") {
+    return {
+      status: "waiting_approval" as const,
+      currentStage: "AI 自动导演",
+      currentItemKey: "proposal_review_required",
+      currentItemLabel: "变更提案已准备好，请审阅后继续",
+      checkpointType: "proposal_review_required",
+      checkpointSummary: "变更提案正在等待确认。",
+    };
+  }
+  const label = status === "executed"
+    ? "变更提案已执行，可继续后续流程"
+    : status === "rejected"
+      ? "变更提案已拒绝，可重新规划"
+      : "变更提案已批准，可执行批准项";
+  return {
+    status: "queued" as const,
+    currentStage: "AI 自动导演",
+    currentItemKey: `proposal_${status}`,
+    currentItemLabel: label,
+    checkpointType: null,
+    checkpointSummary: null,
+  };
 }

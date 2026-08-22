@@ -372,6 +372,7 @@ export class PendingReviewAutoPromotionService {
       where: {
         novelId,
         status: "pending_review" satisfies ProposalStatus,
+        changeProposalId: null,
         proposalType: { in: [...PENDING_REVIEW_AUTO_PROMOTION_PROPOSAL_TYPES] },
         createdAt: {
           gt: since,
@@ -477,6 +478,7 @@ export class PendingReviewAutoPromotionService {
       where: {
         id: proposalId,
         status: "pending_review" satisfies ProposalStatus,
+        changeProposalId: null,
       },
       take: 1,
     });

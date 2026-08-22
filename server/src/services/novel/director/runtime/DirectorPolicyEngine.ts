@@ -24,6 +24,8 @@ export interface DirectorPolicyRequest {
   mayRecomputeDownstream?: boolean;
   isLargeScopeAutoRun?: boolean;
   qualityGateResult?: DirectorQualityGateResult | null;
+  proposalSeverity?: "minor" | "major";
+  outlineFidelity?: "strict" | "balanced" | "director";
 }
 
 const DOWNSTREAM_RECOMPUTE_WRITE_TYPES = new Set([
@@ -164,6 +166,28 @@ export class DirectorPolicyEngine {
         mayOverwriteUserContent: mayTouchUserContent,
         affectedArtifacts,
         riskTags: ["expensive_review"],
+        onQualityFailure: "pause_for_manual",
+      });
+    }
+
+    if (input.proposalSeverity === "major" || input.outlineFidelity === "strict") {
+      const riskTags: DirectorPolicyRiskTag[] = [];
+      if (input.proposalSeverity === "major") {
+        riskTags.push("proposal_major");
+      }
+      if (input.outlineFidelity === "strict") {
+        riskTags.push("outline_fidelity_strict");
+      }
+      return buildDecision({
+        canRun: false,
+        requiresApproval: true,
+        gateType: "approval",
+        reason: input.proposalSeverity === "major"
+          ? "该提案包含重大状态变更，需要确认后才能执行。"
+          : "当前提案受严格大纲忠实度约束，需要确认后才能执行。",
+        mayOverwriteUserContent: mayTouchUserContent,
+        affectedArtifacts,
+        riskTags,
         onQualityFailure: "pause_for_manual",
       });
     }

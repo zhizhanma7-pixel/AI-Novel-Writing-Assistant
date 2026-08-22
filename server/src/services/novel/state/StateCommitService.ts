@@ -6,8 +6,8 @@ import type {
 } from "@ai-novel/shared/types/canonicalState";
 import { characterResourceUpdatePayloadSchema } from "@ai-novel/shared/types/characterResource";
 import type { Prisma } from "@prisma/client";
+import { ZodError } from "zod";
 import { prisma } from "../../../db/prisma";
-import { characterResourceLedgerService } from "../characterResource/CharacterResourceLedgerService";
 import { compactText as compactResourceText, normalizeResourceKey } from "../characterResource/characterResourceShared";
 import { characterResourceValidationService } from "../characterResource/CharacterResourceValidationService";
 import { canonicalStateService } from "./CanonicalStateService";
@@ -20,6 +20,7 @@ import {
   normalizeContentProvenance,
   resolveProposalSourceQuality,
 } from "./stateProposalSourceQuality";
+import { applyStateChangeProposal } from "./StateProposalApplierRegistry";
 
 const AUTO_COMMIT_TYPES = new Set<StateChangeProposal["proposalType"]>([
   "event_record",
@@ -95,6 +96,29 @@ interface PersistedProposalRow {
   payloadJson: string;
   evidenceJson: string | null;
   validationNotesJson: string | null;
+  changeProposalId?: string | null;
+  userEditedPayloadJson?: string | null;
+  reviewDecision?: string | null;
+}
+
+class LegacyStateProposalApplyError extends Error {
+  constructor(readonly originalError: unknown) {
+    super("Legacy state proposal apply failed.");
+    this.name = "LegacyStateProposalApplyError";
+  }
+}
+
+const LEGACY_APPLY_DOMAIN_ERROR_PREFIXES = [
+  "Character state proposal ",
+  "Relation state proposal ",
+] as const;
+
+function isLegacyStateProposalDomainError(error: unknown): boolean {
+  return error instanceof ZodError
+    || (
+      error instanceof Error
+      && LEGACY_APPLY_DOMAIN_ERROR_PREFIXES.some((prefix) => error.message.startsWith(prefix))
+    );
 }
 
 export class StateCommitService {
@@ -166,6 +190,17 @@ export class StateCommitService {
         novelId: input.novelId,
         id: { in: proposalIds },
         status: "pending_review",
+        OR: [
+          { changeProposalId: null },
+          {
+            changeProposal: {
+              is: {
+                status: { in: ["approved", "partially_approved"] },
+              },
+            },
+            reviewDecision: { in: ["accepted", "modified"] },
+          },
+        ],
       },
     });
     if (rows.length === 0) {
@@ -177,30 +212,92 @@ export class StateCommitService {
       };
     }
 
-    const committed = rows.map((row) => {
+    const candidates = rows.map((row) => {
       const proposal = this.toProposal(row);
       return {
-        ...proposal,
-        status: "committed" as const,
-        validationNotes: proposal.validationNotes.concat(`proposal_commit:${input.reason}`),
+        row,
+        proposal: {
+          ...proposal,
+          status: "committed" as const,
+          validationNotes: proposal.validationNotes.concat(`proposal_commit:${input.reason}`),
+        },
       };
     });
+    const committed: StateChangeProposal[] = [];
+    const rejected: StateChangeProposal[] = [];
+    const envelopeCandidates = candidates.filter(({ row }) => Boolean(row.changeProposalId));
+    const legacyCandidates = candidates.filter(({ row }) => !row.changeProposalId);
 
-    await prisma.$transaction(async (tx) => {
-      for (const proposal of committed) {
-        await this.applyCommittedProposal(tx, proposal);
-        if (!proposal.id) {
-          continue;
+    if (envelopeCandidates.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        for (const { proposal } of envelopeCandidates) {
+          await this.applyCommittedProposal(tx, proposal);
+          if (!proposal.id) {
+            continue;
+          }
+          await tx.stateChangeProposal.update({
+            where: { id: proposal.id },
+            data: {
+              status: "committed",
+              validationNotesJson: JSON.stringify(proposal.validationNotes),
+            },
+          });
         }
-        await tx.stateChangeProposal.update({
-          where: { id: proposal.id },
-          data: {
-            status: "committed",
-            validationNotesJson: JSON.stringify(proposal.validationNotes),
-          },
+      });
+      committed.push(...envelopeCandidates.map(({ proposal }) => proposal));
+    }
+
+    for (const { proposal } of legacyCandidates) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          try {
+            await this.applyCommittedProposal(tx, proposal);
+          } catch (error) {
+            if (!isLegacyStateProposalDomainError(error)) {
+              throw error;
+            }
+            throw new LegacyStateProposalApplyError(error);
+          }
+          if (proposal.id) {
+            await tx.stateChangeProposal.update({
+              where: { id: proposal.id },
+              data: {
+                status: "committed",
+                validationNotesJson: JSON.stringify(proposal.validationNotes),
+              },
+            });
+          }
         });
+        committed.push(proposal);
+      } catch (error) {
+        if (!(error instanceof LegacyStateProposalApplyError)) {
+          throw error;
+        }
+        const rejectedProposal = this.buildLegacyApplyRejection(
+          proposal,
+          error.originalError,
+        );
+        if (rejectedProposal.id) {
+          await prisma.stateChangeProposal.update({
+            where: { id: rejectedProposal.id },
+            data: {
+              status: "rejected",
+              validationNotesJson: JSON.stringify(rejectedProposal.validationNotes),
+            },
+          });
+        }
+        rejected.push(rejectedProposal);
       }
-    });
+    }
+
+    if (committed.length === 0) {
+      return {
+        versionRecord: null,
+        committed,
+        pendingReview: [],
+        rejected,
+      };
+    }
 
     const snapshot = await canonicalStateService.getSnapshot(input.novelId, {
       chapterId: input.chapterId ?? committed[0]?.chapterId ?? undefined,
@@ -231,7 +328,7 @@ export class StateCommitService {
       versionRecord,
       committed,
       pendingReview: [],
-      rejected: [],
+      rejected,
     };
   }
 
@@ -341,61 +438,37 @@ export class StateCommitService {
     await prisma.$transaction(async (tx) => {
       for (const proposal of validation.accepted) {
         const created = await tx.stateChangeProposal.create({
-          data: {
-            novelId: proposal.novelId,
-            chapterId: proposal.chapterId ?? null,
-            sourceSnapshotId: proposal.sourceSnapshotId ?? null,
-            sourceType: proposal.sourceType,
-            sourceStage: proposal.sourceStage ?? null,
-            proposalType: proposal.proposalType,
-            riskLevel: proposal.riskLevel,
-            status: "committed",
-            summary: proposal.summary,
-            payloadJson: JSON.stringify(proposal.payload),
-            evidenceJson: JSON.stringify(proposal.evidence),
-            validationNotesJson: JSON.stringify(proposal.validationNotes),
-          },
+          data: this.buildProposalCreateData(proposal, "committed"),
         });
-        committedRows.push(created);
-        await this.applyCommittedProposal(tx, proposal);
+        try {
+          await this.applyCommittedProposal(tx, proposal);
+          committedRows.push(created);
+        } catch (error) {
+          if (!isLegacyStateProposalDomainError(error)) {
+            throw error;
+          }
+          const rejectedProposal = this.buildLegacyApplyRejection(proposal, error);
+          const rejectedRow = await tx.stateChangeProposal.update({
+            where: { id: created.id },
+            data: {
+              status: "rejected",
+              validationNotesJson: JSON.stringify(rejectedProposal.validationNotes),
+            },
+          });
+          rejectedRows.push(rejectedRow);
+        }
       }
 
       for (const proposal of validation.pendingReview) {
         const created = await tx.stateChangeProposal.create({
-          data: {
-            novelId: proposal.novelId,
-            chapterId: proposal.chapterId ?? null,
-            sourceSnapshotId: proposal.sourceSnapshotId ?? null,
-            sourceType: proposal.sourceType,
-            sourceStage: proposal.sourceStage ?? null,
-            proposalType: proposal.proposalType,
-            riskLevel: proposal.riskLevel,
-            status: "pending_review",
-            summary: proposal.summary,
-            payloadJson: JSON.stringify(proposal.payload),
-            evidenceJson: JSON.stringify(proposal.evidence),
-            validationNotesJson: JSON.stringify(proposal.validationNotes),
-          },
+          data: this.buildProposalCreateData(proposal, "pending_review"),
         });
         pendingRows.push(created);
       }
 
       for (const proposal of validation.rejected) {
         const created = await tx.stateChangeProposal.create({
-          data: {
-            novelId: proposal.novelId,
-            chapterId: proposal.chapterId ?? null,
-            sourceSnapshotId: proposal.sourceSnapshotId ?? null,
-            sourceType: proposal.sourceType,
-            sourceStage: proposal.sourceStage ?? null,
-            proposalType: proposal.proposalType,
-            riskLevel: proposal.riskLevel,
-            status: "rejected",
-            summary: proposal.summary,
-            payloadJson: JSON.stringify(proposal.payload),
-            evidenceJson: JSON.stringify(proposal.evidence),
-            validationNotesJson: JSON.stringify(proposal.validationNotes),
-          },
+          data: this.buildProposalCreateData(proposal, "rejected"),
         });
         rejectedRows.push(created);
       }
@@ -405,6 +478,41 @@ export class StateCommitService {
       committed: committedRows.map((row) => this.toProposal(row)),
       pendingReview: pendingRows.map((row) => this.toProposal(row)),
       rejected: rejectedRows.map((row) => this.toProposal(row)),
+    };
+  }
+
+  private buildProposalCreateData(
+    proposal: StateChangeProposal,
+    status: "committed" | "pending_review" | "rejected",
+  ) {
+    return {
+      novelId: proposal.novelId,
+      chapterId: proposal.chapterId ?? null,
+      sourceSnapshotId: proposal.sourceSnapshotId ?? null,
+      sourceType: proposal.sourceType,
+      sourceStage: proposal.sourceStage ?? null,
+      proposalType: proposal.proposalType,
+      riskLevel: proposal.riskLevel,
+      status,
+      summary: proposal.summary,
+      payloadJson: JSON.stringify(proposal.payload),
+      evidenceJson: JSON.stringify(proposal.evidence),
+      validationNotesJson: JSON.stringify(proposal.validationNotes),
+    };
+  }
+
+  private buildLegacyApplyRejection(
+    proposal: StateChangeProposal,
+    error: unknown,
+  ): StateChangeProposal {
+    const errorMessage = compactText(error instanceof Error ? error.message : String(error))
+      .slice(0, 400) || "unknown_error";
+    return {
+      ...proposal,
+      status: "rejected",
+      validationNotes: proposal.validationNotes.concat(
+        `legacy_apply_failed:${proposal.proposalType}:${errorMessage}`,
+      ),
     };
   }
 
@@ -519,41 +627,7 @@ export class StateCommitService {
     tx: Prisma.TransactionClient,
     proposal: StateChangeProposal,
   ): Promise<void> {
-    if (proposal.proposalType === "character_resource_update") {
-      const payload = characterResourceUpdatePayloadSchema.safeParse(proposal.payload);
-      if (!payload.success) {
-        return;
-      }
-      await characterResourceLedgerService.applyCommittedUpdate(tx, {
-        novelId: proposal.novelId,
-        chapterId: proposal.chapterId ?? null,
-        chapterOrder: typeof payload.data.chapterOrder === "number" ? payload.data.chapterOrder : null,
-        payload: payload.data,
-        evidence: proposal.evidence,
-        validationNotes: proposal.validationNotes,
-        riskLevel: proposal.riskLevel,
-      });
-      return;
-    }
-
-    if (proposal.proposalType !== "character_state_update") {
-      return;
-    }
-
-    const payload = parseJsonRecord(proposal.payload);
-    const characterId = typeof payload.characterId === "string" ? payload.characterId : "";
-    if (!characterId) {
-      return;
-    }
-
-    await tx.character.update({
-      where: { id: characterId },
-      data: {
-        currentState: typeof payload.currentState === "string" ? compactText(payload.currentState) || null : null,
-        currentGoal: typeof payload.currentGoal === "string" ? compactText(payload.currentGoal) || null : null,
-        lastEvolvedAt: new Date(),
-      },
-    }).catch(() => null);
+    await applyStateChangeProposal(tx, proposal);
   }
 
   private toProposal(row: PersistedProposalRow): StateChangeProposal {
@@ -569,7 +643,7 @@ export class StateCommitService {
       riskLevel: row.riskLevel as StateChangeProposal["riskLevel"],
       status: row.status as StateChangeProposal["status"],
       summary: row.summary,
-      payload: JSON.parse(row.payloadJson) as Record<string, unknown>,
+      payload: JSON.parse(row.userEditedPayloadJson ?? row.payloadJson) as Record<string, unknown>,
       evidence: this.parseStringArray(row.evidenceJson),
       validationNotes,
     };

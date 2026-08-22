@@ -62,6 +62,7 @@ function artifactTypeLabel(type: DirectorArtifactType): string {
     chapter_retention_contract: "章节留存约定",
     continuity_state: "连续性状态",
     rolling_window_review: "近期章节复盘",
+    change_proposal: "变更提案",
   };
   return labels[type];
 }

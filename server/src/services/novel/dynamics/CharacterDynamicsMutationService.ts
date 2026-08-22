@@ -22,6 +22,7 @@ import {
 } from "./characterDynamicsShared";
 import { buildVolumeWindows, dedupeStrings, mergeProjectionAssignments, resolveCurrentVolume, toCharacterRelationStage } from "./characterDynamicsUtils";
 import { buildContentHash } from "../runtime/ChapterArtifactDeltaService";
+import { replaceCurrentCharacterRelationStage } from "./characterRelationStateMutation";
 
 type NovelContextCharacterPort = Pick<NovelContextService, "createCharacter">;
 type NovelContextServiceFactory = () => NovelContextCharacterPort;
@@ -370,38 +371,19 @@ export class CharacterDynamicsMutationService {
     }
 
     const created = await prisma.$transaction(async (tx) => {
-      await tx.characterRelationStage.updateMany({
-        where: {
-          novelId,
-          sourceCharacterId: relation.sourceCharacterId,
-          targetCharacterId: relation.targetCharacterId,
-          isCurrent: true,
-        },
-        data: {
-          isCurrent: false,
-        },
-      });
-      const nextStage = await tx.characterRelationStage.create({
-        data: {
-          novelId,
-          relationId: relation.id,
-          sourceCharacterId: relation.sourceCharacterId,
-          targetCharacterId: relation.targetCharacterId,
-          volumeId: input.volumeId ?? null,
-          chapterId: input.chapterId ?? null,
-          chapterOrder: input.chapterOrder ?? null,
-          stageLabel: input.stageLabel,
-          stageSummary: input.stageSummary,
-          nextTurnPoint: input.nextTurnPoint || null,
-          sourceType: MANUAL_SOURCE_TYPE,
-          confidence: input.confidence ?? null,
-          isCurrent: true,
-        },
-        include: {
-          sourceCharacter: { select: { name: true } },
-          targetCharacter: { select: { name: true } },
-          volume: { select: { title: true } },
-        },
+      const nextStage = await replaceCurrentCharacterRelationStage(tx, {
+        novelId,
+        relationId: relation.id,
+        sourceCharacterId: relation.sourceCharacterId,
+        targetCharacterId: relation.targetCharacterId,
+        volumeId: input.volumeId,
+        chapterId: input.chapterId,
+        chapterOrder: input.chapterOrder,
+        stageLabel: input.stageLabel,
+        stageSummary: input.stageSummary,
+        nextTurnPoint: input.nextTurnPoint,
+        sourceType: MANUAL_SOURCE_TYPE,
+        confidence: input.confidence,
       });
       await tx.creativeDecision.create({
         data: {

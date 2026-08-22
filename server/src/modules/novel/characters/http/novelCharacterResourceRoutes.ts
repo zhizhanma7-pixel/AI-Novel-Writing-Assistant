@@ -113,6 +113,7 @@ async function listPendingResourceProposals(novelId: string): Promise<CharacterR
       novelId,
       proposalType: "character_resource_update",
       status: "pending_review",
+      changeProposalId: null,
     },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     take: 50,
@@ -302,6 +303,7 @@ export function registerNovelCharacterResourceRoutes(
             novelId: id,
             proposalType: "character_resource_update",
             status: "pending_review",
+            changeProposalId: null,
           },
         });
         if (!row) {
@@ -352,6 +354,7 @@ export function registerNovelCharacterResourceRoutes(
             novelId: id,
             proposalType: "character_resource_update",
             status: "pending_review",
+            changeProposalId: null,
           },
           data: { status: "rejected" },
         });

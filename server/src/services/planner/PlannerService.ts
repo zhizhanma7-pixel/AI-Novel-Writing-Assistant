@@ -6,6 +6,7 @@ import { prisma } from "../../db/prisma";
 import { characterDynamicsQueryService } from "../novel/dynamics/CharacterDynamicsQueryService";
 import { contextAssemblyService } from "../novel/production/ContextAssemblyService";
 import { buildStateContextBlockFromCanonical } from "../novel/state/CanonicalStateService";
+import { buildLegacyPendingReviewWhere } from "../novel/state/legacyPendingReviewWhere";
 import { payoffLedgerSyncService } from "../payoff/PayoffLedgerSyncService";
 import { mapRowToPlan } from "../novel/storyMacro/storyMacroPlanPersistence";
 import { StyleBindingService } from "../styleEngine/StyleBindingService";
@@ -360,10 +361,7 @@ export class PlannerService {
       }),
       this.resolvePlannerStyleEngineSummary(novelId, chapterId, options.taskStyleProfileId),
       prisma.stateChangeProposal.count({
-        where: {
-          novelId,
-          status: "pending_review",
-        },
+        where: buildLegacyPendingReviewWhere(novelId),
       }),
     ]);
     if (!novel || !chapter) {

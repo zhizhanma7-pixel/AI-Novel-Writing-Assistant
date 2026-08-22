@@ -414,3 +414,356 @@ test("StateCommitService commitExistingProposals applies ledger update and write
     stateVersionLog.createVersion = originals.createVersion;
   }
 });
+
+test("StateCommitService rejects an invalid legacy item without blocking valid legacy commits", async () => {
+  const service = new StateCommitService();
+  const now = new Date();
+  const invalidRow = {
+    id: "proposal-invalid-character",
+    novelId: "novel-1",
+    chapterId: "chapter-5",
+    sourceSnapshotId: null,
+    sourceType: "chapter_background_sync",
+    sourceStage: "chapter_execution",
+    proposalType: "character_state_update",
+    riskLevel: "low",
+    status: "pending_review",
+    summary: "update a deleted character",
+    payloadJson: JSON.stringify({ characterId: "deleted-character", currentState: "missing" }),
+    evidenceJson: JSON.stringify(["legacy evidence"]),
+    validationNotesJson: JSON.stringify([]),
+    changeProposalId: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const validRow = {
+    id: "proposal-valid-resource",
+    novelId: "novel-1",
+    chapterId: "chapter-5",
+    sourceSnapshotId: null,
+    sourceType: "manual_resource_extract",
+    sourceStage: "chapter_resource_review",
+    proposalType: "character_resource_update",
+    riskLevel: "medium",
+    status: "pending_review",
+    summary: "confirm resource update",
+    payloadJson: JSON.stringify(makeResourceProposal().payload),
+    evidenceJson: JSON.stringify(["Hero keeps the key."]),
+    validationNotesJson: JSON.stringify([]),
+    changeProposalId: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const rejectedUpdates = [];
+  const committedUpdates = [];
+  const originals = {
+    proposalFindMany: prisma.stateChangeProposal.findMany,
+    proposalUpdate: prisma.stateChangeProposal.update,
+    transaction: prisma.$transaction,
+    proposalUpdateMany: prisma.stateChangeProposal.updateMany,
+    getSnapshot: canonicalStateService.getSnapshot,
+    createVersion: stateVersionLog.createVersion,
+  };
+
+  try {
+    prisma.stateChangeProposal.findMany = async () => [invalidRow, validRow];
+    prisma.stateChangeProposal.update = async (args) => {
+      rejectedUpdates.push(args);
+      return { ...invalidRow, ...args.data };
+    };
+    prisma.$transaction = async (callback) => callback({
+      character: {
+        updateMany: async () => ({ count: 0 }),
+      },
+      characterResourceLedgerItem: {
+        findUnique: async () => null,
+        upsert: async () => ({ id: "resource-1" }),
+      },
+      characterResourceEvent: {
+        create: async () => ({ id: "event-1" }),
+      },
+      stateChangeProposal: {
+        update: async (args) => {
+          committedUpdates.push(args);
+          return { ...validRow, ...args.data };
+        },
+      },
+    });
+    prisma.stateChangeProposal.updateMany = async (args) => {
+      assert.deepEqual(args.where.id.in, ["proposal-valid-resource"]);
+      return { count: 1 };
+    };
+    canonicalStateService.getSnapshot = async () => ({ novelId: "novel-1" });
+    stateVersionLog.createVersion = async (input) => {
+      assert.deepEqual(input.acceptedProposalIds, ["proposal-valid-resource"]);
+      return { id: "version-legacy" };
+    };
+
+    const result = await service.commitExistingProposals({
+      novelId: "novel-1",
+      proposalIds: [invalidRow.id, validRow.id],
+      chapterId: "chapter-5",
+      chapterOrder: 5,
+      reason: "legacy_batch",
+    });
+
+    assert.deepEqual(result.committed.map((proposal) => proposal.id), [validRow.id]);
+    assert.deepEqual(result.rejected.map((proposal) => proposal.id), [invalidRow.id]);
+    assert.match(result.rejected[0].validationNotes.join(" "), /legacy_apply_failed:character_state_update/);
+    assert.equal(rejectedUpdates[0].data.status, "rejected");
+    assert.equal(committedUpdates[0].data.status, "committed");
+  } finally {
+    prisma.stateChangeProposal.findMany = originals.proposalFindMany;
+    prisma.stateChangeProposal.update = originals.proposalUpdate;
+    prisma.$transaction = originals.transaction;
+    prisma.stateChangeProposal.updateMany = originals.proposalUpdateMany;
+    canonicalStateService.getSnapshot = originals.getSnapshot;
+    stateVersionLog.createVersion = originals.createVersion;
+  }
+});
+
+test("StateCommitService keeps envelope apply failures strict", async () => {
+  const service = new StateCommitService();
+  const row = {
+    id: "proposal-envelope-invalid",
+    novelId: "novel-1",
+    chapterId: "chapter-5",
+    sourceSnapshotId: null,
+    sourceType: "change_proposal",
+    sourceStage: "proposal_core",
+    proposalType: "character_state_update",
+    riskLevel: "low",
+    status: "pending_review",
+    summary: "invalid envelope item",
+    payloadJson: JSON.stringify({ characterId: "deleted-character", currentState: "missing" }),
+    evidenceJson: JSON.stringify(["proposal evidence"]),
+    validationNotesJson: JSON.stringify([]),
+    changeProposalId: "change-proposal-1",
+    reviewDecision: "accepted",
+  };
+  const originals = {
+    proposalFindMany: prisma.stateChangeProposal.findMany,
+    transaction: prisma.$transaction,
+  };
+
+  try {
+    prisma.stateChangeProposal.findMany = async () => [row];
+    prisma.$transaction = async (callback) => callback({
+      character: {
+        updateMany: async () => ({ count: 0 }),
+      },
+      stateChangeProposal: {
+        update: async () => {
+          throw new Error("envelope item must not be marked committed");
+        },
+      },
+    });
+
+    await assert.rejects(
+      service.commitExistingProposals({
+        novelId: "novel-1",
+        proposalIds: [row.id],
+        reason: "envelope_apply",
+      }),
+      /missing character/,
+    );
+  } finally {
+    prisma.stateChangeProposal.findMany = originals.proposalFindMany;
+    prisma.$transaction = originals.transaction;
+  }
+});
+
+test("StateCommitService keeps legacy infrastructure failures strict", async () => {
+  const service = new StateCommitService();
+  const row = {
+    id: "proposal-legacy-infrastructure-failure",
+    novelId: "novel-1",
+    chapterId: "chapter-5",
+    sourceSnapshotId: null,
+    sourceType: "chapter_background_sync",
+    sourceStage: "chapter_execution",
+    proposalType: "character_state_update",
+    riskLevel: "low",
+    status: "pending_review",
+    summary: "infrastructure failure must abort",
+    payloadJson: JSON.stringify({ characterId: "character-1", currentState: "ready" }),
+    evidenceJson: JSON.stringify(["legacy evidence"]),
+    validationNotesJson: JSON.stringify([]),
+    changeProposalId: null,
+  };
+  const originals = {
+    proposalFindMany: prisma.stateChangeProposal.findMany,
+    proposalUpdate: prisma.stateChangeProposal.update,
+    transaction: prisma.$transaction,
+  };
+  let proposalUpdateCalled = false;
+
+  try {
+    prisma.stateChangeProposal.findMany = async () => [row];
+    prisma.stateChangeProposal.update = async () => {
+      proposalUpdateCalled = true;
+      return {};
+    };
+    prisma.$transaction = async (callback) => callback({
+      character: {
+        updateMany: async () => {
+          throw new Error("database connection lost");
+        },
+      },
+      stateChangeProposal: {
+        update: async () => {
+          throw new Error("proposal must not be marked committed");
+        },
+      },
+    });
+
+    await assert.rejects(
+      service.commitExistingProposals({
+        novelId: "novel-1",
+        proposalIds: [row.id],
+        reason: "legacy_infrastructure_failure",
+      }),
+      /database connection lost/,
+    );
+    assert.equal(proposalUpdateCalled, false);
+  } finally {
+    prisma.stateChangeProposal.findMany = originals.proposalFindMany;
+    prisma.stateChangeProposal.update = originals.proposalUpdate;
+    prisma.$transaction = originals.transaction;
+  }
+});
+
+test("StateCommitService legacy persistence converts domain apply failures into rejected rows", async () => {
+  const service = new StateCommitService();
+  const rows = new Map();
+  let sequence = 0;
+  const originals = {
+    transaction: prisma.$transaction,
+  };
+  const makeRow = (data) => ({
+    id: `persisted-${++sequence}`,
+    ...data,
+    changeProposalId: null,
+    userEditedPayloadJson: null,
+    reviewDecision: null,
+  });
+
+  try {
+    prisma.$transaction = async (callback) => callback({
+      character: {
+        updateMany: async () => ({ count: 0 }),
+      },
+      stateChangeProposal: {
+        create: async ({ data }) => {
+          const row = makeRow(data);
+          rows.set(row.id, row);
+          return row;
+        },
+        update: async ({ where, data }) => {
+          const row = { ...rows.get(where.id), ...data };
+          rows.set(where.id, row);
+          return row;
+        },
+      },
+    });
+
+    const result = await service.persistValidated({
+      accepted: [
+        {
+          novelId: "novel-1",
+          chapterId: "chapter-5",
+          sourceSnapshotId: null,
+          sourceType: "chapter_background_sync",
+          sourceStage: "chapter_execution",
+          proposalType: "character_state_update",
+          riskLevel: "low",
+          status: "committed",
+          summary: "deleted character state",
+          payload: { characterId: "deleted-character", currentState: "missing" },
+          evidence: ["legacy evidence"],
+          validationNotes: [],
+        },
+        {
+          novelId: "novel-1",
+          chapterId: "chapter-5",
+          sourceSnapshotId: null,
+          sourceType: "chapter_background_sync",
+          sourceStage: "chapter_execution",
+          proposalType: "event_record",
+          riskLevel: "low",
+          status: "committed",
+          summary: "valid legacy event",
+          payload: { eventKey: "valid-event" },
+          evidence: ["event evidence"],
+          validationNotes: [],
+        },
+      ],
+      pendingReview: [],
+      rejected: [],
+    });
+
+    assert.equal(result.committed.length, 1);
+    assert.equal(result.committed[0].proposalType, "event_record");
+    assert.equal(result.rejected.length, 1);
+    assert.equal(result.rejected[0].proposalType, "character_state_update");
+    assert.match(result.rejected[0].validationNotes.join(" "), /legacy_apply_failed:character_state_update/);
+  } finally {
+    prisma.$transaction = originals.transaction;
+  }
+});
+
+test("StateCommitService legacy persistence keeps infrastructure failures strict", async () => {
+  const service = new StateCommitService();
+  const originals = {
+    transaction: prisma.$transaction,
+  };
+  let proposalUpdateCalled = false;
+
+  try {
+    prisma.$transaction = async (callback) => callback({
+      character: {
+        updateMany: async () => {
+          throw new Error("database connection lost");
+        },
+      },
+      stateChangeProposal: {
+        create: async ({ data }) => ({
+          id: "persisted-infrastructure-failure",
+          ...data,
+          changeProposalId: null,
+          userEditedPayloadJson: null,
+          reviewDecision: null,
+        }),
+        update: async () => {
+          proposalUpdateCalled = true;
+          return {};
+        },
+      },
+    });
+
+    await assert.rejects(
+      service.persistValidated({
+        accepted: [{
+          novelId: "novel-1",
+          chapterId: "chapter-5",
+          sourceSnapshotId: null,
+          sourceType: "chapter_background_sync",
+          sourceStage: "chapter_execution",
+          proposalType: "character_state_update",
+          riskLevel: "low",
+          status: "committed",
+          summary: "infrastructure failure must abort",
+          payload: { characterId: "character-1", currentState: "ready" },
+          evidence: ["legacy evidence"],
+          validationNotes: [],
+        }],
+        pendingReview: [],
+        rejected: [],
+      }),
+      /database connection lost/,
+    );
+    assert.equal(proposalUpdateCalled, false);
+  } finally {
+    prisma.$transaction = originals.transaction;
+  }
+});

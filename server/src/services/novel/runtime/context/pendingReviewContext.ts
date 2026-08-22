@@ -1,10 +1,10 @@
 import { prisma } from "../../../../db/prisma";
 import type { PendingCharacterHardFactReviewMap } from "../../characters/characterHardFacts";
+import { buildLegacyPendingReviewWhere } from "../../state/legacyPendingReviewWhere";
 
 export function buildBlockingPendingReviewProposalWhere(novelId: string, chapterId: string) {
   return {
-    novelId,
-    status: "pending_review" as const,
+    ...buildLegacyPendingReviewWhere(novelId),
     OR: [
       { chapterId },
       { chapterId: null },

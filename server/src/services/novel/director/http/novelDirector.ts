@@ -33,6 +33,10 @@ import {
   BOOK_FRAMING_MAX_COMMERCIAL_TAGS,
 } from "@ai-novel/shared/types/novelFraming";
 import { DIRECTOR_AUTO_APPROVAL_POINTS } from "@ai-novel/shared/types/autoDirectorApproval";
+import {
+  proposedChangeItemDecisionSchema,
+  regenerateChangeProposalInputSchema,
+} from "@ai-novel/shared/types/changeProposal";
 import { validate } from "../../../../middleware/validate";
 import { llmProviderSchema } from "../../../../llm/providerSchema";
 import { DirectorBookAutomationProjectionService } from "../projections/DirectorBookAutomationProjectionService";
@@ -276,6 +280,16 @@ const appendCommandSchema = z.discriminatedUnion("commandType", [
     batchAlreadyStartedCount: z.number().int().min(0).optional(),
   }).optional() }),
   z.object({ commandType: z.literal("approve_gate"), payload: z.object({}).optional() }),
+  z.object({ commandType: z.literal("review_proposal"), payload: z.object({
+    novelId: z.string().trim().min(1),
+    proposalId: z.string().trim().min(1),
+    decision: z.enum(["approve", "partial", "reject", "replan", "execute"]),
+    itemDecisions: z.array(proposedChangeItemDecisionSchema).min(1).max(200).optional(),
+    unlistedDecision: z.enum(["accepted", "rejected"]).optional(),
+    expectedVersion: z.number().int().positive().optional(),
+    reason: z.string().trim().min(1).max(1000).optional(),
+    regenerateInput: regenerateChangeProposalInputSchema.optional(),
+  }) }),
   z.object({ commandType: z.literal("policy_update"), payload: runtimePolicySchema }),
   z.object({ commandType: z.literal("cancel"), payload: z.object({}).optional() }),
   z.object({ commandType: z.literal("repair_chapter_titles"), payload: z.object({ volumeId: z.string().trim().optional() }).optional() }),
@@ -383,6 +397,9 @@ router.post("/tasks/:taskId/commands", validate({ params: taskParamsSchema, body
         break;
       case "approve_gate":
         data = await commandService.enqueueApproveGateCommand(taskId);
+        break;
+      case "review_proposal":
+        data = await commandService.enqueueReviewProposalCommand(taskId, body.payload);
         break;
       case "policy_update":
         data = await commandService.enqueuePolicyUpdateCommand(taskId, body.payload as DirectorRuntimePolicyUpdateRequest);

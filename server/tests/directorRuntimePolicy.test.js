@@ -213,3 +213,30 @@ test("director runtime policy blocks only the affected quality scope", () => {
   assert.deepEqual(decision.riskTags, ["quality_blocked_scope"]);
   assert.equal(decision.onQualityFailure, "block_scope");
 });
+
+test("director runtime policy gates major proposals in auto safe scope", () => {
+  const engine = new DirectorPolicyEngine();
+  const decision = engine.decide({
+    action: "run_node",
+    mode: "auto_safe_scope",
+    proposalSeverity: "major",
+    outlineFidelity: "balanced",
+  });
+
+  assert.equal(decision.canRun, false);
+  assert.equal(decision.requiresApproval, true);
+  assert.deepEqual(decision.riskTags, ["proposal_major"]);
+});
+
+test("director runtime policy allows minor proposals outside strict outline mode", () => {
+  const engine = new DirectorPolicyEngine();
+  const decision = engine.decide({
+    action: "run_node",
+    mode: "run_until_gate",
+    proposalSeverity: "minor",
+    outlineFidelity: "balanced",
+  });
+
+  assert.equal(decision.canRun, true);
+  assert.equal(decision.requiresApproval, false);
+});

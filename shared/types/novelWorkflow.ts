@@ -23,6 +23,7 @@ export type NovelWorkflowCheckpoint =
   | "production_experience_required"
   | "chapter_batch_ready"
   | "step_review_required"
+  | "proposal_review_required"
   | "replan_required"
   | "workflow_completed";
 

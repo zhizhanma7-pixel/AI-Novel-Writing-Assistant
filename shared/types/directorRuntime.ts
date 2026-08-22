@@ -33,6 +33,7 @@ export const DIRECTOR_ARTIFACT_TYPES = [
   "chapter_retention_contract",
   "continuity_state",
   "rolling_window_review",
+  "change_proposal",
 ] as const;
 
 export type DirectorArtifactType = typeof DIRECTOR_ARTIFACT_TYPES[number];
@@ -309,7 +310,11 @@ export type DirectorEventType =
   | "circuit_breaker_reset"
   | "continue_with_risk"
   | "issue_detected"
-  | "issue_action_applied";
+  | "issue_action_applied"
+  | "proposal_created"
+  | "proposal_reviewed"
+  | "proposal_applied"
+  | "proposal_superseded";
 
 export interface DirectorEvent {
   eventId: string;
@@ -344,6 +349,8 @@ export interface DirectorPolicyDecision {
     | "quality_manual_repair"
     | "quality_blocked_scope"
     | "continue_with_risk"
+    | "proposal_major"
+    | "outline_fidelity_strict"
   >;
   autoRetryBudget: number;
   onQualityFailure: "repair_once" | "pause_for_manual" | "continue_with_risk" | "block_scope";
@@ -1080,6 +1087,7 @@ export const DIRECTOR_RUN_COMMAND_TYPES = [
   "retry",
   "takeover",
   "approve_gate",
+  "review_proposal",
   "policy_update",
   "workspace_analysis",
   "manual_edit_impact",
