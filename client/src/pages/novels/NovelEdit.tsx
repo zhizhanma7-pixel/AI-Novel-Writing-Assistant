@@ -77,6 +77,7 @@ import { buildNovelEditPlanningTabs } from "./novelEditPlanningTabs";
 import type { ChapterReviewResult } from "./chapterPlanning.shared";
 import type { NovelEditTakeoverState, NovelTaskDrawerState } from "./components/NovelEditView.types";
 import NovelExistingProjectTakeoverDialog from "./components/NovelExistingProjectTakeoverDialog";
+import ChangeProposalReviewDrawer from "./components/changeProposal/ChangeProposalReviewDrawer";
 import { syncNovelWorkflowStageSilently, workflowStageFromTab } from "./novelWorkflow.client";
 import { isNovelWorkspaceFlowTab, scopeFromWorkspaceTab, tabFromDirectorDisplayStage, tabFromDirectorProgress, tabFromScope, type NovelWorkspaceFlowTab } from "./novelWorkspaceNavigation";
 import { resolveChapterTitleWarning } from "@/lib/directorTaskNotice";
@@ -269,6 +270,8 @@ export default function NovelEdit() {
     workflowTaskId,
     taskPanelOpen,
     clearTaskPanelOpen,
+    proposalPanelOpen,
+    setProposalPanelOpen,
   } = useNovelEditWorkflow(id);
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState(false);
   const [autoOpenedFailedTaskId, setAutoOpenedFailedTaskId] = useState("");
@@ -1276,6 +1279,11 @@ export default function NovelEdit() {
       return;
     }
     if (action.type === "open_details") {
+      if (action.target.href?.includes("proposalPanel=1")) {
+        setIsTaskDrawerOpen(false);
+        navigate(action.target.href);
+        return;
+      }
       openAutoDirectorTaskCenter(taskId);
       return;
     }
@@ -2759,7 +2767,8 @@ export default function NovelEdit() {
   }
 
   return (
-    <NovelEditView
+    <>
+      <NovelEditView
       id={id}
       activeTab={activeTab}
       workflowCurrentTab={workflowCurrentTab}
@@ -2798,6 +2807,7 @@ export default function NovelEdit() {
       characterTab={characterTab}
       takeover={isTakeoverDismissed ? null : takeover}
       activeStepTakeoverEntry={activeStepTakeoverEntry}
+      onOpenChangeProposals={() => setProposalPanelOpen(true)}
       onSwitchToSimpleMode={() => switchToSimpleMutation.mutate()}
       isSwitchingToSimpleMode={switchToSimpleMutation.isPending}
       taskDrawer={{
@@ -2860,6 +2870,13 @@ export default function NovelEdit() {
           : "",
         onOpenFullTaskCenter: openAutoDirectorTaskCenter,
       }}
-    />
+      />
+      <ChangeProposalReviewDrawer
+        novelId={id}
+        taskId={selectedDirectorTaskId || undefined}
+        open={proposalPanelOpen}
+        onOpenChange={setProposalPanelOpen}
+      />
+    </>
   );
 }

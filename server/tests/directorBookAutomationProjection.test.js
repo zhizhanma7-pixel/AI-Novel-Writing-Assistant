@@ -269,6 +269,55 @@ test("book automation projection exposes production experience handoff as the pr
   }
 });
 
+test("book automation projection opens proposal review instead of resuming a waiting task", async () => {
+  const harness = createHarness({
+    latestTask: {
+      status: "waiting_approval",
+      checkpointType: "proposal_review_required",
+      checkpointSummary: "有一份变更提案需要审阅。",
+    },
+    commands: [],
+    events: [],
+    steps: [],
+    approvals: [],
+    runtimeProjection: null,
+  });
+  try {
+    const projection = await harness.service.getProjection("novel-1");
+    assert.equal(projection.primaryAction.type, "open_details");
+    assert.equal(projection.primaryAction.label, "审阅变更提案");
+    assert.equal(
+      projection.primaryAction.target.href,
+      "/novels/novel-1/edit?directorTaskId=task-1&proposalPanel=1",
+    );
+    assert.equal(projection.primaryAction.commandPayload, undefined);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("book automation projection keeps the generic waiting approval fallback for other checkpoints", async () => {
+  const harness = createHarness({
+    latestTask: {
+      status: "waiting_approval",
+      checkpointType: "step_review_required",
+      checkpointSummary: "当前步骤需要确认。",
+    },
+    commands: [],
+    events: [],
+    steps: [],
+    approvals: [],
+    runtimeProjection: null,
+  });
+  try {
+    const projection = await harness.service.getProjection("novel-1");
+    assert.equal(projection.primaryAction.type, "continue");
+    assert.equal(projection.primaryAction.commandPayload.continuationMode, "resume");
+  } finally {
+    harness.restore();
+  }
+});
+
 test("book automation projection exposes replan-and-continue for professional recovery surfaces", async () => {
   for (const status of ["waiting_approval", "failed"]) {
     const harness = createHarness({

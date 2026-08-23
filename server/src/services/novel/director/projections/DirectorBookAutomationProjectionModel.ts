@@ -271,6 +271,7 @@ function buildNovelHref(
     tab?: DirectorBookAutomationAction["target"]["tab"];
     taskId?: string | null;
     taskPanel?: boolean;
+    proposalPanel?: boolean;
   },
 ): string {
   const params = new URLSearchParams();
@@ -282,6 +283,9 @@ function buildNovelHref(
   }
   if (options?.taskPanel) {
     params.set("taskPanel", "1");
+  }
+  if (options?.proposalPanel) {
+    params.set("proposalPanel", "1");
   }
   const query = params.toString();
   return `/novels/${novelId}/edit${query ? `?${query}` : ""}`;
@@ -449,6 +453,18 @@ export function buildPrimaryAction(input: {
   }
 
   if (input.status === "waiting_approval") {
+    if (input.task?.checkpointType === "proposal_review_required") {
+      return action({
+        type: "open_details",
+        label: "审阅变更提案",
+        target: {
+          novelId: input.novelId,
+          taskId,
+          href: buildNovelHref(input.novelId, { taskId, proposalPanel: true }),
+        },
+        emphasis: "primary",
+      });
+    }
     if (input.task?.checkpointType === "candidate_selection_required") {
       return action({
         type: "confirm_candidate",

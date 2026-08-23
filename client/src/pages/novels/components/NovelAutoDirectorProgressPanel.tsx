@@ -14,6 +14,7 @@ import {
 import type { UnifiedTaskDetail } from "@ai-novel/shared/types/task";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   getDirectorTaskSnapshot,
 } from "@/api/novelDirector";
@@ -31,6 +32,7 @@ import { useDirectorChapterTitleRepair } from "@/hooks/useDirectorChapterTitleRe
 import NovelDirectorPreparationJourney, {
   type DirectorPreparationStepStatus,
 } from "./NovelDirectorPreparationJourney";
+import { buildProposalReviewHref } from "./proposalReviewNavigation";
 
 type DirectorExecutionViewMode = "execution_progress" | "execution_failed";
 
@@ -149,6 +151,9 @@ function formatCheckpoint(
   }
   if (checkpoint === "step_review_required") {
     return "当前步骤待检查";
+  }
+  if (checkpoint === "proposal_review_required") {
+    return "变更提案待审阅";
   }
   if (checkpoint === "replan_required") {
     return "需要重规划";
@@ -287,6 +292,8 @@ export default function NovelAutoDirectorProgressPanel({
   onConfirmAndContinue,
   isConfirmingAndContinuing = false,
 }: NovelAutoDirectorProgressPanelProps) {
+  const navigate = useNavigate();
+  const routeNovelId = useParams<{ id?: string }>().id;
   const taskChapterTitleWarning = resolveChapterTitleWarning(task);
   const chapterTitleRepairMutation = useDirectorChapterTitleRepair();
   const runtimeTaskId = task?.id ?? taskId;
@@ -396,6 +403,12 @@ export default function NovelAutoDirectorProgressPanel({
             ? "当前导演流程已经停在审核点，你可以先检查产物，再决定是否继续自动推进。"
             : "可离开当前页面，任务会继续运行；回来后可在 AI 驾驶舱查看进度。")
     );
+  const proposalReviewHref = buildProposalReviewHref({
+    checkpointType: task?.checkpointType,
+    routeNovelId,
+    resumeTargetNovelId: task?.resumeTarget?.novelId,
+    taskId: runtimeTaskId,
+  });
   const resolveDashboardAction = (dashboardAction: DirectorDashboardAction) => {
     if (dashboardAction.type === "confirm_and_continue" && onConfirmAndContinue) {
       return {
@@ -416,14 +429,21 @@ export default function NovelAutoDirectorProgressPanel({
     }
     return null;
   };
-  const dashboardActions = dashboardView
-    ? [
+  const dashboardActions = proposalReviewHref
+    ? [{
+      label: "审阅变更提案",
+      onClick: () => navigate(proposalReviewHref),
+      variant: "default" as const,
+      disabled: false,
+    }]
+    : dashboardView
+      ? [
       dashboardView.primaryAction,
       ...dashboardView.secondaryActions,
     ].filter((item): item is DirectorDashboardAction => Boolean(item))
       .map(resolveDashboardAction)
       .filter((item): item is NonNullable<ReturnType<typeof resolveDashboardAction>> => Boolean(item))
-    : [];
+      : [];
   const actions = dashboardActions;
 
   return (

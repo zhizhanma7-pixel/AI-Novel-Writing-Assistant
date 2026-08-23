@@ -58,9 +58,11 @@ async function enqueueTaskBoundReview(
   return directorCommandService.enqueueReviewProposalCommand(proposal.taskId, request);
 }
 
-function forwardProposalError(error: unknown, next: (error?: unknown) => void): void {
+export function forwardProposalError(error: unknown, next: (error?: unknown) => void): void {
   if (error instanceof ChangeProposalError) {
-    next(new AppError(error.message, error.statusCode, error.details));
+    // Proposal clients branch on the stable domain code and translate the
+    // recovery action locally. Keep the domain message as response detail.
+    next(new AppError(error.code, error.statusCode, error.message));
     return;
   }
   next(error);

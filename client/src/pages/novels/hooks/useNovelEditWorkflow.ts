@@ -6,6 +6,7 @@ import { normalizeNovelWorkspaceTab } from "../novelWorkspaceNavigation";
 import {
   readNovelEditWorkflowTaskIds,
   withNovelEditDirectorTaskId,
+  withNovelEditProposalPanelOpen,
   withNovelEditWorkspaceTaskId,
 } from "./novelEditWorkflowParams";
 
@@ -15,6 +16,7 @@ export function useNovelEditWorkflow(novelId: string) {
   const { directorTaskId, workspaceTaskId: workflowTaskId } = readNovelEditWorkflowTaskIds(searchParams);
   const selectedVolumeId = searchParams.get("volumeId") ?? "";
   const taskPanelOpen = searchParams.get("taskPanel") === "1";
+  const proposalPanelOpen = searchParams.get("proposalPanel") === "1";
 
   useEffect(() => {
     const canonicalDirectorTaskId = searchParams.get("directorTaskId")?.trim() ?? "";
@@ -115,6 +117,10 @@ export function useNovelEditWorkflow(novelId: string) {
     }, { replace: true });
   }, [setSearchParams]);
 
+  const setProposalPanelOpen = useCallback((open: boolean) => {
+    setSearchParams((prev) => withNovelEditProposalPanelOpen(prev, open), { replace: true });
+  }, [setSearchParams]);
+
   return {
     activeTab,
     setActiveTab,
@@ -127,5 +133,7 @@ export function useNovelEditWorkflow(novelId: string) {
     workflowTaskId,
     taskPanelOpen,
     clearTaskPanelOpen,
+    proposalPanelOpen,
+    setProposalPanelOpen,
   };
 }
