@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   CHANGE_CATEGORY_COPY,
   formatProposalValue,
-  LEDGER_ONLY_CHANGE_TYPES,
+  isLedgerOnlyProposedChange,
 } from "./changeProposalCopy";
 import ProposedChangeEditor from "./ProposedChangeEditor";
 
@@ -28,7 +28,7 @@ export default function ProposedChangeRow(props: {
   onEdit: (input: EditProposedChangeInput) => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(false);
-  const isLedgerOnly = LEDGER_ONLY_CHANGE_TYPES.has(props.change.proposalType);
+  const isLedgerOnly = isLedgerOnlyProposedChange(props.change);
   const hasStoredEdit = props.change.userEditedPayload !== null;
   const displayedAfter = hasStoredEdit && props.change.after == null
     ? props.change.userEditedPayload

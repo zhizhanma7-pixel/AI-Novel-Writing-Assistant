@@ -63,6 +63,7 @@ export default function ChangeProposalReviewDrawer(props: {
             proposal={controller.proposal}
             isLoading={controller.isLoadingProposal}
             queuedAction={controller.queuedAction}
+            queuedActionFailure={controller.queuedActionFailure}
             actionPending={controller.actionMutation.isPending || controller.editMutation.isPending}
             savingItemId={controller.editMutation.isPending
               ? controller.editMutation.variables?.itemId

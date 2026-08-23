@@ -23,7 +23,7 @@ test("auto director progress panel uses dashboard view for main container state"
 });
 
 test("proposal review checkpoints open the proposal panel instead of continuing", () => {
-  assert.match(source, /checkpointType === "proposal_review_required"/);
-  assert.match(source, /proposalPanel=1/);
-  assert.match(source, /dashboardAction\.type === "confirm_and_continue"[\s\S]*label: "审阅变更提案"/);
+  assert.match(source, /buildProposalReviewHref/);
+  assert.match(source, /routeNovelId/);
+  assert.match(source, /const dashboardActions = proposalReviewHref[\s\S]*label: "审阅变更提案"/);
 });

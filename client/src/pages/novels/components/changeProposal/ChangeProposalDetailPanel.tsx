@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  LEDGER_ONLY_CHANGE_TYPES,
+  isLedgerOnlyProposedChange,
   PROPOSAL_STATUS_COPY,
   PROPOSAL_TYPE_COPY,
 } from "./changeProposalCopy";
@@ -39,6 +39,7 @@ export default function ChangeProposalDetailPanel(props: {
   proposal: ChangeProposal | null;
   isLoading: boolean;
   queuedAction: boolean;
+  queuedActionFailure?: string | null;
   actionPending: boolean;
   savingItemId?: string;
   onEdit: (itemId: string, input: EditProposedChangeInput) => Promise<unknown>;
@@ -79,9 +80,9 @@ export default function ChangeProposalDetailPanel(props: {
     proposal.status === "approved" || proposal.status === "partially_approved"
   ) && !proposal.isStale && !props.queuedAction;
   const canRegenerate = proposal.status !== "executed" && proposal.status !== "superseded";
-  const hasLedgerOnlyChanges = proposal.changes.some((change) => LEDGER_ONLY_CHANGE_TYPES.has(change.proposalType));
+  const hasLedgerOnlyChanges = proposal.changes.some(isLedgerOnlyProposedChange);
   const hasApprovedLedgerOnlyChanges = proposal.changes.some((change) => (
-    LEDGER_ONLY_CHANGE_TYPES.has(change.proposalType)
+    isLedgerOnlyProposedChange(change)
     && change.reviewDecision !== "rejected"
   ));
   const unlistedCount = Math.max(0, proposal.changes.length - itemDecisions.length);
@@ -108,6 +109,12 @@ export default function ChangeProposalDetailPanel(props: {
         {props.queuedAction ? (
           <div className="rounded-xl border border-blue-300/70 bg-blue-50/70 px-4 py-3 text-sm leading-6 text-blue-900 dark:border-blue-700/60 dark:bg-blue-950/20 dark:text-blue-200">
             操作已提交，等待导演处理。面板会自动刷新结果。
+          </div>
+        ) : null}
+
+        {props.queuedActionFailure ? (
+          <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm leading-6 text-destructive">
+            {props.queuedActionFailure}
           </div>
         ) : null}
 

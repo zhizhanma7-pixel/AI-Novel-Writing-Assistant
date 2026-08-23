@@ -4,6 +4,10 @@ import type {
   ProposedChange,
   ProposedChangeCategory,
 } from "@ai-novel/shared/types/changeProposal";
+import {
+  getStateProposalApplicationMode,
+  resolveProposedChangePayloadKey,
+} from "@ai-novel/shared/types/stateProposalApplication";
 import type { ApiHttpError } from "@/api/client";
 
 export const CHANGE_PROPOSAL_ERROR_CODES = [
@@ -99,14 +103,9 @@ export const CHANGE_CATEGORY_COPY: Record<ProposedChangeCategory, string> = {
   timeline: "时间线",
 };
 
-export const LEDGER_ONLY_CHANGE_TYPES = new Set<ProposedChange["proposalType"]>([
-  "event_record",
-  "information_disclosure",
-  "conflict_update",
-  "payoff_progression",
-  "world_rule_change",
-  "book_contract_change",
-]);
+export function isLedgerOnlyProposedChange(change: ProposedChange): boolean {
+  return getStateProposalApplicationMode(change.proposalType) === "ledger_only";
+}
 
 export function formatProposalValue(value: unknown): string {
   if (value === undefined) {
@@ -128,25 +127,47 @@ export function formatProposalValue(value: unknown): string {
   }
 }
 
-function terminalPathSegment(path: string): string {
-  return path.trim().split(".").at(-1)?.replace(/^\[|\]$/g, "").trim() ?? "";
+export type ProposedChangeInlineValue = string | number | boolean;
+
+export function parseProposedChangeInlineValue(
+  source: string,
+  reference: ProposedChangeInlineValue,
+): ProposedChangeInlineValue {
+  if (typeof reference === "number") {
+    const parsed = Number(source);
+    if (!Number.isFinite(parsed)) {
+      throw new Error("请输入有效数字。");
+    }
+    return parsed;
+  }
+  if (typeof reference === "boolean") {
+    if (source === "true") return true;
+    if (source === "false") return false;
+    throw new Error("布尔值只能填写 true 或 false。");
+  }
+  return source;
 }
 
-const PAYLOAD_KEY_ALIASES: Partial<Record<ProposedChange["proposalType"], Record<string, string>>> = {
-  relation_state_update: {
-    trust: "trustScore",
-    intimacy: "intimacyScore",
-    conflict: "conflictScore",
-    dependency: "dependencyScore",
-  },
-  character_state_update: {
-    state: "currentState",
-    goal: "currentGoal",
-  },
-};
+export function resolveProposedChangeInlineValue(change: ProposedChange): {
+  payloadKey: string;
+  value: ProposedChangeInlineValue;
+} | null {
+  const payload = change.userEditedPayload ?? change.payload;
+  const payloadKey = resolveProposedChangePayloadKey({
+    proposalType: change.proposalType,
+    path: change.path,
+    payload,
+  });
+  if (!payloadKey) {
+    return null;
+  }
+  const value = payload[payloadKey];
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+    return null;
+  }
+  return { payloadKey, value };
+}
 
 export function canEditProposedChangeInline(change: ProposedChange): boolean {
-  const terminal = terminalPathSegment(change.path);
-  const payloadKey = PAYLOAD_KEY_ALIASES[change.proposalType]?.[terminal];
-  return Boolean(payloadKey && Object.prototype.hasOwnProperty.call(change.payload, payloadKey));
+  return resolveProposedChangeInlineValue(change) !== null;
 }

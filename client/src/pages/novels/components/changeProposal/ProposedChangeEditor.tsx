@@ -3,26 +3,10 @@ import type { EditProposedChangeInput, ProposedChange } from "@ai-novel/shared/t
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  canEditProposedChangeInline,
-  formatProposalValue,
+  parseProposedChangeInlineValue,
+  resolveProposedChangeInlineValue,
   resolveChangeProposalError,
 } from "./changeProposalCopy";
-
-function parseInlineValue(source: string, reference: unknown): unknown {
-  if (typeof reference === "number") {
-    const parsed = Number(source);
-    if (!Number.isFinite(parsed)) {
-      throw new Error("请输入有效数字。");
-    }
-    return parsed;
-  }
-  if (typeof reference === "boolean") {
-    if (source === "true") return true;
-    if (source === "false") return false;
-    throw new Error("布尔值只能填写 true 或 false。");
-  }
-  return source;
-}
 
 export default function ProposedChangeEditor(props: {
   change: ProposedChange;
@@ -31,9 +15,10 @@ export default function ProposedChangeEditor(props: {
   onSaved: () => void;
   onCancel: () => void;
 }) {
-  const inlineAvailable = useMemo(() => canEditProposedChangeInline(props.change), [props.change]);
+  const inlineField = useMemo(() => resolveProposedChangeInlineValue(props.change), [props.change]);
+  const inlineAvailable = inlineField !== null;
   const [mode, setMode] = useState<"inline" | "payload">(inlineAvailable ? "inline" : "payload");
-  const [inlineValue, setInlineValue] = useState(() => formatProposalValue(props.change.after));
+  const [inlineValue, setInlineValue] = useState(() => inlineField ? String(inlineField.value) : "");
   const [payloadText, setPayloadText] = useState(() => JSON.stringify(
     props.change.userEditedPayload ?? props.change.payload,
     null,
@@ -45,7 +30,12 @@ export default function ProposedChangeEditor(props: {
     setValidationMessage("");
     try {
       if (mode === "inline") {
-        await props.onSave({ after: parseInlineValue(inlineValue, props.change.after) });
+        if (!inlineField) {
+          setMode("payload");
+          setValidationMessage("这个字段需要编辑完整内容，请检查 JSON 后保存。");
+          return;
+        }
+        await props.onSave({ after: parseProposedChangeInlineValue(inlineValue, inlineField.value) });
       } else {
         let payload: unknown;
         try {

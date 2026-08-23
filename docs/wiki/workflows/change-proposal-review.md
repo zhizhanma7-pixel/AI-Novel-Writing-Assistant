@@ -59,14 +59,14 @@ Change Proposal 信封内的正式写入保持原子性：任一批准项失败�
 
 ## 审阅界面入口与错误恢复
 
-- 小说专业工作台提供“变更提案”入口；自动导演停在 `proposal_review_required` 时，AI 驾驶舱和任务抽屉的主操作必须是 `open_details / 审阅变更提案`，目标链接携带 `proposalPanel=1`。该 checkpoint 禁止落入 `continue / resume` 兜底。
+- 小说专业工作台提供“变更提案”入口；自动导演停在 `proposal_review_required` 时，AI 驾驶舱和任务抽屉的主操作必须是 `open_details / 审阅变更提案`，目标链接携带 `proposalPanel=1`。该 checkpoint 禁止落入 `continue / resume` 兜底；当前编辑路由的小说 ID 是入口主来源，任务的 resume target 只作兼容兜底，不能成为显示审阅入口的前置条件。
 - 审阅面板通过 URL 控制开关，并保留 `directorTaskId`、手工工作区任务和当前创作步骤参数。关闭面板只移除 `proposalPanel`，不能改写其他任务绑定。
 - 列表和详情、所有查询与变更集中在 Change Proposal 自有 hook；小说总编辑页只负责挂载和 URL 透传，避免继续扩张超长页面文件。
-- 逐项审阅支持接受、修改和拒绝。关系分值、角色当前状态与目标可直接修改建议值；其他结构切换到完整 payload 编辑，避免不可映射的 `after` 静默失效。
+- 逐项审阅支持接受、修改和拒绝。path 到 payload 字段的映射以及状态类型的正式写入模式由 shared 契约统一提供给服务端与客户端；可映射的字符串、数字和布尔值可直接修改，其他结构切换到完整 payload 编辑。输入初值和类型以最终 payload 字段为准，避免 `after` 缺失时把数字误写成字符串。
 - 已保存人工编辑的项必须按 `modified` 提交；全部批准由服务端自动区分原值和人工修改值。部分批准始终要求显式选择未列项处理方式。
 - 详情中的 `isStale` 是进入审阅时的前置门禁：立即展示原因、禁用批准与执行，并把重新生成作为主操作。
-- `not_found`、`version_conflict`、`stale_proposal`、`invalid_transition`、`unsupported_change` 和 `invalid_review` 使用稳定错误码映射为中文恢复指引。审阅写操作不自动重试；版本冲突和状态冲突先刷新详情，再由用户重新决定。
-- 带 `taskId` 的批准、部分批准、拒绝、再生和执行返回 202 Director Command；客户端用可辨识联合与同步 Proposal 响应分开，显示排队状态并轮询详情，禁止把 command 当作 proposal 渲染。
+- `not_found`、`version_conflict`、`stale_proposal`、`invalid_transition`、`unsupported_change` 和 `invalid_review` 使用稳定错误码映射为中文恢复指引。HTTP `error` 是稳定机器码，`message` 是英文诊断细节，客户端必须本地翻译，不能直接展示 `message`。审阅写操作不自动重试；版本冲突和状态冲突先刷新详情，再由用户重新决定。
+- 带 `taskId` 的批准、部分批准、拒绝、再生和执行返回 202 Director Command；客户端用可辨识联合与同步 Proposal 响应分开，显示排队状态并同时轮询命令与提案详情，禁止把 command 当作 proposal 渲染。命令进入 failed / cancelled / stale 时立即停止；等待超过 60 秒也停止自动刷新并保留中文失败提示，避免抽屉永久停在等待状态。
 - ledger-only 类型在逐项详情和整份提案上提前标注。只有仍被批准的 ledger-only 项会阻止执行；已明确拒绝的 ledger-only 项不影响其他批准项写入。
 
 ## HTTP API

@@ -14,6 +14,13 @@
 - 任务抽屉和导演进度面板增加提案审阅 checkpoint 文案，并阻止旧进度面板把该 checkpoint 当作确认继续。
 - 更新 Change Proposal 工作流 wiki，记录入口、202 分流、错误恢复与 ledger-only 边界。
 
+## Review Fixes
+
+- H1：导演进度面板的提案审阅入口改用当前编辑路由小说 ID，resume target 仅作兜底；只要 checkpoint 为 `proposal_review_required`，面板动作就强制收敛到“审阅变更提案”，不会经过继续或恢复动作映射。
+- M2：202 排队状态同时跟踪 Director Command；failed / cancelled / stale 立即终止，60 秒仍无结果也停止轮询，并在当前提案详情中保留中文失败提示。
+- M3：行内编辑的初值和类型参照改读映射后的有效 payload。即使 `after` 缺失，关系分值仍按 number 提交，不会在执行阶段才暴露字符串类型错误。
+- M4：状态写入模式和 path 到 payload 字段解析移入 `@ai-novel/shared`；服务端 applier registry、服务端编辑映射和客户端提示 / 编辑共用同一契约，并支持 payload 末段键直接匹配。
+
 ## Database Changes
 
 无。复用 Proposal Core 已合并的 `ChangeProposal`、`StateChangeProposal` 和 runtime migration。
@@ -31,11 +38,11 @@
 
 - 列表按状态分组，可按状态和提案类型筛选；绑定当前导演任务的待审提案优先展示。
 - 详情显示摘要、用户可见判断依据、warnings、source refs、版本、stale 原因和逐项 before / after。
-- 关系 trust / intimacy / conflict / dependency 与角色 state / goal 使用建议值编辑；其他结构使用完整 payload JSON 编辑。轻编辑收到 `invalid_review` 时切换完整内容模式。
+- path 能映射到字符串、数字或布尔 payload 字段时使用建议值编辑；其他结构使用完整 payload JSON 编辑。轻编辑收到 `invalid_review` 时切换完整内容模式。
 - 已编辑项显示标记，并只能按 `modified` 进入部分批准。未逐项选择的内容必须明确选择“其余全部接受”或“其余全部拒绝”。
 - stale 提案打开即禁用批准和执行，并突出重新生成。
 - ledger-only 类型提前说明正式写入限制；被拒绝的 ledger-only 项不阻止其他批准项执行。
-- task-bound 操作显示“等待导演处理”并轮询提案状态；同步操作直接更新详情缓存。
+- task-bound 操作显示“等待导演处理”并轮询提案与命令状态；命令失败或等待 60 秒无结果时停止轮询并显示恢复入口。同步操作直接更新详情缓存。
 
 ## Acceptance Fixture
 
@@ -81,6 +88,9 @@
 - 轻编辑字段白名单与 payload 降级边界测试。
 - proposalPanel URL 参数保留其他任务 / 工作区参数测试。
 - 导演进度面板提案 checkpoint 不走确认继续的契约测试。
+- 当前编辑路由在 resume target 为空时仍能建立提案审阅链接的行为测试。
+- 202 命令失败和超时终止轮询测试。
+- `after` 缺失时从 payload 读取数字类型，以及 terminal payload key 直接映射测试。
 - 书级投影提案审阅入口测试，以及其他 waiting-approval checkpoint 保持原兜底的回归测试。
 
 ## Verification
@@ -88,7 +98,7 @@
 - `pnpm --filter @ai-novel/client typecheck` 与正式 build：通过；Vite 仅报告仓库既有的大 chunk 提示。
 - `pnpm --filter @ai-novel/server build`：通过。
 - 客户端 Proposal API / copy / URL / 导演进度聚焦测试：16 项通过。
-- 客户端全量测试：175 项中 171 通过；4 个失败位于未改动的风险规则入口、移动路由 CSS、任务筛选布局和移动导航顺序，Proposal 新增用例无失败。
+- 客户端全量测试：181 项中 177 通过；4 个失败位于未改动的风险规则入口、移动路由 CSS、任务筛选布局和移动导航顺序，Proposal 新增用例无失败。
 - `server/tests/changeProposalCore.test.js` 与 `directorBookAutomationProjection.test.js`：35 项通过。
 - Proposal HTTP 稳定错误码契约测试：1 项通过。
 - beta 上已通过的真实 SQLite `62 -> AI 52 -> user 55 -> execute` 后端验收仍可复用：本分支没有修改状态 applier、review service、schema 或 migration。

@@ -20,9 +20,15 @@ import {
   submitChangeProposal,
   type ChangeProposalActionResult,
 } from "@/api/novel/changeProposals";
+import { getDirectorCommandResult } from "@/api/novelDirector";
 import { queryKeys } from "@/api/queryKeys";
 import { toast } from "@/components/ui/toast";
 import { resolveChangeProposalError } from "./changeProposalCopy";
+import {
+  QUEUED_PROPOSAL_ACTION_TIMEOUT_MS,
+  queuedProposalFailureMessage,
+  resolveQueuedProposalCommandOutcome,
+} from "./queuedProposalAction";
 
 type ProposalActionInput =
   | { type: "submit" }
@@ -37,10 +43,17 @@ type ProposalActionInput =
   | { type: "execute" };
 
 interface QueuedProposalAction {
+  commandId: string;
   proposalId: string;
   version: number;
   updatedAt: string;
   status: ChangeProposalStatus;
+  startedAtMs: number;
+}
+
+interface QueuedProposalActionFailure {
+  proposalId: string;
+  message: string;
 }
 
 function filtersKey(input: {
@@ -65,12 +78,14 @@ export function useChangeProposals(input: {
   const [typeFilter, setTypeFilter] = useState<ChangeProposalType | undefined>();
   const [selectedProposalId, setSelectedProposalId] = useState("");
   const [queuedAction, setQueuedAction] = useState<QueuedProposalAction | null>(null);
+  const [queuedActionFailure, setQueuedActionFailure] = useState<QueuedProposalActionFailure | null>(null);
   const filters = useMemo(() => ({ status: statusFilter, type: typeFilter }), [statusFilter, typeFilter]);
   const listKey = queryKeys.novels.changeProposals(input.novelId, filtersKey(filters));
 
   useEffect(() => {
     setSelectedProposalId("");
     setQueuedAction(null);
+    setQueuedActionFailure(null);
   }, [input.novelId]);
 
   const proposalsQuery = useQuery({
@@ -133,7 +148,21 @@ export function useChangeProposals(input: {
       && queuedAction.proposalId !== selectedProposalId
     ),
     retry: false,
-    refetchInterval: 2000,
+    refetchInterval: queuedAction ? 2000 : false,
+  });
+
+  const queuedCommandQuery = useQuery({
+    queryKey: queryKeys.tasks.directorCommandResult(queuedAction?.commandId ?? "none"),
+    queryFn: async () => {
+      const response = await getDirectorCommandResult(queuedAction?.commandId ?? "");
+      if (!response.data) {
+        throw new Error("导演命令状态响应缺少数据。");
+      }
+      return response.data;
+    },
+    enabled: Boolean(input.open && queuedAction?.commandId),
+    retry: false,
+    refetchInterval: queuedAction ? 2000 : false,
   });
 
   const refreshList = async () => {
@@ -181,8 +210,43 @@ export function useChangeProposals(input: {
       setSelectedProposalId(successor.id);
     }
     setQueuedAction(null);
+    setQueuedActionFailure(null);
     toast.success("导演已处理这次提案操作，请检查最新结果。");
   }, [orderedProposals, proposalQuery.data, queuedAction, queuedProposalQuery.data]);
+
+  useEffect(() => {
+    if (!queuedAction) {
+      return;
+    }
+    const outcome = resolveQueuedProposalCommandOutcome({
+      status: queuedCommandQuery.data?.status,
+      elapsedMs: Date.now() - queuedAction.startedAtMs,
+    });
+    if (outcome !== "failed") {
+      return;
+    }
+    const message = queuedProposalFailureMessage(outcome);
+    setQueuedActionFailure({ proposalId: queuedAction.proposalId, message });
+    setQueuedAction(null);
+    toast.error("导演未能处理提案操作", { description: message });
+  }, [queuedAction, queuedCommandQuery.data?.status]);
+
+  useEffect(() => {
+    if (!queuedAction) {
+      return;
+    }
+    const remainingMs = Math.max(
+      0,
+      QUEUED_PROPOSAL_ACTION_TIMEOUT_MS - (Date.now() - queuedAction.startedAtMs),
+    );
+    const timeoutId = window.setTimeout(() => {
+      const message = queuedProposalFailureMessage("timed_out");
+      setQueuedActionFailure({ proposalId: queuedAction.proposalId, message });
+      setQueuedAction(null);
+      toast.error("等待导演处理超时", { description: message });
+    }, remainingMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [queuedAction]);
 
   const handleActionError = async (error: unknown) => {
     const resolved = resolveChangeProposalError(error);
@@ -202,6 +266,9 @@ export function useChangeProposals(input: {
 
   const actionMutation = useMutation({
     retry: false,
+    onMutate: () => {
+      setQueuedActionFailure(null);
+    },
     mutationFn: async (action: ProposalActionInput): Promise<ChangeProposalActionResult> => {
       const proposal = proposalQuery.data;
       if (!proposal) {
@@ -239,10 +306,12 @@ export function useChangeProposals(input: {
         const proposal = proposalQuery.data;
         if (proposal) {
           setQueuedAction({
+            commandId: result.command.commandId,
             proposalId: proposal.id,
             version: proposal.version,
             updatedAt: proposal.updatedAt,
             status: proposal.status,
+            startedAtMs: Date.now(),
           });
         }
         toast.success("操作已提交，等待导演处理。", {
@@ -289,6 +358,9 @@ export function useChangeProposals(input: {
     listError: proposalsQuery.error,
     proposalError: proposalQuery.error,
     queuedAction: Boolean(queuedAction),
+    queuedActionFailure: queuedActionFailure?.proposalId === selectedProposalId
+      ? queuedActionFailure.message
+      : null,
     actionMutation,
     editMutation,
     refresh: async () => {
