@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   readNovelEditWorkflowTaskIds,
   withNovelEditDirectorTaskId,
+  withNovelEditProposalPanelOpen,
   withNovelEditWorkspaceTaskId,
 } from "./novelEditWorkflowParams.ts";
 
@@ -49,4 +50,16 @@ test("clearing the director task id keeps the manual workspace binding", () => {
   assert.equal(next.has("directorTaskId"), false);
   assert.equal(next.has("taskId"), false);
   assert.equal(next.get("workspaceTaskId"), "workspace-1");
+});
+
+test("proposal panel state keeps task bindings and other workspace params", () => {
+  const params = new URLSearchParams("stage=chapter&directorTaskId=director-1&workspaceTaskId=workspace-1");
+  const opened = withNovelEditProposalPanelOpen(params, true);
+  const closed = withNovelEditProposalPanelOpen(opened, false);
+
+  assert.equal(opened.get("proposalPanel"), "1");
+  assert.equal(opened.get("directorTaskId"), "director-1");
+  assert.equal(opened.get("workspaceTaskId"), "workspace-1");
+  assert.equal(closed.has("proposalPanel"), false);
+  assert.equal(closed.get("stage"), "chapter");
 });

@@ -30,3 +30,13 @@ export function withNovelEditDirectorTaskId(searchParams: URLSearchParams, taskI
   next.delete("taskId");
   return next;
 }
+
+export function withNovelEditProposalPanelOpen(searchParams: URLSearchParams, open: boolean): URLSearchParams {
+  const next = new URLSearchParams(searchParams);
+  if (open) {
+    next.set("proposalPanel", "1");
+  } else {
+    next.delete("proposalPanel");
+  }
+  return next;
+}

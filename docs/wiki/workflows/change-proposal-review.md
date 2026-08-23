@@ -27,7 +27,7 @@ executed / superseded -> 终态
 ## 审阅规则
 
 - 整体批准时，未单独指定的变更按 accepted 处理；用户预先改写过 payload 的项按 modified 处理。
-- 部分批准必须至少保留一个 accepted 或 modified 项；未出现在逐项决定中的项按 rejected 处理。
+- 部分批准必须至少提交一条逐项决定，并通过 `unlistedDecision` 显式声明其余项全部接受或全部拒绝；服务端和客户端都不猜测默认决定。
 - 拒绝提案会拒绝全部逐项变更。
 - draft 或 pending_review 阶段可以编辑 proposed value。编辑值保存在用户编辑字段中，执行时优先使用该值。
 - 先通过逐项 PATCH 保存编辑值后，审批可以只提交该项的 `modified` 决定；如果服务端没有已保存编辑值，`modified` 必须同时携带 edited payload/value，避免把未修改内容误标为人工修改。
@@ -57,6 +57,18 @@ Change Proposal 信封内的正式写入保持原子性：任一批准项失败�
 - 其他旧 `StateChangeProposal` 类型继续保持 ledger-only 兼容，供既有章节状态账本使用；Change Proposal 若批准了这些类型，执行接口会明确返回“不支持正式写入”，不会把信封标成 executed。
 - 章节执行 Proposal 的 AI 生产者、`Expected vs Actual` 对比和自动导演正文前置暂停属于 Phase 2，当前只有后端创建与审阅入口。
 
+## 审阅界面入口与错误恢复
+
+- 小说专业工作台提供“变更提案”入口；自动导演停在 `proposal_review_required` 时，AI 驾驶舱和任务抽屉的主操作必须是 `open_details / 审阅变更提案`，目标链接携带 `proposalPanel=1`。该 checkpoint 禁止落入 `continue / resume` 兜底。
+- 审阅面板通过 URL 控制开关，并保留 `directorTaskId`、手工工作区任务和当前创作步骤参数。关闭面板只移除 `proposalPanel`，不能改写其他任务绑定。
+- 列表和详情、所有查询与变更集中在 Change Proposal 自有 hook；小说总编辑页只负责挂载和 URL 透传，避免继续扩张超长页面文件。
+- 逐项审阅支持接受、修改和拒绝。关系分值、角色当前状态与目标可直接修改建议值；其他结构切换到完整 payload 编辑，避免不可映射的 `after` 静默失效。
+- 已保存人工编辑的项必须按 `modified` 提交；全部批准由服务端自动区分原值和人工修改值。部分批准始终要求显式选择未列项处理方式。
+- 详情中的 `isStale` 是进入审阅时的前置门禁：立即展示原因、禁用批准与执行，并把重新生成作为主操作。
+- `not_found`、`version_conflict`、`stale_proposal`、`invalid_transition`、`unsupported_change` 和 `invalid_review` 使用稳定错误码映射为中文恢复指引。审阅写操作不自动重试；版本冲突和状态冲突先刷新详情，再由用户重新决定。
+- 带 `taskId` 的批准、部分批准、拒绝、再生和执行返回 202 Director Command；客户端用可辨识联合与同步 Proposal 响应分开，显示排队状态并轮询详情，禁止把 command 当作 proposal 渲染。
+- ledger-only 类型在逐项详情和整份提案上提前标注。只有仍被批准的 ledger-only 项会阻止执行；已明确拒绝的 ledger-only 项不影响其他批准项写入。
+
 ## HTTP API
 
 路由挂载在小说模块：
@@ -74,4 +86,4 @@ POST   /api/novels/:id/change-proposals/:proposalId/regenerate
 POST   /api/novels/:id/change-proposals/:proposalId/execute
 ```
 
-本阶段只有后端与数据层，没有提案审阅 UI，也没有修改 Android 或接入其他外部运行时。
+审阅 UI 复用 Web / Electron 的 React 工作台和现有响应式布局；没有新增 Android 专用业务逻辑或外部运行时。

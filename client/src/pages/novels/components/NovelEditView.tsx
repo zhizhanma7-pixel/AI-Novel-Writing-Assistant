@@ -67,6 +67,7 @@ function DesktopNovelEditView(props: NovelEditViewProps) {
     takeover,
     taskDrawer,
     activeStepTakeoverEntry,
+    onOpenChangeProposals,
     onSwitchToSimpleMode,
     isSwitchingToSimpleMode = false,
   } = props;
@@ -280,6 +281,12 @@ function DesktopNovelEditView(props: NovelEditViewProps) {
             </Dialog>
 
             <DirectorFactDebugDialog novelId={id} taskId={taskDrawer?.task?.id ?? null} />
+
+            {onOpenChangeProposals ? (
+              <Button type="button" variant="outline" onClick={onOpenChangeProposals}>
+                变更提案
+              </Button>
+            ) : null}
 
             <Dialog open={isProjectToolsOpen} onOpenChange={setIsProjectToolsOpen}>
               <DialogTrigger asChild>

@@ -51,6 +51,7 @@ export default function MobileNovelEditView(props: NovelEditViewProps) {
     takeover,
     taskDrawer,
     activeStepTakeoverEntry,
+    onOpenChangeProposals,
   } = props;
   const [isToolsOpen, setIsToolsOpen] = useState(false);
 
@@ -164,6 +165,20 @@ export default function MobileNovelEditView(props: NovelEditViewProps) {
                   >
                     <span>查看任务进度</span>
                     {taskAttentionLabel ? <Badge variant="secondary">{taskAttentionLabel}</Badge> : null}
+                  </Button>
+                ) : null}
+
+                {onOpenChangeProposals ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      onOpenChangeProposals();
+                      setIsToolsOpen(false);
+                    }}
+                  >
+                    审阅变更提案
                   </Button>
                 ) : null}
 

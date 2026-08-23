@@ -656,6 +656,7 @@ export interface NovelEditViewProps {
   takeover?: NovelEditTakeoverState | null;
   taskDrawer?: NovelTaskDrawerState | null;
   activeStepTakeoverEntry?: ReactNode;
+  onOpenChangeProposals?: () => void;
   onSwitchToSimpleMode?: () => void;
   isSwitchingToSimpleMode?: boolean;
 }

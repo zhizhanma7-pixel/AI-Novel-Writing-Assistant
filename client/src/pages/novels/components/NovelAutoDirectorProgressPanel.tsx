@@ -14,6 +14,7 @@ import {
 import type { UnifiedTaskDetail } from "@ai-novel/shared/types/task";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import {
   getDirectorTaskSnapshot,
 } from "@/api/novelDirector";
@@ -149,6 +150,9 @@ function formatCheckpoint(
   }
   if (checkpoint === "step_review_required") {
     return "当前步骤待检查";
+  }
+  if (checkpoint === "proposal_review_required") {
+    return "变更提案待审阅";
   }
   if (checkpoint === "replan_required") {
     return "需要重规划";
@@ -287,6 +291,7 @@ export default function NovelAutoDirectorProgressPanel({
   onConfirmAndContinue,
   isConfirmingAndContinuing = false,
 }: NovelAutoDirectorProgressPanelProps) {
+  const navigate = useNavigate();
   const taskChapterTitleWarning = resolveChapterTitleWarning(task);
   const chapterTitleRepairMutation = useDirectorChapterTitleRepair();
   const runtimeTaskId = task?.id ?? taskId;
@@ -396,7 +401,18 @@ export default function NovelAutoDirectorProgressPanel({
             ? "当前导演流程已经停在审核点，你可以先检查产物，再决定是否继续自动推进。"
             : "可离开当前页面，任务会继续运行；回来后可在 AI 驾驶舱查看进度。")
     );
+  const proposalReviewHref = task?.checkpointType === "proposal_review_required" && task.resumeTarget?.novelId
+    ? `/novels/${task.resumeTarget.novelId}/edit?directorTaskId=${encodeURIComponent(runtimeTaskId)}&proposalPanel=1`
+    : null;
   const resolveDashboardAction = (dashboardAction: DirectorDashboardAction) => {
+    if (proposalReviewHref && dashboardAction.type === "confirm_and_continue") {
+      return {
+        label: "审阅变更提案",
+        onClick: () => navigate(proposalReviewHref),
+        variant: "default" as const,
+        disabled: false,
+      };
+    }
     if (dashboardAction.type === "confirm_and_continue" && onConfirmAndContinue) {
       return {
         label: isConfirmingAndContinuing ? "继续中..." : dashboardAction.label,
