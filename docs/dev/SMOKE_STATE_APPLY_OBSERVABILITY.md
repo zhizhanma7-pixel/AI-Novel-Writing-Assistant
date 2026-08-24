@@ -1,22 +1,24 @@
 # Smoke — State Apply Observability Combination Validation
 
-> 对象：`beta@36f4583`（`merge: state apply observability hardening into beta`）
+> 对象：`beta@1e79966`（包含 state apply observability、组合 smoke 与 Phase 2 口径修订）
 > 目的：`CODE_REVIEW_STATE_APPLY_OBSERVABILITY.md` 关闭的 O1/O2/L1 都只有**单点**覆盖（mock 边界或手写 fixture）。Phase 1 封板前要求的两项，是**组合**穿透真实代码路径的验证，本文件记录这两项的实现方式、静态推导结论，以及尚未完成的部分。
 >
-> **执行分工：** 测试代码由 Claude Code 编写，**实际执行交由 Codex**（符合 `AGENT_COLLABORATION_GUIDE.md` §2 的角色划分：Codex 是 Implementation + Test Engineer）。第 4 节是给 Codex 的交接说明。
-> 执行人：Claude Code（静态推导 + 新增测试代码）。方式：**未复跑构建与测试（本机无 node/pnpm，见第 4 节）**，与 `CODE_REVIEW_STATE_APPLY_OBSERVABILITY.md` 当初的方式相同。
+> **执行分工：** 测试代码由 Claude Code 编写，Codex 使用 Node `24.19.0` / pnpm `11.19.0` 完成真实执行并修正 fixture 装配问题。
+> 执行人：Claude Code（静态推导 + 新增测试代码）、Codex（构建、真实 SQLite 执行、结果回填）。
 
 ---
 
-## 0. 结论（暂定，待 Codex 执行确认）
+## 0. 结论
 
-两项组合场景都已经写成可执行的真实 SQLite 集成测试（跟随 `changeProposalRealSqlite.test.js` 的既有范式：临时数据库 + `prisma:push` + 编译后 `dist/` 子进程脚本），并已登记进 `server/scripts/run-tests.cjs` 的 `integrationTests` 集合。**代码走查支持两项都应该通过**，但由于编写环境没有 Node/pnpm，两个新文件从未被真正跑过一次。在 Codex 跑出真实通过结果之前，不得把 Phase 1 标记为正式封板——详见第 4、5 节。
+两项组合场景均已通过真实 SQLite 集成测试（临时数据库 + `prisma:push` + 编译后 `dist/` 子进程脚本），并已登记进 `server/scripts/run-tests.cjs` 的 `integrationTests` 集合。专项执行结果为 **2/2 通过**，Phase 1 的 state apply 组合验证条件已满足。
 
 | 组合项 | 测试文件 | 静态走查 | 真实执行 |
 |---|---|---|---|
-| 一：脏 legacy 项 → rejectedCount + medium 账本事件 | `pendingReviewAutoPromotionRealSqlite.test.js` | ✅ 应通过 | ⏳ 待 Codex |
-| 二：常规校验拒绝不触发 apply-failure warn | `stateCommitApplyFailureFilterRealSqlite.test.js` | ✅ 应通过 | ⏳ 待 Codex |
+| 一：脏 legacy 项 → rejectedCount + medium 账本事件 | `pendingReviewAutoPromotionRealSqlite.test.js` | ✅ 应通过 | ✅ 通过（1/1） |
+| 二：常规校验拒绝不触发 apply-failure warn | `stateCommitApplyFailureFilterRealSqlite.test.js` | ✅ 应通过 | ✅ 通过（1/1） |
 | 三：驾驶舱提示 | —（不自动化，见第 5 节） | ✅ 数据层已证 | ⏳ 用户目视 |
+
+首次执行组合项一时，fixture 传入了不存在的 `taskId`，触发 `DirectorEvent.taskId` 外键约束；事件写入按既有 best-effort 语义被忽略，导致只有 `ledgerEventFound` 断言失败。删除虚构任务关联后复跑通过。该问题属于测试装配错误，产品实现和验收断言均未放宽。
 
 ---
 
@@ -77,13 +79,23 @@
 
 ## 3. `beta` 工作区清洁性
 
-两个新脚本都复用 `changeProposalRealSqlite.test.js` 已验证过的模式：临时数据库建在 `server/.tmp/<随机名>/` 下,`finally` 块里 `fs.rmSync(..., { recursive: true, force: true })` 清理。运行前后 `git status` 应该只显示这次新增的三个文件（两个测试 + `run-tests.cjs` 的登记),不应该有 `.tmp` 残留或 SQLite 文件残留。这一点需要在真实机器上跑一遍后用 `git status --short` 确认——静态走查无法证明清理逻辑本身没有 bug。
+两个新脚本都复用 `changeProposalRealSqlite.test.js` 已验证过的模式：临时数据库建在 `server/.tmp/<随机名>/` 下，`finally` 块里 `fs.rmSync(..., { recursive: true, force: true })` 清理。真实执行后 `git status --short` 只显示预期的测试 fixture 修正和本报告回填，没有 `.tmp` 或 SQLite 文件残留。
 
 ---
 
-## 4. 交接给 Codex：执行说明
+## 4. Codex 执行记录与复现说明
 
-### 为什么由 Codex 执行
+### 执行结果（2026-08-24）
+
+```text
+✔ dirty legacy pending-review item produces rejectedCount + medium ledger event on real SQLite
+✔ routine validation rejection is excluded from the real apply-failure filter output; legacy apply rejection is kept
+tests 2, pass 2, fail 0
+```
+
+完整 `pnpm --filter @ai-novel/server test:integration` 已实际启动并完成 shared/server 编译，但全套命令仍因既有基线问题退出 1，包括未迁移默认测试库、prompt governance 既有差异，以及 Windows Node 24 直接 `spawnSync pnpm.cmd` 的 `EINVAL`。因此本报告只声明两个新增组合 smoke 通过，不声明全量 integration 基线通过。
+
+### 编写时为何交由 Codex 执行
 
 编写这两个测试的环境没有任何 Node.js 运行时，重新确认过：
 
@@ -92,7 +104,7 @@
 - 仓库根目录和 `desktop/` 下有 `node_modules`（说明曾在某处装过依赖），但整个仓库树里搜不到任何 `node.exe`，`desktop/node_modules/electron` 也只有包元数据，没有 Electron 二进制。
 - `.github/workflows/` 里只有桌面发布和 site-pages 两条流水线，没有跑测试套件的 CI。
 
-**因此这两个新测试文件从未被实际执行过一次**——它们是否真的编译通过、真的按预期产出下文的数字，目前只有静态代码走查支撑，不是可验证的事实。
+因此在 `1e79966` 提交时，这两个测试只有静态代码走查支撑；本节前面的 2026-08-24 执行结果补齐了这项验证缺口。
 
 ### 要跑的命令
 
@@ -110,7 +122,7 @@ node --test server/tests/pendingReviewAutoPromotionRealSqlite.test.js server/tes
 
 ### 失败时的处理原则
 
-这两个测试是**新写的、未验证的**，所以断言本身也可能是错的。失败时请先判断是哪一类：
+首次执行时测试本身也可能存在装配错误，因此失败时先判断是哪一类：
 
 1. **测试写错**（断言的数字/字符串与真实产出不符、`dist/` 导出路径不对、Prisma 字段名不对）→ 直接改测试，改动记进本文件第 0 节。
 2. **实现真的有问题**（`beta@36f4583` 的观测性加固在组合场景下不成立）→ **不要**改测试去迁就实现。按 `AGENT_COLLABORATION_GUIDE.md` §10 收集日志、定位层级、开 issue，并回报给 Claude Code 复评——这正是这两项组合验证存在的意义。
@@ -125,10 +137,7 @@ node --test server/tests/pendingReviewAutoPromotionRealSqlite.test.js server/tes
 
 ## 5. 对 Phase 1 封板的建议
 
-封板条件是"两项组合验证通过"。目前状态是**已实现、未验证**，不等于"通过"。因此：
-
-- 不在本报告基础上直接把 Phase 1 标记为正式封板。
-- Codex 按第 4 节跑出真实结果，回填第 0 节表格后再决定封板。
+封板条件“两项组合验证通过”已经满足。Phase 1 的 Proposal Core、Proposal UI 与 state apply observability 在代码和数据链路层面可以正式封板。驾驶舱最终视觉呈现仍按仓库规则由用户目视确认，不改变本次数据层组合验证结论。
 
 第三项"驾驶舱提示"按仓库 `AGENTS.md` 的 Verification Reuse Rules（"UI-facing…do not run browser/visual verification by default; the user will perform UI acceptance testing"）本就不该自动化——组合验证一已经在数据层证明了喂给驾驶舱投影（`DirectorBookAutomationProjectionService.ts:464`）的 `severity` / `summary` 字段是对的，且投影代码本身这次分支没有改动、已在 `CODE_REVIEW_STATE_APPLY_OBSERVABILITY.md` L2 走查过。剩下的"眼见为实"——AI 驾驶舱时间线上真的出现这条醒目提示——由用户跑起来后手动确认。
 

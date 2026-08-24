@@ -116,7 +116,6 @@ async function main() {
       dryRun: false,
       eligibleAfterDays: 14,
       runLimit: 50,
-      taskId: "smoke-combo-legacy-rejected",
     });
 
     const dirtyRow = await prisma.stateChangeProposal.findUnique({ where: { id: dirtyProposal.id } });
