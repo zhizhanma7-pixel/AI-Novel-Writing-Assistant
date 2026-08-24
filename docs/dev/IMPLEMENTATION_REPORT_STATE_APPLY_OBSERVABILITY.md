@@ -31,7 +31,7 @@
 - promoted 计数改用真实 committed 结果，而不是放行前候选数。因此全拒绝批次会记录为零 promoted，并通过 `rejected=...` 幂等键分量形成独立事件。
 - 仅在存在 rejected 时追加新的 metadata 与 key 分量；全成功批次的既有字段、事件类型和幂等键保持不变。
 - 自动放行运行告警增加 `rejectedCount`。
-- 章节增量链路若 `proposeAndCommit` 返回 rejected，输出包含小说、章节、数量和截断 item ID 的服务端 warning，避免返回值被静默丢弃。
+- 章节增量链路只对带 `legacy_apply_failed:` note 的写入隔离项输出服务端 warning；常规校验拒绝不会被混入该告警。warning 包含小说、章节、数量和截断 item ID，避免真实写入失败被静默丢弃或被日常校验噪音淹没。
 
 ## Verification
 
@@ -44,10 +44,12 @@
   - 逐字断言无 rejected 时的旧幂等键不变。
 - `changeProposalCore.test.js` + `changeProposalRealSqlite.test.js`：21 项通过。
   - 真实 SQLite 的关系值 `62 -> AI 52 -> user 55 -> execute` 继续通过。
+- L1 降噪复核：服务端构建通过；`chapterRuntimeCoordinator.test.js` + `stateCommitService.test.js` + `pendingReviewAutoPromotionService.test.js` 共 38 项通过。
+  - 专项用例确认常规校验拒绝会被排除，只有带 `legacy_apply_failed:` note 的写入隔离项进入章节增量告警。
 
 ## Release Notes Decision
 
-本次改动是内部错误分类与运行可观测性加固，不改变用户可见功能、接口操作方式或 UI，因此不更新 README 与用户发布说明。长期维护规则已写入工作流 wiki。
+本次改动不改变接口操作方式，但自动放行账本的 summary 与 severity 会投影到 AI 驾驶舱时间线，属于用户可见的异常提示与展示权重变化。因此 README 最新更新与正式发布说明均已补充；长期维护规则仍记录在工作流 wiki。
 
 ## Residual Risk
 

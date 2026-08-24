@@ -38,6 +38,7 @@ import {
 
 const ARTIFACT_DELTA_SOURCE_TYPE = "chapter_artifact_delta";
 const ARTIFACT_DELTA_SOURCE_STAGE = "chapter_execution";
+const LEGACY_APPLY_FAILURE_NOTE_PREFIX = "legacy_apply_failed:";
 
 type CharacterLookupItem = {
   id: string;
@@ -102,6 +103,14 @@ export interface ChapterArtifactDeltaSyncResult {
 
 export function buildContentHash(content: string): string {
   return createHash("sha256").update(compactText(content)).digest("hex").slice(0, 24);
+}
+
+export function filterLegacyApplyFailureProposals(
+  proposals: readonly StateChangeProposal[],
+): StateChangeProposal[] {
+  return proposals.filter((proposal) => proposal.validationNotes.some(
+    (note) => note.startsWith(LEGACY_APPLY_FAILURE_NOTE_PREFIX),
+  ));
 }
 
 function normalizeName(value: string | null | undefined): string {
@@ -399,12 +408,13 @@ export class ChapterArtifactDeltaService {
       contentProvenance: sourceQuality,
       proposals: resourceProposals,
     });
-    if (stateCommitResult.rejected.length > 0) {
+    const legacyApplyFailures = filterLegacyApplyFailureProposals(stateCommitResult.rejected);
+    if (legacyApplyFailures.length > 0) {
       console.warn("[chapter-artifact-delta] state proposals were rejected.", {
         novelId: input.novelId,
         chapterId: input.chapterId,
-        rejectedCount: stateCommitResult.rejected.length,
-        rejectedItemIds: stateCommitResult.rejected
+        rejectedCount: legacyApplyFailures.length,
+        rejectedItemIds: legacyApplyFailures
           .map((proposal) => proposal.id)
           .filter((id): id is string => Boolean(id))
           .slice(0, 50),
