@@ -42,6 +42,10 @@ executed / superseded -> 终态
 
 Change Proposal 信封内的正式写入保持原子性：任一批准项失败，整次信封执行回滚并返回错误。legacy 独立记录按行隔离；payload 格式或已失效引用导致的领域失败会把坏行标为 rejected 并留下 `legacy_apply_failed` note，其余合法记录继续，数据库与基础设施错误不会被降级成业务拒绝。
 
+legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定，不读取错误文案，也不把 applier 下游的裸校验异常一概当成领域失败。事务内捕获该错误后会继续使用同一个 transaction client，因此新增领域错误抛出点必须位于 SQL 之前，或仅位于已成功返回的 SQL 之后；禁止在失败 SQL 之后转换并抛出领域错误，否则 PostgreSQL 会进入 aborted transaction 并以 `25P02` 拒绝后续写入，而 SQLite 可能无法暴露该问题。
+
+旧 pending-review 自动放行若隔离出 rejected 项，沿用 `pending_review_auto_promotion` 事件并追加拒绝计数与截断后的 item ID，severity 至少为 medium；全拒绝批次的幂等键包含 rejected 分量，避免被同时间点的空结果覆盖。无拒绝项时事件字段和幂等键保持原格式。
+
 ## Policy、任务与审计复用
 
 - `DirectorPolicyEngine` 已预留 `proposalSeverity` 和 `outlineFidelity` 输入，但章节 Proposal Step 尚未接线。Proposal Core 当前对所有信封都要求显式审阅；按自治等级自动放行 minor 提案属于 Phase 2 接线范围。

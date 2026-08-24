@@ -399,6 +399,17 @@ export class ChapterArtifactDeltaService {
       contentProvenance: sourceQuality,
       proposals: resourceProposals,
     });
+    if (stateCommitResult.rejected.length > 0) {
+      console.warn("[chapter-artifact-delta] state proposals were rejected.", {
+        novelId: input.novelId,
+        chapterId: input.chapterId,
+        rejectedCount: stateCommitResult.rejected.length,
+        rejectedItemIds: stateCommitResult.rejected
+          .map((proposal) => proposal.id)
+          .filter((id): id is string => Boolean(id))
+          .slice(0, 50),
+      });
+    }
     const staleMarkedCount = await characterResourceStaleScanService.scanAfterChapter({
       novelId: input.novelId,
       chapterId: input.chapterId,

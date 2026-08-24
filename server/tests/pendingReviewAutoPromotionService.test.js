@@ -251,7 +251,70 @@ test("PendingReviewAutoPromotionService apply supersedes older proposals and com
   assert.deepEqual(calls.commit.proposalIds, ["relation-latest"]);
   assert.equal(ledgerEvents.length, 1);
   assert.equal(ledgerEvents[0].type, "pending_review_auto_promotion");
+  assert.equal(
+    ledgerEvents[0].idempotencyKey,
+    "book:novel-1:2026-07-01T00:00:00.000Z:relation-latest:relation-old",
+  );
+  assert.equal(Object.hasOwn(ledgerEvents[0].metadata, "rejectedCount"), false);
   assert.equal(calls.warnDetails.promotedCount, 1);
   assert.equal(calls.warnDetails.supersededCount, 1);
+  assert.equal(calls.warnDetails.rejectedCount, 0);
+});
+
+test("PendingReviewAutoPromotionService reports rejected legacy apply results", async () => {
+  const calls = {};
+  const rows = [
+    row({
+      id: "relation-invalid",
+      createdAt: "2026-06-03T00:00:00.000Z",
+      payload: { sourceCharacterId: "char-1", targetCharacterId: "char-2" },
+    }),
+  ];
+  const ledgerEvents = [];
+  const service = new PendingReviewAutoPromotionService({
+    proposalStore: buildProposalStore(rows, calls),
+    conflictStore: { async findMany() { return []; } },
+    stateCommitService: {
+      async commitExistingProposals() {
+        return {
+          versionRecord: null,
+          committed: [],
+          pendingReview: [],
+          rejected: [{
+            id: "relation-invalid",
+            proposalType: "relation_state_update",
+          }],
+        };
+      },
+    },
+    ledgerEventService: {
+      async recordEvent(input) {
+        ledgerEvents.push(input);
+      },
+    },
+    warn: (_message, details) => {
+      calls.warnDetails = details;
+    },
+    now: () => new Date("2026-07-01T00:00:00.000Z"),
+  });
+
+  await service.apply("novel-1", {
+    since: "2026-06-01T00:00:00.000Z",
+    dryRun: false,
+    eligibleAfterDays: 14,
+    runLimit: 10,
+  });
+
+  assert.equal(ledgerEvents.length, 1);
+  assert.equal(ledgerEvents[0].severity, "medium");
+  assert.match(ledgerEvents[0].summary, /其中 1 条因数据问题被拒绝/);
+  assert.deepEqual(ledgerEvents[0].metadata.rejectedItemIds, ["relation-invalid"]);
+  assert.equal(ledgerEvents[0].metadata.rejectedCount, 1);
+  assert.equal(
+    ledgerEvents[0].idempotencyKey,
+    "book:novel-1:2026-07-01T00:00:00.000Z:none:none:rejected=relation-invalid",
+  );
+  assert.deepEqual(ledgerEvents[0].metadata.promotedIds, []);
+  assert.equal(calls.warnDetails.rejectedCount, 1);
 });
 

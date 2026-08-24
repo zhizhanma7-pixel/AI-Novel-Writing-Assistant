@@ -7,6 +7,12 @@ const {
 const { prisma } = require("../dist/db/prisma.js");
 const { canonicalStateService } = require("../dist/services/novel/state/CanonicalStateService.js");
 const { stateVersionLog } = require("../dist/services/novel/state/StateVersionLog.js");
+const {
+  applyStateChangeProposal,
+} = require("../dist/services/novel/state/StateProposalApplierRegistry.js");
+const {
+  StateProposalDomainError,
+} = require("../dist/services/novel/state/StateProposalDomainError.js");
 
 function makeResourceProposal(overrides = {}) {
   const { payload: payloadOverrides = {}, ...proposalOverrides } = overrides;
@@ -49,6 +55,67 @@ function makeResourceProposal(overrides = {}) {
     ...proposalOverrides,
   };
 }
+
+test("state proposal appliers expose stable typed domain reasons", async () => {
+  const baseProposal = {
+    novelId: "novel-1",
+    chapterId: "chapter-5",
+    sourceSnapshotId: null,
+    sourceType: "chapter_background_sync",
+    sourceStage: "chapter_execution",
+    riskLevel: "low",
+    status: "committed",
+    summary: "typed domain error fixture",
+    evidence: ["fixture evidence"],
+    validationNotes: [],
+  };
+  const expectReason = async (proposal, tx, expectedReason) => {
+    await assert.rejects(
+      applyStateChangeProposal(tx, proposal),
+      (error) => {
+        assert.ok(error instanceof StateProposalDomainError);
+        assert.equal(error.proposalType, proposal.proposalType);
+        assert.equal(error.reason, expectedReason);
+        return true;
+      },
+    );
+  };
+
+  await expectReason({
+    ...baseProposal,
+    proposalType: "character_state_update",
+    payload: {},
+  }, {}, "missing_character_id");
+  await expectReason({
+    ...baseProposal,
+    proposalType: "character_state_update",
+    payload: { characterId: "missing-character" },
+  }, {
+    character: { updateMany: async () => ({ count: 0 }) },
+  }, "character_not_found");
+  await expectReason({
+    ...baseProposal,
+    proposalType: "relation_state_update",
+    payload: { sourceCharacterId: "character-1" },
+  }, {}, "invalid_payload");
+  await expectReason({
+    ...baseProposal,
+    proposalType: "relation_state_update",
+    payload: { sourceCharacterId: "character-1", targetCharacterId: "character-1" },
+  }, {}, "same_character_relation");
+  await expectReason({
+    ...baseProposal,
+    proposalType: "relation_state_update",
+    payload: { sourceCharacterId: "character-1", targetCharacterId: "character-2" },
+  }, {
+    character: { count: async () => 1 },
+  }, "character_outside_novel");
+  await expectReason({
+    ...baseProposal,
+    proposalType: "character_resource_update",
+    payload: {},
+  }, {}, "invalid_payload");
+});
 
 test("StateCommitService validate auto-commits low-risk runtime updates", () => {
   const service = new StateCommitService();
@@ -509,7 +576,10 @@ test("StateCommitService rejects an invalid legacy item without blocking valid l
 
     assert.deepEqual(result.committed.map((proposal) => proposal.id), [validRow.id]);
     assert.deepEqual(result.rejected.map((proposal) => proposal.id), [invalidRow.id]);
-    assert.match(result.rejected[0].validationNotes.join(" "), /legacy_apply_failed:character_state_update/);
+    assert.match(
+      result.rejected[0].validationNotes.join(" "),
+      /legacy_apply_failed:character_state_update:character_not_found/,
+    );
     assert.equal(rejectedUpdates[0].data.status, "rejected");
     assert.equal(committedUpdates[0].data.status, "committed");
   } finally {
@@ -633,6 +703,66 @@ test("StateCommitService keeps legacy infrastructure failures strict", async () 
   }
 });
 
+test("StateCommitService does not classify ordinary errors by legacy message prefix", async () => {
+  const service = new StateCommitService();
+  const row = {
+    id: "proposal-legacy-prefix-infrastructure-failure",
+    novelId: "novel-1",
+    chapterId: "chapter-5",
+    sourceSnapshotId: null,
+    sourceType: "chapter_background_sync",
+    sourceStage: "chapter_execution",
+    proposalType: "character_state_update",
+    riskLevel: "low",
+    status: "pending_review",
+    summary: "message prefix must not define error semantics",
+    payloadJson: JSON.stringify({ characterId: "character-1", currentState: "ready" }),
+    evidenceJson: JSON.stringify(["legacy evidence"]),
+    validationNotesJson: JSON.stringify([]),
+    changeProposalId: null,
+  };
+  const originals = {
+    proposalFindMany: prisma.stateChangeProposal.findMany,
+    proposalUpdate: prisma.stateChangeProposal.update,
+    transaction: prisma.$transaction,
+  };
+  let proposalUpdateCalled = false;
+
+  try {
+    prisma.stateChangeProposal.findMany = async () => [row];
+    prisma.stateChangeProposal.update = async () => {
+      proposalUpdateCalled = true;
+      return {};
+    };
+    prisma.$transaction = async (callback) => callback({
+      character: {
+        updateMany: async () => {
+          throw new Error("Character state proposal database connection lost");
+        },
+      },
+      stateChangeProposal: {
+        update: async () => {
+          throw new Error("proposal must not be marked committed");
+        },
+      },
+    });
+
+    await assert.rejects(
+      service.commitExistingProposals({
+        novelId: "novel-1",
+        proposalIds: [row.id],
+        reason: "legacy_prefix_infrastructure_failure",
+      }),
+      /Character state proposal database connection lost/,
+    );
+    assert.equal(proposalUpdateCalled, false);
+  } finally {
+    prisma.stateChangeProposal.findMany = originals.proposalFindMany;
+    prisma.stateChangeProposal.update = originals.proposalUpdate;
+    prisma.$transaction = originals.transaction;
+  }
+});
+
 test("StateCommitService legacy persistence converts domain apply failures into rejected rows", async () => {
   const service = new StateCommitService();
   const rows = new Map();
@@ -706,7 +836,10 @@ test("StateCommitService legacy persistence converts domain apply failures into 
     assert.equal(result.committed[0].proposalType, "event_record");
     assert.equal(result.rejected.length, 1);
     assert.equal(result.rejected[0].proposalType, "character_state_update");
-    assert.match(result.rejected[0].validationNotes.join(" "), /legacy_apply_failed:character_state_update/);
+    assert.match(
+      result.rejected[0].validationNotes.join(" "),
+      /legacy_apply_failed:character_state_update:character_not_found/,
+    );
   } finally {
     prisma.$transaction = originals.transaction;
   }
