@@ -135,7 +135,7 @@ if (input.task?.checkpointType === "proposal_review_required") {
 
 ### 2.3 Non-goals
 
-- AI 侧提案生产者、Expected vs Actual 对比、L0–L3 自治等级与 policy 门禁 → Phase 2。
+- AI 侧提案生产者、L0–L3 自治等级与 policy 门禁 → Phase 2A；Expected vs Actual 对比 → Phase 2C。
 - O1（typed error 替换消息前缀分类）、O2（legacy rejected 告警）→ 另开短后端加固分支，不进本分支。
 - ledger-only 类型的正式 applier。
 - Android / 移动端专项布局（沿用现有响应式即可，不做单独适配）。
@@ -178,4 +178,4 @@ if (input.task?.checkpointType === "proposal_review_required") {
 - `docs/wiki/workflows/change-proposal-review.md` 增补"审阅界面入口与错误恢复"小节。
 - `docs/dev/IMPLEMENTATION_REPORT_PROPOSAL_UI.md`（按协作指南 §4 Step 3 格式）。
 
-完成后合回 `beta` 做前后端联合 smoke，再进入 Phase 2。
+完成后合回 `beta` 做前后端联合 smoke，再进入 Phase 2（自 2A 起）。

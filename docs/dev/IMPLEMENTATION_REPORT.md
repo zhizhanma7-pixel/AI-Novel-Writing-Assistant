@@ -32,7 +32,7 @@ Change Proposal 后端核心：把多条 `StateChangeProposal` 组织成可版�
 
 - H1：引入覆盖全部九种状态类型的显式 applier registry。角色状态、角色资源和角色关系走正式状态写入；其余 ledger-only 类型在 Change Proposal 执行前返回 `unsupported_change`，不会伪装成 executed。
 - H2：逐项 `after` / `editedValue` 通过类型与 path 映射写回 `userEditedPayloadJson`，执行前再次校验 diff 值和 payload 一致。
-- M3：文档明确 Proposal policy 输入为 Phase 2 接线项；Phase 1 一律显式审阅。
+- M3：文档明确 Proposal policy 输入为 Phase 2A 接线项；Phase 1 一律显式审阅。
 - M4：pending proposal 会生产 `proposal_review_required` checkpoint，Director 审阅命令完成后按实际 proposal status 清理或保留 checkpoint。
 - M5：Planner、replan、章节 pending-review context 与角色资源 context 统一复用 `changeProposalId: null` 的 legacy 查询边界。
 - M6：artifact 状态更新保留 `user_edited` 来源和 `protectedUserContent`。
@@ -69,6 +69,6 @@ Change Proposal 后端核心：把多条 `StateChangeProposal` 组织成可版�
 
 - 本阶段没有 Proposal 审阅 UI，API 主要供后续客户端和章节 Proposal Step 接入。
 - record 类型 source ref 当前用于来源追踪；stale 的确定性校验覆盖 Director Artifact、其依赖版本和 Chapter 内容哈希。
-- 章节执行 Proposal 的 AI 生产者、Expected vs Actual 对比和自治等级 policy 接线属于 Phase 2。
+- 自治等级 policy 接线属于 Phase 2A；章节执行 Proposal 的 AI 生产者与 Expected vs Actual 对比属于 Phase 2C。
 - event、information disclosure、conflict、payoff、world rule 和 book contract 目前保持 ledger-only；它们在拥有正式状态 applier 前不能通过 Change Proposal 标记为 executed。
 - 章节增量与 Proposal 关系写入共享同一 helper；同一角色对的当前阶段遵循最后一次成功正式写入，跨来源排序的专项验收留在后续关系状态协调阶段。

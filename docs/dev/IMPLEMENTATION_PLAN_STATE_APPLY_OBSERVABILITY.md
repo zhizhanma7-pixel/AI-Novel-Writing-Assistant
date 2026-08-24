@@ -11,7 +11,7 @@
 ## Non-goals
 
 - 任何 Proposal 功能行为改变（审阅、执行、UI 一律不动）。
-- ledger-only 类型补正式 applier —— 属于 Phase 2。
+- ledger-only 类型补正式 applier —— 属于 Phase 2A。
 - `CODE_REVIEW_PROPOSAL_UI.md` 里仍开放的 L6 / L7。
 - Windows 桌面 managed server 的 `spawn` 问题 —— 见文末，建议单独分支。
 
@@ -118,7 +118,7 @@ function isLegacyStateProposalDomainError(error: unknown): boolean {
 - `docs/wiki/workflows/change-proposal-review.md` 的"执行与旧链路隔离"小节补一句：领域错误按类型判定，且不得在失败 SQL 之后抛出。
 - `docs/dev/IMPLEMENTATION_REPORT_STATE_APPLY_OBSERVABILITY.md`。
 
-完成后合回 `beta`，与 Phase 2 的工作并行不冲突（本分支不碰 Proposal 模块与客户端）。
+完成后合回 `beta`，与 Phase 2A 起的后续工作并行不冲突（本分支不碰 Proposal 模块与客户端）。
 
 ---
 

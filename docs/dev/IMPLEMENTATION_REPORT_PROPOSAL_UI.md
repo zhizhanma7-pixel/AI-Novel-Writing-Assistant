@@ -106,7 +106,7 @@
 
 ## Known Risks
 
-- Phase 1 仍没有 AI 侧 Proposal 生产者；自动生成 Chapter Execution Proposal、Expected vs Actual、L0–L3 自治等级与 policy 门禁属于 Phase 2。
+- Phase 1 仍没有 AI 侧 Proposal 生产者；通用生产者接线、L0–L3 自治等级与 policy 门禁属于 Phase 2A，自动生成 Chapter Execution Proposal 与 Expected vs Actual 属于 Phase 2C。
 - 六种 ledger-only 状态类型仍不能执行为正式状态；界面只提前说明并阻止包含已批准 ledger-only 项的执行。
 - O1 typed domain error 与 O2 legacy rejected 告警仍按关口处置留在独立后端加固分支。
 - 视觉与逐项交互的浏览器手工验收由评审方执行；本实现阶段按 AGENTS.md 只做代码级检查。

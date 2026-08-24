@@ -14,7 +14,7 @@
 |---|---|---|---|
 | H1 | 7/9 状态类型不落库，守卫是死代码 | **Pass** | 新增 `StateProposalApplierRegistry.ts`，`Record<全部 9 种>` 由 TS 强制穷举；`relation_state_update` 有真实 applier；6 种 ledger-only 显式声明，且在 `executeProposal` 前以 `unsupported_change`(409) 阻断，不再伪装 executed |
 | H2 | 编辑 `after` 不影响实际写入值 | **Pass** | 新增 `ProposedChangeValueMapper`，`after` / `editedValue` 按 path（含别名表）写回 payload；`afterJson` 由 payload 反推；执行前 `assertEditedValueMatchesPayload` 二次校验；已编辑项禁止以 `accepted` 批准 |
-| M3 | policy 提案门禁无调用方 | **Pass（文档口径关闭）** | 未接线，但 wiki 与实现报告已改口径为「输入已预留，Phase 2 接线，Phase 1 一律显式审阅」。符合原评审给出的第二个选项 |
+| M3 | policy 提案门禁无调用方 | **Pass（文档口径关闭）** | 未接线，但 wiki 与实现报告已改口径为「输入已预留，Phase 2A 接线，Phase 1 一律显式审阅」。符合原评审给出的第二个选项 |
 | M4 | checkpoint 无生产者 / 任务状态无条件 waiting_approval | **Pass** | `markTaskPendingReview()` 在 create / submit / regenerate 写入 `proposal_review_required`，并排除终态任务；`buildProposalReviewResultTaskState()` 按 proposal 实际状态映射任务态 |
 | M5 | planner / 资源上下文漏过滤 | **Pass** | 新增 `buildLegacyPendingReviewWhere()`，4 个消费点全部收敛，并有 `legacyPendingReviewWhere.test.js` |
 | M6 | 执行后覆盖 `user_edited` 来源 | **Pass** | `markStatus` 先读现有 artifact 再透传 `source` / `protectedUserContent`；id 用 `buildDirectorArtifactId`（已核对：该 id 不含 novelId，键一致，查得到） |
@@ -96,5 +96,5 @@ commitExistingProposals   ← ChangeProposalApplyService（新信封路径）
 建议：
 
 1. 从合并后的 main/beta 拉 **`feat/change-proposal-ui`**，由前端负责人接手，Scope 限定为：提案列表与详情、逐项 diff 的 `✓ 接受 / ✎ 修改 / ✗ 拒绝`、部分批准必须显式携带 `unlistedDecision`、编辑必须走 `editedPayload` 或可映射的 `after`、stale 提示与冲突（409）处理、以及 `proposal_review_required` checkpoint 在任务抽屉与 AI 驾驶舱的入口。N4 的接口契约要在这个分支的第一份 plan 里写清楚。
-2. **不要**把"AI 侧的提案生产者"塞进 UI 分支。目前全仓只有 `POST /api/novels/:id/change-proposals` 一个创建入口，导演流程不会自己提交 Chapter Execution Proposal；这条接线连同 Expected vs Actual 对比、L0–L3 自治等级、policy 门禁，属于 Phase 2 的同一批工作，应在 Phase 2 的 `IMPLEMENTATION_PLAN.md` 里成组认领。
+2. **不要**把"AI 侧的提案生产者"塞进 UI 分支。目前全仓只有 `POST /api/novels/:id/change-proposals` 一个创建入口，导演流程不会自己提交 Chapter Execution Proposal。按 2026-08-24 的口径更正，这批工作拆为：通用生产者接线、L0–L3 自治等级、policy 门禁归 **Phase 2A（Proposal Runtime Bridge）**；Chapter Execution Proposal 生产者与 Expected vs Actual 对比归 **Phase 2C（Chapter Execution Divergence）**。应在各自子阶段的实施计划里成组认领，不要合成一份笼统的「Proposal Phase 2 计划」。
 3. Roadmap 的 Phase 1 验收清单建议就地标注为「后端核心已关闭（`e2231c3`），UI 由 `feat/change-proposal-ui` 承接」，避免下次复盘时出现"Phase 1 到底关没关"的歧义。

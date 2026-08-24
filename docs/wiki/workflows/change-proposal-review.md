@@ -48,7 +48,7 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 
 ## Policy、任务与审计复用
 
-- `DirectorPolicyEngine` 已预留 `proposalSeverity` 和 `outlineFidelity` 输入，但章节 Proposal Step 尚未接线。Proposal Core 当前对所有信封都要求显式审阅；按自治等级自动放行 minor 提案属于 Phase 2 接线范围。
+- `DirectorPolicyEngine` 已预留 `proposalSeverity` 和 `outlineFidelity` 输入，但章节 Proposal Step 尚未接线。Proposal Core 当前对所有信封都要求显式审阅；按自治等级自动放行 minor 提案属于 Phase 2A（Proposal Runtime Bridge）接线范围。
 - 带 `taskId` 的批准、部分批准、拒绝、再生和执行请求通过 `review_proposal` DirectorRunCommand 排队，HTTP 返回 202，不创建第二套队列。
 - 提案被索引为 `change_proposal` DirectorArtifact，并沿用 artifact dependency 进行 stale 检测。
 - 事件沿用 `DirectorEvent`，记录 `proposal_created`、`proposal_reviewed`、`proposal_applied` 和 `proposal_superseded`。
@@ -59,7 +59,7 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 - `character_state_update`、`character_resource_update` 和 `relation_state_update` 有正式状态 applier。
 - 关系阶段写入保留逐项记录的真实 `sourceType`。章节增量和 Proposal 使用同一正式写入 helper；同一角色对的当前阶段由最后一次成功写入决定，历史阶段不会删除。
 - 其他旧 `StateChangeProposal` 类型继续保持 ledger-only 兼容，供既有章节状态账本使用；Change Proposal 若批准了这些类型，执行接口会明确返回“不支持正式写入”，不会把信封标成 executed。
-- 章节执行 Proposal 的 AI 生产者、`Expected vs Actual` 对比和自动导演正文前置暂停属于 Phase 2，当前只有后端创建与审阅入口。
+- 章节执行 Proposal 的 AI 生产者、`Expected vs Actual` 对比和自动导演正文前置暂停属于 Phase 2C（Chapter Execution Divergence），当前只有后端创建与审阅入口。通用的 AI 提案生产者接线本身属于其前置的 Phase 2A。
 
 ## 审阅界面入口与错误恢复
 

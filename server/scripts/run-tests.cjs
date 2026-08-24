@@ -13,11 +13,13 @@ const integrationTests = new Set([
   "novelDirectorRetry.test.js",
   "novelWorkflowRuntime.test.js",
   "p0bRealPrismaChain.test.js",
+  "pendingReviewAutoPromotionRealSqlite.test.js",
   "prompting-governance.test.js",
   "prompting.test.js",
   "promptWorkbench.test.js",
   "ragCompatibilityBootstrap.test.js",
   "runtimeMigrations.test.js",
+  "stateCommitApplyFailureFilterRealSqlite.test.js",
 ]);
 
 function listTestFiles(directory) {

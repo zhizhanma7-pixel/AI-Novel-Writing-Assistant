@@ -17,4 +17,6 @@
 - N1 已给出代码处置，不作为 Known Risk 接受。
 - `main@308ca1b` 与功能分支已按相同 fast 文件边界运行并保存失败清单；`feature - main` 失败差集为空。详见 `TEST_BASELINE_PROPOSAL_CORE.md`。
 
-结论：Proposal Phase 1 后端核心满足进入 `beta` 集成验证的代码关口。Proposal UI 由后续 `feat/change-proposal-ui` 分支承接；AI 侧 Proposal 生产者、Expected vs Actual、自治等级与 policy 门禁仍属于 Phase 2。
+结论：Proposal Phase 1 后端核心满足进入 `beta` 集成验证的代码关口。Proposal UI 由后续 `feat/change-proposal-ui` 分支承接；AI 侧 Proposal 生产者、自治等级与 policy 门禁属于 Phase 2A（Proposal Runtime Bridge），Expected vs Actual 属于 Phase 2C（Chapter Execution Divergence）。
+
+> 口径更正（2026-08-24）：本文件原写「仍属于 Phase 2」。按 `05_ROADMAP_AND_ACCEPTANCE.md`，Phase 2 是 Outline Workflow；上述遗留接线项对应其子阶段 2A / 2C，不是 Phase 2 本身。

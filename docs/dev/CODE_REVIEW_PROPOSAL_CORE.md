@@ -121,16 +121,16 @@ Phase 1 至少要补 `relation_state_update`——**复用 `CharacterDynamicsMut
 
 `proposalSeverity` / `outlineFidelity` 两个入参在全仓**只有测试在传**（`server/tests/directorRuntimePolicy.test.js`），生产代码没有任何调用点。而 `docs/wiki/workflows/change-proposal-review.md` 写的是"major 或 strict 提案需要人工批准"——文档描述了一个未接线的能力。
 
-同时 `ChangeProposalApplyService.executeProposal()` 完全不查 policy，也读不到 `PROJECT_GUIDE` §7 的 Autonomy Level（L0–L3 目前在代码里不存在）。当前之所以还安全，只是因为执行必须由外部显式调用两次 HTTP；一旦 Phase 2 把 AI 自动执行接上，这层门禁就是空的。
+同时 `ChangeProposalApplyService.executeProposal()` 完全不查 policy，也读不到 `PROJECT_GUIDE` §7 的 Autonomy Level（L0–L3 目前在代码里不存在）。当前之所以还安全，只是因为执行必须由外部显式调用两次 HTTP；一旦 Phase 2A 把 AI 自动执行接上，这层门禁就是空的。
 
-**建议：** `executeProposal` 前调用 policy engine，把信封的 `outlineFidelity` 与逐项最高 severity 传进去；或者在 wiki 明确标注"策略入参已预留，Phase 2 接线"，不要让文档跑在实现前面。
+**建议：** `executeProposal` 前调用 policy engine，把信封的 `outlineFidelity` 与逐项最高 severity 传进去；或者在 wiki 明确标注"策略入参已预留，Phase 2A 接线"，不要让文档跑在实现前面。
 
 ### M4 — `proposal_review_required` checkpoint 只有文案没有生产者；待审提案不阻塞任何链路
 
 **位置：** `novelWorkflowExplainability.ts:59,72,85`（三张映射表）、`DirectorCommandExecutor.ts:203-215`
 
 - 新 checkpoint `proposal_review_required` 在三张展示映射里都加了中文文案，但全仓没有任何地方把 `task.checkpointType` 设成这个值——纯声明。
-- `pendingReviewContext` 排除了 `changeProposalId != null`，所以一条 pending 的 `chapter_execution` 提案**不会阻塞章节生成**。自动导演会一边等审批一边继续写正文。Phase 1 后端阶段可以接受，但要记在 Phase 2 的接线清单里，否则 "AI 先提交 Proposal → 用户批准 → 生成正文" 这个 P0 范式落不了地。
+- `pendingReviewContext` 排除了 `changeProposalId != null`，所以一条 pending 的 `chapter_execution` 提案**不会阻塞章节生成**。自动导演会一边等审批一边继续写正文。Phase 1 后端阶段可以接受，但要记在 Phase 2C 的接线清单里（正文前置暂停与 Expected vs Actual 同批），否则 "AI 先提交 Proposal → 用户批准 → 生成正文" 这个 P0 范式落不了地。
 - `DirectorCommandExecutor` 在 `review_proposal` 命令完成后，**无条件**把任务置为 `status: "waiting_approval"` 且 `checkpointType: null`——包括 `reject` 和 `execute` 之后。执行成功的任务被推进一个没有 checkpoint 说明的等待态，前端无法解释它在等什么。
 
 **建议：** 按 decision 分支设置任务状态（execute 成功应回到可继续态；pending 的提案才设 `proposal_review_required`），并让 checkpoint 真正被写入。
@@ -202,7 +202,7 @@ Phase 1 至少要补 `relation_state_update`——**复用 `CharacterDynamicsMut
 4. **M5** 抽 `buildLegacyPendingReviewWhere()`，收敛 `PlannerService` / `PlannerReplanService` / `CharacterResourceLedgerService` 三个漏网点。
 5. **M4** `DirectorCommandExecutor` 按 decision 分支设置任务状态；让 `proposal_review_required` 真正被写入。
 6. **M6** `markStatus` 保留 `user_edited` / `protectedUserContent`。
-7. **M3** 要么给 `executeProposal` 接上 policy engine，要么把 wiki 改成"已预留、Phase 2 接线"。
+7. **M3** 要么给 `executeProposal` 接上 policy engine，要么把 wiki 改成"已预留、Phase 2A 接线"。
 8. **L7 / L8** 按上文二选一处理，改 schema 注释也算处理。
 
-另需补上 `IMPLEMENTATION_REPORT.md`（协作指南 §4 Step 3 要求的交付物，当前缺失），以及说明 Phase 1 验收链路里"AI 侧的提案生产者"目前尚未存在——全仓只有 `POST /api/novels/:id/change-proposals` 一个创建入口，导演流程不会自己提交 Chapter Execution Proposal。这一项是 Phase 1 → Phase 2 之间必须有人认领的接线工作，建议写进下一份 `IMPLEMENTATION_PLAN.md` 的 Scope。
+另需补上 `IMPLEMENTATION_REPORT.md`（协作指南 §4 Step 3 要求的交付物，当前缺失），以及说明 Phase 1 验收链路里"AI 侧的提案生产者"目前尚未存在——全仓只有 `POST /api/novels/:id/change-proposals` 一个创建入口，导演流程不会自己提交 Chapter Execution Proposal。这一项是 Phase 1 → Phase 2A 之间必须有人认领的接线工作，建议写进 Phase 2A 的实施计划 Scope。

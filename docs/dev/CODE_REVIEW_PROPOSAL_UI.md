@@ -99,7 +99,7 @@ await props.onSave({ after: parseInlineValue(inlineValue, props.change.after) })
 
 两处都是服务端已有事实的第二副本：
 
-- ledger-only 集合的权威在 `server/src/services/novel/state/StateProposalApplierRegistry.ts` 的 `mode: "ledger_only"`。Phase 2 给 `world_rule_change` 补了 applier 之后，界面还会继续说"暂不能写入正式状态"并禁用执行按钮，除非有人记得同步改前端。
+- ledger-only 集合的权威在 `server/src/services/novel/state/StateProposalApplierRegistry.ts` 的 `mode: "ledger_only"`。Phase 2A 给 `world_rule_change` 补了 applier 之后，界面还会继续说"暂不能写入正式状态"并禁用执行按钮，除非有人记得同步改前端。
 - 别名表的权威在 `server/src/services/novel/proposal/domain/ProposedChangeValueMapper.ts`。而且两边逻辑**不等价**：服务端 `resolvePayloadKey` 是 `ALIASES[type][terminal] ?? terminal`，也就是 **path 末段直接等于 payload 键时无需别名也能映射**；客户端 `canEditProposedChangeInline` 要求别名条目存在才返回 true。结果是 path 形如 `...trustScore`（payload 里就有 `trustScore`）的项，服务端本可以行内改，客户端却判定不可行内编辑，强制用户去编 JSON。
 
 这属于协作指南 §4 明确要查的"是否制造了重复逻辑"。
@@ -158,13 +158,13 @@ await props.onSave({ after: parseInlineValue(inlineValue, props.change.after) })
 5. **L5** wiki 补错误契约说明；结构化 details 另开字段。
 6. **L6 / L7** 按上文处理，改注释或改判定均可。
 
-H1 修完即可合并；M2–M4 建议同批处理，L 系列可留到 Phase 2 一并清理。
+H1 修完即可合并；M2–M4 建议同批处理，L 系列可留到 Phase 2A 一并清理。
 
 ---
 
 ## 7. 复核 — `2ba2e33 fix(proposal): close proposal UI review findings`
 
-逐条核验修复实现，结论：**H1、M2、M3、M4、L5 关闭；L6、L7 仍开放（LOW，可留到 Phase 2）。同意合并进 `beta`。**
+逐条核验修复实现，结论：**H1、M2、M3、M4、L5 关闭；L6、L7 仍开放（LOW，可留到 Phase 2A 一并清理，不阻塞主线启动）。同意合并进 `beta`。**
 
 | 编号 | 状态 | 核验依据 |
 |---|---|---|
