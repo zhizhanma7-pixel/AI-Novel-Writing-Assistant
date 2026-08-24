@@ -13,6 +13,7 @@ import { buildStateProposalSubjectKey } from "./stateProposalSubjectKey";
 
 const SUPERSEDED_REASON = "已被更新提案覆盖";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const REJECTED_ITEM_ID_METADATA_LIMIT = 50;
 
 type ProposalStatus = StateChangeProposal["status"];
 
@@ -313,7 +314,7 @@ export class PendingReviewAutoPromotionService {
     }
 
     const supersededIds = preview.superseded.map((item) => item.proposalId);
-    const promotedIds = preview.promotable.map((item) => item.proposalId);
+    const promotableIds = preview.promotable.map((item) => item.proposalId);
 
     for (const proposalId of supersededIds) {
       await withSqliteRetry(
@@ -322,15 +323,18 @@ export class PendingReviewAutoPromotionService {
       );
     }
 
-    const commitResult = promotedIds.length > 0
+    const commitResult = promotableIds.length > 0
       ? await this.getCommitService().commitExistingProposals({
           novelId,
-          proposalIds: promotedIds,
+          proposalIds: promotableIds,
           sourceType: "auto_director",
           sourceStage: "pending_review_auto_promotion",
           reason: "pending_review_auto_promotion:no_open_conflict_after_age_gate",
         } satisfies CommitExistingProposalsInput)
       : null;
+    const promotedIds = (commitResult?.committed ?? [])
+      .map((proposal) => proposal.id)
+      .filter((id): id is string => Boolean(id));
 
     await this.recordLedgerEvent({
       novelId,
@@ -338,11 +342,13 @@ export class PendingReviewAutoPromotionService {
       preview,
       promotedIds,
       supersededIds,
+      commitResult,
     });
     this.warnApply({
       novelId,
       promotedIds,
       supersededIds,
+      rejectedCount: commitResult?.rejected.length ?? 0,
       conflictSkippedCount: preview.conflictSkipped.length,
       deferredByRunLimitCount: preview.deferredByRunLimit.length,
     });
@@ -505,25 +511,42 @@ export class PendingReviewAutoPromotionService {
     preview: PendingReviewAutoPromotionResult;
     promotedIds: string[];
     supersededIds: string[];
+    commitResult: StateCommitResult | null;
   }): Promise<void> {
+    const rejectedCount = input.commitResult?.rejected.length ?? 0;
+    const rejectedItemIds = (input.commitResult?.rejected ?? [])
+      .map((proposal) => proposal.id)
+      .filter((id): id is string => Boolean(id))
+      .slice(0, REJECTED_ITEM_ID_METADATA_LIMIT);
+    const idempotencyParts = [
+      input.options.taskId ?? "book",
+      input.novelId,
+      input.preview.evaluatedAt,
+      input.promotedIds.join(",") || "none",
+      input.supersededIds.join(",") || "none",
+    ];
+    if (rejectedCount > 0) {
+      idempotencyParts.push(
+        `rejected=${rejectedItemIds.join(",") || `count-${rejectedCount}`}`,
+      );
+    }
+    const baseSummary = `待确认状态自动放行：提交 ${input.promotedIds.length} 条，覆盖 ${input.supersededIds.length} 条，跳过 ${input.preview.conflictSkipped.length} 条。`;
     await this.getLedgerEventService().recordEvent({
       type: "pending_review_auto_promotion",
-      idempotencyKey: [
-        input.options.taskId ?? "book",
-        input.novelId,
-        input.preview.evaluatedAt,
-        input.promotedIds.join(",") || "none",
-        input.supersededIds.join(",") || "none",
-      ].join(":"),
+      idempotencyKey: idempotencyParts.join(":"),
       taskId: input.options.taskId ?? null,
       runId: input.options.runId ?? null,
       novelId: input.novelId,
       nodeKey: "state.pending_review_auto_promotion",
-      summary: `待确认状态自动放行：提交 ${input.promotedIds.length} 条，覆盖 ${input.supersededIds.length} 条，跳过 ${input.preview.conflictSkipped.length} 条。`,
+      summary: rejectedCount > 0
+        ? `${baseSummary}其中 ${rejectedCount} 条因数据问题被拒绝。`
+        : baseSummary,
       affectedScope: input.promotedIds.length > 0
         ? `state_proposals:${input.promotedIds.join(",")}`
         : null,
-      severity: input.promotedIds.length > 0 || input.supersededIds.length > 0 ? "medium" : "low",
+      severity: input.promotedIds.length > 0 || input.supersededIds.length > 0 || rejectedCount > 0
+        ? "medium"
+        : "low",
       metadata: {
         criteria: input.preview.criteria,
         promotedIds: input.promotedIds,
@@ -531,6 +554,12 @@ export class PendingReviewAutoPromotionService {
         conflictSkipped: input.preview.conflictSkipped,
         deferredByRunLimit: input.preview.deferredByRunLimit,
         executedAt: input.preview.evaluatedAt,
+        ...(rejectedCount > 0
+          ? {
+              rejectedCount,
+              rejectedItemIds,
+            }
+          : {}),
       },
       occurredAt: input.preview.evaluatedAt,
     }).catch(() => undefined);
@@ -540,6 +569,7 @@ export class PendingReviewAutoPromotionService {
     novelId: string;
     promotedIds: string[];
     supersededIds: string[];
+    rejectedCount: number;
     conflictSkippedCount: number;
     deferredByRunLimitCount: number;
   }): void {
@@ -548,6 +578,7 @@ export class PendingReviewAutoPromotionService {
       novelId: input.novelId,
       promotedCount: input.promotedIds.length,
       supersededCount: input.supersededIds.length,
+      rejectedCount: input.rejectedCount,
       conflictSkippedCount: input.conflictSkippedCount,
       deferredByRunLimitCount: input.deferredByRunLimitCount,
     });

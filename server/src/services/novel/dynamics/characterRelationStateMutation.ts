@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { StateProposalDomainError } from "../state/StateProposalDomainError";
 
 const relationStateProposalPayloadSchema = z.object({
   sourceCharacterId: z.string().trim().min(1),
@@ -86,9 +87,22 @@ export async function applyCharacterRelationStateProposal(
     sourceType: string;
   },
 ): Promise<void> {
-  const payload = relationStateProposalPayloadSchema.parse(input.payload);
+  const parsed = relationStateProposalPayloadSchema.safeParse(input.payload);
+  if (!parsed.success) {
+    throw new StateProposalDomainError({
+      proposalType: "relation_state_update",
+      reason: "invalid_payload",
+      message: "Relation state proposal has an invalid payload.",
+      cause: parsed.error,
+    });
+  }
+  const payload = parsed.data;
   if (payload.sourceCharacterId === payload.targetCharacterId) {
-    throw new Error("Relation state proposal requires two different characters.");
+    throw new StateProposalDomainError({
+      proposalType: "relation_state_update",
+      reason: "same_character_relation",
+      message: "Relation state proposal requires two different characters.",
+    });
   }
   const characterCount = await tx.character.count({
     where: {
@@ -97,7 +111,11 @@ export async function applyCharacterRelationStateProposal(
     },
   });
   if (characterCount !== 2) {
-    throw new Error("Relation state proposal references characters outside this novel.");
+    throw new StateProposalDomainError({
+      proposalType: "relation_state_update",
+      reason: "character_outside_novel",
+      message: "Relation state proposal references characters outside this novel.",
+    });
   }
 
   const fallbackRelationLabel = payload.stageLabel

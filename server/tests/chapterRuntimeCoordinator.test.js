@@ -3,7 +3,10 @@ const test = require("node:test");
 const promptRunner = require("../dist/prompting/core/promptRunner.js");
 const { prisma } = require("../dist/db/prisma.js");
 const { ChapterRuntimeCoordinator } = require("../dist/services/novel/runtime/ChapterRuntimeCoordinator.js");
-const { mergeKnowledgeBoundaryState } = require("../dist/services/novel/runtime/ChapterArtifactDeltaService.js");
+const {
+  filterLegacyApplyFailureProposals,
+  mergeKnowledgeBoundaryState,
+} = require("../dist/services/novel/runtime/ChapterArtifactDeltaService.js");
 const { directorAutomationLedgerEventService } = require("../dist/services/novel/director/runtime/DirectorAutomationLedgerEventService.js");
 const { PostGenerationStyleReviewRunner } = require("../dist/services/novel/runtime/PostGenerationStyleReviewRunner.js");
 const { openConflictService } = require("../dist/services/state/OpenConflictService.js");
@@ -246,6 +249,27 @@ test("mergeKnowledgeBoundaryState preserves boundary line when current state is 
   assert.ok(merged.length <= 1200);
   assert.ok(merged.includes(boundary));
   assert.equal(mergeKnowledgeBoundaryState("", boundary), boundary);
+});
+
+test("chapter artifact delta warnings only include legacy apply failures", () => {
+  const rejected = [
+    {
+      id: "routine-validation-rejection",
+      validationNotes: ["missing evidence"],
+    },
+    {
+      id: "legacy-apply-failure",
+      validationNotes: [
+        "original validation note",
+        "legacy_apply_failed:character_state_update:character_not_found:Character not found",
+      ],
+    },
+  ];
+
+  assert.deepEqual(
+    filterLegacyApplyFailureProposals(rejected).map((proposal) => proposal.id),
+    ["legacy-apply-failure"],
+  );
 });
 
 test("createChapterStream uses lightweight readiness without forcing execution contract", async () => {

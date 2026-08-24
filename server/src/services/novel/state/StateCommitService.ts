@@ -6,7 +6,6 @@ import type {
 } from "@ai-novel/shared/types/canonicalState";
 import { characterResourceUpdatePayloadSchema } from "@ai-novel/shared/types/characterResource";
 import type { Prisma } from "@prisma/client";
-import { ZodError } from "zod";
 import { prisma } from "../../../db/prisma";
 import { compactText as compactResourceText, normalizeResourceKey } from "../characterResource/characterResourceShared";
 import { characterResourceValidationService } from "../characterResource/CharacterResourceValidationService";
@@ -21,6 +20,7 @@ import {
   resolveProposalSourceQuality,
 } from "./stateProposalSourceQuality";
 import { applyStateChangeProposal } from "./StateProposalApplierRegistry";
+import { StateProposalDomainError } from "./StateProposalDomainError";
 
 const AUTO_COMMIT_TYPES = new Set<StateChangeProposal["proposalType"]>([
   "event_record",
@@ -102,23 +102,14 @@ interface PersistedProposalRow {
 }
 
 class LegacyStateProposalApplyError extends Error {
-  constructor(readonly originalError: unknown) {
+  constructor(readonly originalError: StateProposalDomainError) {
     super("Legacy state proposal apply failed.");
     this.name = "LegacyStateProposalApplyError";
   }
 }
 
-const LEGACY_APPLY_DOMAIN_ERROR_PREFIXES = [
-  "Character state proposal ",
-  "Relation state proposal ",
-] as const;
-
-function isLegacyStateProposalDomainError(error: unknown): boolean {
-  return error instanceof ZodError
-    || (
-      error instanceof Error
-      && LEGACY_APPLY_DOMAIN_ERROR_PREFIXES.some((prefix) => error.message.startsWith(prefix))
-    );
+function isLegacyStateProposalDomainError(error: unknown): error is StateProposalDomainError {
+  return error instanceof StateProposalDomainError;
 }
 
 export class StateCommitService {
@@ -256,6 +247,10 @@ export class StateCommitService {
             if (!isLegacyStateProposalDomainError(error)) {
               throw error;
             }
+            // Transaction safety invariant: typed domain errors may be caught
+            // here only when no preceding SQL statement failed. Never wrap a
+            // database failure as StateProposalDomainError, or PostgreSQL will
+            // reject this transaction's follow-up writes with 25P02.
             throw new LegacyStateProposalApplyError(error);
           }
           if (proposal.id) {
@@ -447,6 +442,10 @@ export class StateCommitService {
           if (!isLegacyStateProposalDomainError(error)) {
             throw error;
           }
+          // Transaction safety invariant: continuing with this tx is valid
+          // only because the typed error was raised before SQL, or after all
+          // preceding SQL completed successfully. A failed SQL statement must
+          // always escape instead of being translated into a domain error.
           const rejectedProposal = this.buildLegacyApplyRejection(proposal, error);
           const rejectedRow = await tx.stateChangeProposal.update({
             where: { id: created.id },
@@ -503,15 +502,15 @@ export class StateCommitService {
 
   private buildLegacyApplyRejection(
     proposal: StateChangeProposal,
-    error: unknown,
+    error: StateProposalDomainError,
   ): StateChangeProposal {
-    const errorMessage = compactText(error instanceof Error ? error.message : String(error))
+    const errorMessage = compactText(error.message)
       .slice(0, 400) || "unknown_error";
     return {
       ...proposal,
       status: "rejected",
       validationNotes: proposal.validationNotes.concat(
-        `legacy_apply_failed:${proposal.proposalType}:${errorMessage}`,
+        `legacy_apply_failed:${error.proposalType}:${error.reason}:${errorMessage}`,
       ),
     };
   }
