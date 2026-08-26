@@ -64,7 +64,7 @@ pending_review                 auto approved + executed
 
 ### 2A.1 Shared autonomy contract
 
-新增共享 schema 和单一映射：
+新增共享 schema 和单一评估映射。评审修正后，等级保存在 runtime policy 的独立 `proposalAutonomyLevel` 字段中；Director 的 `mode` 继续只表达推进节奏，二者不得相互推导：
 
 | Autonomy Level | DirectorPolicyMode | Proposal 行为 |
 |---|---|---|
@@ -73,14 +73,14 @@ pending_review                 auto approved + executed
 | L2 Guarded Auto | `run_until_gate` | minor 且非 strict 可自动执行；major / strict 必须审批 |
 | L3 Full Director | `auto_safe_scope` | 安全范围内 minor 可自动执行；major / strict / 受保护内容必须审批 |
 
-映射是确定性结构化后处理，不做文本推断。模型不得在 `propose_novel_change` 输入中传自治等级或 policy mode。
+映射是 Proposal policy 的确定性结构化后处理，不做文本推断，也不代表 Director 推进 mode 的实际值。默认 Proposal 授权为 L1，旧快照缺字段时同样回落 L1。模型不得在 `propose_novel_change` 输入中传自治等级或 policy mode。
 
 ### 2A.2 Policy gate
 
 新增 `ChangeProposalPolicyGateService`：
 
-- 读取 task-bound Proposal 对应的 `DirectorRuntimeStore.getSnapshot(taskId).policy`。
-- 无任务绑定时使用安全的 L1 / `run_next_step` 默认值；手工 API 行为保持显式审阅。
+- 读取 task-bound Proposal 对应的 `DirectorRuntimeStore.getSnapshot(taskId).policy.proposalAutonomyLevel`，不从推进 `mode` 反推授权。
+- 无任务绑定或旧快照缺字段时使用安全的 L1 默认值；手工 API 行为保持显式审阅。
 - 从 Proposal 逐项取最高 severity，并把信封 `outlineFidelity` 一起传入 `DirectorPolicyEngine.decide()`。
 - L1 通过 `requiresApprovalByDefault` 固定为显式审批；L0 由 `suggest_only` 阻止自动写入。
 - 返回完整 policy decision 和实际使用的 policy mode，供应用服务、工具输出、日志和测试复用。
@@ -121,7 +121,7 @@ pending_review                 auto approved + executed
 1. AI 工具提交 major Proposal：所有 L0–L3 都返回 `pending_review`，正式状态未变化。
 2. AI 工具提交 strict Outline Proposal：所有等级都进入审批。
 3. L0/L1 提交 minor Proposal：进入审批，正式状态未变化。
-4. L2/L3 提交 minor + balanced/director Proposal：自动批准、执行并写入正式状态。
+4. Proposal 授权显式设为 L2/L3 后，提交通过确定性风险下界校验的 minor + balanced/director Proposal：自动批准、执行并写入正式状态；Director 推进 mode 单独处于 L2/L3 不构成授权。
 5. 用户批准 major Proposal 后仍可显式执行；policy gate 被调用，但不会形成“批准后再次卡审批”的死锁。
 6. `proposalSeverity` / `outlineFidelity` 在生产调用路径可由测试观测，不再只有 `directorRuntimePolicy.test.js` 直接传参。
 7. 现有 Proposal HTTP / Director command / 真实 SQLite 验收保持通过。

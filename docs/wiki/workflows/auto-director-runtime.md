@@ -65,7 +65,7 @@ Web API 只接收命令和返回轻量投影；Worker 负责执行重型生产�
 - 继续、恢复、重试、接管、审批、取消等用户动作先转为 command，不各自维护独立业务流程。
 - `DirectorRunCommand` 表达控制面命令、租约和幂等，不表达业务完成事实。
 - `DirectorRun` 是书级导演运行的根状态，`DirectorStepRun` 是步骤执行记录，`DirectorEvent` 和 `DirectorArtifact` 用于投影和恢复。
-- `DirectorRuntimeStore.initializeRun()` 收到显式 `policyMode` 时必须用该模式初始化或刷新当前 policy snapshot；不能因为空 runtime 已带默认 policy 就忽略调用方传入值。后续 Proposal、步骤门禁和恢复链读取的是持久化快照，因此初始化时丢失 mode 会把用户选择的自治等级静默降级或升级。
+- `DirectorRuntimeStore.initializeRun()` 只在首次建立 runtime 时采纳调用方给出的初始 `policyMode`；已有 runtime 在 continue/resume 时必须保留当前 mode。用户需要改变推进节奏时走显式 policy update，初始化和恢复不得静默覆盖。Proposal 授权另存为 `proposalAutonomyLevel`，默认 L1，并且任何初始化、继续或恢复路径都不得从推进 mode 推导或覆盖它。
 - StepModule 应声明输入、输出、产物、进度检查和恢复策略；Pipeline 只编排，不直接知道具体业务表和 Prompt 细节。
 - StepModule 的只读事实检查必须能用 `novelId` 独立运行。`taskId`、run、command、artifacts 和 projection hints 属于自动导演扩展上下文，不能成为 `inspectReadiness`、`inspectCompletion`、`inspectProgress` 的必需条件；没有导演任务时应返回基于小说事实的最小状态。
 - 手动章节生成和手动章节修复也应先进入 StepModule，再由步骤内部委托统一章节 runtime。路由可以保留 SSE 协议和用户入口差异，但不能再直接绕过 `chapter.draft.write` 或 `chapter.draft.repair` 形成第二套执行路径。

@@ -172,6 +172,7 @@ export class DirectorCommandExecutor {
         const snapshot = await this.directorService.updateRuntimePolicy(pipelineCommand.taskId, {
           mode: request.mode,
           patch: {
+            proposalAutonomyLevel: request.proposalAutonomyLevel,
             mayOverwriteUserContent: request.mayOverwriteUserContent,
             allowExpensiveReview: request.allowExpensiveReview,
             modelTier: request.modelTier,

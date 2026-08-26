@@ -82,6 +82,7 @@ function input() {
 function evaluation({ canRun, requiresApproval, mode }) {
   return {
     autonomyLevel: mode === "auto_safe_scope" ? "L3" : "L1",
+    directorPolicyMode: "run_until_gate",
     policyMode: mode,
     policy: { mode },
     decision: {

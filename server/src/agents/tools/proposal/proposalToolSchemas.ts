@@ -14,6 +14,12 @@ export const proposeNovelChangeOutputSchema = z.object({
   proposal: changeProposalSchema,
   disposition: z.enum(["pending_review", "executed"]),
   autonomyLevel: proposalAutonomyLevelSchema,
+  directorPolicyMode: z.enum([
+    "suggest_only",
+    "run_next_step",
+    "run_until_gate",
+    "auto_safe_scope",
+  ]),
   policyMode: z.enum([
     "suggest_only",
     "run_next_step",

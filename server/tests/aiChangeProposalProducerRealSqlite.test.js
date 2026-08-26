@@ -68,8 +68,8 @@ async function main() {
     const l3Task = await prisma.novelWorkflowTask.create({
       data: { novelId: novel.id, lane: "auto_director", title: "L3 proposal task" },
     });
-    const l1Task = await prisma.novelWorkflowTask.create({
-      data: { novelId: novel.id, lane: "auto_director", title: "L1 proposal task" },
+    const defaultTask = await prisma.novelWorkflowTask.create({
+      data: { novelId: novel.id, lane: "auto_director", title: "Default proposal task" },
     });
     const runtime = new DirectorRuntimeService();
     await runtime.initializeRun({
@@ -79,10 +79,15 @@ async function main() {
       policyMode: "auto_safe_scope",
     });
     await runtime.initializeRun({
-      taskId: l1Task.id,
+      taskId: defaultTask.id,
       novelId: novel.id,
       entrypoint: "ai_change_proposal_test",
-      policyMode: "run_next_step",
+      policyMode: "run_until_gate",
+    });
+    await runtime.updatePolicy({
+      taskId: l3Task.id,
+      mode: "auto_safe_scope",
+      patch: { proposalAutonomyLevel: "L3" },
     });
 
     const proposalTool = getAgentToolDefinition("propose_novel_change");
@@ -124,6 +129,19 @@ async function main() {
       };
     }
 
+    const defaultMinor = await proposalTool.execute(
+      toolContext,
+      { novelId: novel.id, ...proposalInput(defaultTask.id, "minor", 55, "A small default-path trust improvement.") },
+    );
+    const relationAfterDefault = await prisma.characterRelation.findUnique({
+      where: {
+        novelId_sourceCharacterId_targetCharacterId: {
+          novelId: novel.id,
+          sourceCharacterId: source.id,
+          targetCharacterId: target.id,
+        },
+      },
+    });
     const l3Minor = await proposalTool.execute(
       toolContext,
       { novelId: novel.id, ...proposalInput(l3Task.id, "minor", 55, "A small trust improvement.") },
@@ -139,11 +157,7 @@ async function main() {
     });
     const l3Major = await proposalTool.execute(
       toolContext,
-      { novelId: novel.id, ...proposalInput(l3Task.id, "major", 20, "A major relationship break.") },
-    );
-    const l1Minor = await proposalTool.execute(
-      toolContext,
-      { novelId: novel.id, ...proposalInput(l1Task.id, "minor", 60, "A small trust improvement under L1.") },
+      { novelId: novel.id, ...proposalInput(l3Task.id, "minor", 10, "A large relationship break under-reported as minor.") },
     );
     const relationAfterGates = await prisma.characterRelation.findUnique({
       where: {
@@ -154,23 +168,26 @@ async function main() {
         },
       },
     });
-    const [l3TaskAfter, l1TaskAfter] = await Promise.all([
+    const [l3TaskAfter, defaultTaskAfter] = await Promise.all([
       prisma.novelWorkflowTask.findUnique({ where: { id: l3Task.id } }),
-      prisma.novelWorkflowTask.findUnique({ where: { id: l1Task.id } }),
+      prisma.novelWorkflowTask.findUnique({ where: { id: defaultTask.id } }),
     ]);
 
     console.log(JSON.stringify({
+      defaultMinorDisposition: defaultMinor.disposition,
+      defaultMinorStatus: defaultMinor.proposal.status,
+      defaultMinorAutonomy: defaultMinor.autonomyLevel,
+      defaultDirectorMode: defaultMinor.directorPolicyMode,
+      trustAfterDefault: relationAfterDefault?.trustScore ?? null,
       l3MinorDisposition: l3Minor.disposition,
       l3MinorStatus: l3Minor.proposal.status,
       l3MinorAutonomy: l3Minor.autonomyLevel,
       trustAfterMinor: relationAfterMinor?.trustScore ?? null,
       l3MajorDisposition: l3Major.disposition,
       l3MajorStatus: l3Major.proposal.status,
-      l1MinorDisposition: l1Minor.disposition,
-      l1MinorStatus: l1Minor.proposal.status,
       trustAfterGates: relationAfterGates?.trustScore ?? null,
       l3TaskCheckpoint: l3TaskAfter?.checkpointType ?? null,
-      l1TaskCheckpoint: l1TaskAfter?.checkpointType ?? null,
+      defaultTaskCheckpoint: defaultTaskAfter?.checkpointType ?? null,
     }));
   } finally {
     await prisma.$disconnect();
@@ -221,15 +238,18 @@ function runScenario() {
 test("AI proposal producer enforces L1/L3 policy on real SQLite", () => {
   const result = runScenario();
 
+  assert.equal(result.defaultMinorDisposition, "pending_review");
+  assert.equal(result.defaultMinorStatus, "pending_review");
+  assert.equal(result.defaultMinorAutonomy, "L1");
+  assert.equal(result.defaultDirectorMode, "run_until_gate");
+  assert.equal(result.trustAfterDefault, 50);
   assert.equal(result.l3MinorDisposition, "executed");
   assert.equal(result.l3MinorStatus, "executed");
   assert.equal(result.l3MinorAutonomy, "L3");
   assert.equal(result.trustAfterMinor, 55);
   assert.equal(result.l3MajorDisposition, "pending_review");
   assert.equal(result.l3MajorStatus, "pending_review");
-  assert.equal(result.l1MinorDisposition, "pending_review");
-  assert.equal(result.l1MinorStatus, "pending_review");
   assert.equal(result.trustAfterGates, 55);
   assert.equal(result.l3TaskCheckpoint, "proposal_review_required");
-  assert.equal(result.l1TaskCheckpoint, "proposal_review_required");
+  assert.equal(result.defaultTaskCheckpoint, "proposal_review_required");
 });

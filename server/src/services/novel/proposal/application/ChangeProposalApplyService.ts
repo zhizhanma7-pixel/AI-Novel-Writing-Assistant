@@ -104,24 +104,25 @@ export class ChangeProposalApplyService {
         "Change proposal has no approved changes to execute.",
       );
     }
-    const policyEvaluation = await this.policyGate.evaluate(
-      mapChangeProposal(row, stale),
-      { changes: approvedChanges.map((change) => ({ severity: change.severity as "minor" | "major" })) },
-    );
-    if (
-      authority === "automation"
-      && (!policyEvaluation.decision.canRun || policyEvaluation.decision.requiresApproval)
-    ) {
-      throw new ChangeProposalError(
-        "approval_required",
-        "Change proposal policy requires explicit review before execution.",
-        {
-          authority,
-          autonomyLevel: policyEvaluation.autonomyLevel,
-          policyMode: policyEvaluation.policyMode,
-          policyDecision: policyEvaluation.decision,
-        },
-      );
+    if (authority === "automation") {
+      const mappedProposal = mapChangeProposal(row, stale);
+      const approvedIds = new Set(approvedChanges.map((change) => change.id));
+      const policyEvaluation = await this.policyGate.evaluate(mappedProposal, {
+        changes: mappedProposal.changes.filter((change) => approvedIds.has(change.id)),
+      });
+      if (!policyEvaluation.decision.canRun || policyEvaluation.decision.requiresApproval) {
+        throw new ChangeProposalError(
+          "approval_required",
+          "Change proposal policy requires explicit review before execution.",
+          {
+            authority,
+            autonomyLevel: policyEvaluation.autonomyLevel,
+            directorPolicyMode: policyEvaluation.directorPolicyMode,
+            policyMode: policyEvaluation.policyMode,
+            policyDecision: policyEvaluation.decision,
+          },
+        );
+      }
     }
     const ledgerOnlyChanges = approvedChanges.filter((change) => (
       getStateProposalApplicationMode(stateChangeProposalTypeSchema.parse(change.proposalType))

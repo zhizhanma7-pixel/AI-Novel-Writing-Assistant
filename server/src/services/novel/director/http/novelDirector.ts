@@ -207,6 +207,7 @@ const takeoverSchema = z.object({
 
 const runtimePolicySchema = z.object({
   mode: z.enum(runtimePolicyModeValues),
+  proposalAutonomyLevel: z.enum(["L0", "L1", "L2", "L3"]).optional(),
   mayOverwriteUserContent: z.boolean().optional(),
   allowExpensiveReview: z.boolean().optional(),
   modelTier: z.enum(["cheap_fast", "balanced", "high_quality"]).optional(),

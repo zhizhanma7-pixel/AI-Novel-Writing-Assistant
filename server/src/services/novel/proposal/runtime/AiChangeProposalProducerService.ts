@@ -29,6 +29,7 @@ export interface AiChangeProposalProductionResult {
   proposal: ChangeProposal;
   disposition: AiChangeProposalDisposition;
   autonomyLevel: ProposalAutonomyLevel;
+  directorPolicyMode: DirectorPolicyMode;
   policyMode: DirectorPolicyMode;
   policyDecision: DirectorPolicyDecision;
   policyReason: string;
@@ -72,6 +73,7 @@ export class AiChangeProposalProducerService {
         proposal,
         disposition: "pending_review",
         autonomyLevel: evaluation.autonomyLevel,
+        directorPolicyMode: evaluation.directorPolicyMode,
         policyMode: evaluation.policyMode,
         policyDecision: evaluation.decision,
         policyReason: evaluation.decision.reason,
@@ -89,6 +91,7 @@ export class AiChangeProposalProducerService {
         proposal: executed,
         disposition: "executed",
         autonomyLevel: evaluation.autonomyLevel,
+        directorPolicyMode: evaluation.directorPolicyMode,
         policyMode: evaluation.policyMode,
         policyDecision: evaluation.decision,
         policyReason: evaluation.decision.reason,
@@ -100,6 +103,7 @@ export class AiChangeProposalProducerService {
           proposal: approved,
           disposition: "pending_review",
           autonomyLevel: evaluation.autonomyLevel,
+          directorPolicyMode: evaluation.directorPolicyMode,
           policyMode: evaluation.policyMode,
           policyDecision: evaluation.decision,
           policyReason: "Runtime policy changed before apply; explicit review is required.",

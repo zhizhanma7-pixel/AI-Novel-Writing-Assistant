@@ -14,7 +14,11 @@ import { prisma } from "../../../../db/prisma";
 import { parseSeedPayload } from "../../workflow/novelWorkflow.shared";
 import type { DirectorWorkflowSeedPayload } from "./novelDirectorHelpers";
 import { normalizeDirectorArtifactRef, reconcileDirectorArtifactLedger } from "./DirectorArtifactLedger";
-import { buildDefaultDirectorPolicy, buildEmptyDirectorRuntimeSnapshot } from "./directorRuntimeDefaults";
+import {
+  buildDefaultDirectorPolicy,
+  buildEmptyDirectorRuntimeSnapshot,
+  normalizeDirectorRuntimePolicy,
+} from "./directorRuntimeDefaults";
 import {
   buildArtifactIndexedEvents,
   buildDirectorRuntimePersistenceDelta,
@@ -25,6 +29,10 @@ import { mergeLegacyRuntimeArtifacts } from "./DirectorRuntimeSnapshotMerge";
 const MAX_RUNTIME_EVENTS = 120;
 const MAX_RUNTIME_STEPS = 120;
 const MAX_RUNTIME_ARTIFACTS = 160;
+
+interface DirectorRuntimeMutationContext {
+  hasExistingRuntime: boolean;
+}
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value?.trim()) {
@@ -153,7 +161,11 @@ export class DirectorRuntimeStore {
 
   async mutateSnapshot(
     taskId: string,
-    mutator: (snapshot: DirectorRuntimeSnapshot, seedPayload: DirectorWorkflowSeedPayload) => DirectorRuntimeSnapshot,
+    mutator: (
+      snapshot: DirectorRuntimeSnapshot,
+      seedPayload: DirectorWorkflowSeedPayload,
+      context: DirectorRuntimeMutationContext,
+    ) => DirectorRuntimeSnapshot,
   ): Promise<DirectorRuntimeSnapshot | null> {
     const row = await prisma.novelWorkflowTask.findUnique({
       where: { id: taskId },
@@ -183,7 +195,9 @@ export class DirectorRuntimeStore {
       emptySnapshot,
     );
     const nextRuntime = trimRuntimeSnapshot({
-      ...mutator(current, seedPayload),
+        ...mutator(current, seedPayload, {
+          hasExistingRuntime: Boolean(cached || persisted || legacySeedSnapshot),
+        }),
       updatedAt: new Date().toISOString(),
     });
     const deltaBase = persisted ?? emptySnapshot;
@@ -227,10 +241,10 @@ export class DirectorRuntimeStore {
       runId: run.id,
       novelId: run.novelId,
       entrypoint: run.entrypoint,
-      policy: parseJson<DirectorRuntimePolicySnapshot>(
+      policy: normalizeDirectorRuntimePolicy(parseJson<Partial<DirectorRuntimePolicySnapshot>>(
         run.policyJson,
         buildDefaultDirectorPolicy(),
-      ),
+      )),
       steps: [...run.steps].reverse().map((step) => ({
         idempotencyKey: step.idempotencyKey,
         nodeKey: step.nodeKey,
@@ -297,13 +311,13 @@ export class DirectorRuntimeStore {
     policyMode?: DirectorPolicyMode;
     summary?: string;
   }): Promise<DirectorRuntimeSnapshot | null> {
-    return this.mutateSnapshot(input.taskId, (snapshot) => {
+    return this.mutateSnapshot(input.taskId, (snapshot, _seedPayload, context) => {
       const now = new Date().toISOString();
       const next = {
         ...snapshot,
         novelId: snapshot.novelId ?? input.novelId ?? null,
         entrypoint: snapshot.entrypoint ?? input.entrypoint,
-        policy: input.policyMode
+        policy: input.policyMode && !context.hasExistingRuntime
           ? {
             ...snapshot.policy,
             mode: input.policyMode,

@@ -48,13 +48,15 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 
 ## Policy、任务与审计复用
 
-- Proposal 自治等级与 Director policy mode 使用唯一映射：L0=`suggest_only`、L1=`run_next_step`、L2=`run_until_gate`、L3=`auto_safe_scope`。转换定义位于 shared 契约，服务端和后续 UI 不得各自维护另一套映射。
-- `ChangeProposalApplyService.executeProposal()` 是最终 policy 门禁。它把已批准项中的最高 `proposalSeverity` 与提案的 `outlineFidelity` 交给 `DirectorPolicyEngine`；自动化执行必须同时满足 `canRun=true` 与 `requiresApproval=false`，否则返回稳定错误码 `approval_required`，且不得写入正式状态。
+- Director runtime policy 中的 `mode` 只表达一次推进多远；`proposalAutonomyLevel` 独立表达 Proposal 是否可免审写入。两者正交，禁止再从 `mode` 反推 Proposal 授权。旧快照没有新字段时必须归一化为 L1，Director 以 L2/L3 推进也不改变这个默认值。
+- Proposal 自治等级内部使用唯一评估映射：L0=`suggest_only`、L1=`run_next_step`、L2=`run_until_gate`、L3=`auto_safe_scope`。该映射只用于把独立授权翻译给 `DirectorPolicyEngine`，不能回写或替代 Director 的推进 `mode`。
+- `ChangeProposalApplyService.executeProposal()` 是最终 policy 门禁。它把已批准项的有效最高 severity 与提案的 `outlineFidelity` 交给 `DirectorPolicyEngine`；自动化执行必须同时满足 `canRun=true` 与 `requiresApproval=false`，否则返回稳定错误码 `approval_required`，且不得写入正式状态。人工执行不查询此自动化门禁。
+- AI 声明的 severity 只能抬高风险，不能压低确定性风险下界。角色状态、角色资源、删除操作、非数值型关系结构变化，以及关系分值跨度达到 20 的变化至少为 major；只有可识别且跨度小于 20 的关系数值调整可保留 minor。
 - policy 判定必须区分执行授权来源：`automation` 表示无人值守执行，必须服从上述自动放行条件；`explicit_review` 表示用户已经完成审阅，可以越过“需要审批”这一等待条件，但仍保留 stale、状态转换、正式 applier 与事务原子性检查。禁止把这两种授权混成一个布尔开关，否则 major 提案会在批准后再次要求批准。
-- 带 `taskId` 的提案读取冻结的 Director runtime policy；没有 DirectorRun 绑定的手工提案使用保守的 L1=`run_next_step` 默认值。运行时缺失不能静默升级到更高自治等级。
+- 带 `taskId` 的提案读取冻结 policy 中独立的 `proposalAutonomyLevel`；没有 DirectorRun 绑定的手工提案和旧 runtime 快照都使用保守的 L1 默认值。运行时缺失或兼容读取不能静默升级到更高自治等级。
 - AI 提案统一通过 `AiChangeProposalProducerService` 进入 Proposal Core：先创建提案但延后 task checkpoint，再读取冻结 policy；需要确认时保留 `pending_review` 并写入既有 checkpoint，允许自动执行时复用正式 review service 接受全部项，并以 `authority=automation` 进入 apply 边界。自动执行失败必须把任务留在可审阅恢复状态，不能吞成成功。
 - Planner 的 `propose_novel_change` 结构化 intent 和同名 tool 是 AI 入口。Planner prompt 只负责输出通过 schema 校验的提案事实；workflow registry 负责生成 tool call，tool 负责绑定当前小说的 Director task。AI 输入不得接收 `autonomyLevel`、`policyMode`、`submitForReview` 或同类绕过字段，权限只能来自服务端冻结的 runtime snapshot。
-- `propose_novel_change` 只授权 Planner 使用，也不设置静态的“一律审批”工具门禁；最终是 `pending_review` 还是 `executed` 必须由 Proposal policy gate 根据任务策略、最高 severity 与 outline fidelity 决定。这样既不会让 Agent 绕过 policy，也不会把 L2/L3 的安全自动执行提前卡死在通用 Agent 审批层。
+- `propose_novel_change` 只授权 Planner 使用，也不设置静态的“一律审批”工具门禁；最终是 `pending_review` 还是 `executed` 必须由独立 Proposal 授权、有效最高 severity 与 outline fidelity 决定。Director 节奏切到 L2/L3 不会提高 Proposal 授权；节奏切到 L2/L3 本身仍需 Agent 审批。
 - 带 `taskId` 的批准、部分批准、拒绝、再生和执行请求通过 `review_proposal` DirectorRunCommand 排队，HTTP 返回 202，不创建第二套队列。
 - 提案被索引为 `change_proposal` DirectorArtifact，并沿用 artifact dependency 进行 stale 检测。
 - 事件沿用 `DirectorEvent`，记录 `proposal_created`、`proposal_reviewed`、`proposal_applied` 和 `proposal_superseded`。

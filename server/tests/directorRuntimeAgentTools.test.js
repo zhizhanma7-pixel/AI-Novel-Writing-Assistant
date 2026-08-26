@@ -82,6 +82,13 @@ test("director runtime tools are available to planner and protected by approval 
   assert.equal(safePolicyApproval.required, true);
   assert.equal(safePolicyApproval.targetType, "director_policy");
 
+  const guardedPolicyApproval = evaluateApprovalRequirement("switch_director_policy", {
+    taskId: "task-1",
+    mode: "run_until_gate",
+  });
+  assert.equal(guardedPolicyApproval.required, true);
+  assert.equal(guardedPolicyApproval.targetType, "director_policy");
+
   const suggestOnlyApproval = evaluateApprovalRequirement("switch_director_policy", {
     taskId: "task-1",
     mode: "suggest_only",

@@ -258,6 +258,7 @@ function services(options = {}) {
         policyMode: "run_until_gate",
         policy: {
           mode: "run_until_gate",
+          proposalAutonomyLevel: "L2",
           mayOverwriteUserContent: false,
           maxAutoRepairAttempts: 1,
           allowExpensiveReview: false,
@@ -588,6 +589,7 @@ test("Phase 1 ChangeProposal core", async (t) => {
             policyMode: "auto_safe_scope",
             policy: {
               mode: "auto_safe_scope",
+              proposalAutonomyLevel: "L3",
               mayOverwriteUserContent: false,
               maxAutoRepairAttempts: 1,
               allowExpensiveReview: false,
@@ -624,7 +626,7 @@ test("Phase 1 ChangeProposal core", async (t) => {
         authority: "explicit_review",
       });
       assert.equal(executed.status, "executed");
-      assert.deepEqual(policyCalls, [created.id, created.id]);
+      assert.deepEqual(policyCalls, [created.id]);
     });
 
     await t.test("approved ledger-only changes remain unsupported instead of claiming execution", async () => {

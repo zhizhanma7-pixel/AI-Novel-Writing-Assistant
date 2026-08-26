@@ -166,7 +166,11 @@ export function evaluateApprovalRequirement(tool: AgentToolName, input: Record<s
   }
 
   if (tool === "switch_director_policy") {
-    if (input.mode === "auto_safe_scope" || input.mayOverwriteUserContent === true) {
+    if (
+      input.mode === "run_until_gate"
+      || input.mode === "auto_safe_scope"
+      || input.mayOverwriteUserContent === true
+    ) {
       return {
         required: true,
         summary: "切换到更高自动化或允许覆盖用户内容前需要确认。",
