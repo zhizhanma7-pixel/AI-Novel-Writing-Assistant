@@ -54,6 +54,12 @@ M3 修复后执行 server build、Proposal policy 与 apply 定向测试：31 �
 
 仓库完整 `tools.test.js` 仍有一个与本阶段无关的既有失败：未修改的 `bookAnalysisTools.ts` 含内联 Zod 声明，违反该测试要求的 schema 文件边界。本阶段没有扩大范围修改该模块；Proposal tool 已放在 `tools/proposal/` 且 schema 独立。
 
+### Beta Integration Verification
+
+Phase 2A 经 `718d745` 合入 `beta` 后执行 `pnpm --filter @ai-novel/server test:integration`：138 项中 120 项通过、16 项失败、2 项按设计跳过。Phase 2A 与 Phase 1 相关的四条真实链路均通过：AI Proposal L1/L3、Change Proposal 正式写入、legacy pending-review 隔离，以及常规拒绝/legacy apply-failure 过滤。
+
+16 项失败集中在本次 `ab09655..718d745` diff 未修改的范围：Director pipeline/retry 测试依赖缺失的 `novelContextService` mock 或小说 fixture、旧 SQLite/RAG 测试在 Windows 直接 spawn `pnpm.cmd` 返回 `EINVAL`，以及 Comic 服务的既有 Prompt Governance 违规。结论是 Phase 2A 集成链通过，但当前 `beta` 整体测试未全绿，不得晋升 `main`；这些失败应作为独立稳定化任务处理，不能通过调整 Phase 2A 断言掩盖。
+
 ### Architecture Notes
 
 - Durable workflow rules 已同步到：
