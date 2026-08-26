@@ -15,7 +15,7 @@ import {
 import { changeProposalStalenessService } from "../infrastructure/ChangeProposalStalenessService";
 import { changeProposalPolicyGateService } from "../runtime/ChangeProposalPolicyGateService";
 import { changeProposalService } from "./ChangeProposalService";
-import { assertEditedValueMatchesPayload } from "../domain/ProposedChangeValueMapper";
+import { assertProposedValueMatchesPayload } from "../domain/ProposedChangeValueMapper";
 
 const proposalInclude = {
   changes: {
@@ -139,22 +139,20 @@ export class ChangeProposalApplyService {
       );
     }
     for (const change of approvedChanges) {
-      if (change.reviewDecision !== "modified") {
-        continue;
-      }
-      if (!change.userEditedPayloadJson) {
+      const isModified = change.reviewDecision === "modified";
+      if (isModified && !change.userEditedPayloadJson) {
         throw new ChangeProposalError(
           "invalid_review",
           `Modified proposed change ${change.id} has no executable edited payload.`,
         );
       }
-      const editedValue = parseJson(change.afterJson);
-      if (editedValue !== undefined) {
-        assertEditedValueMatchesPayload({
+      const proposedValue = parseJson(change.afterJson);
+      if (proposedValue !== undefined) {
+        assertProposedValueMatchesPayload({
           proposalType: stateChangeProposalTypeSchema.parse(change.proposalType),
           path: change.changePath ?? "",
-          payload: parseJsonRecord(change.userEditedPayloadJson),
-          editedValue,
+          payload: parseJsonRecord(isModified ? change.userEditedPayloadJson : change.payloadJson),
+          proposedValue,
         });
       }
     }

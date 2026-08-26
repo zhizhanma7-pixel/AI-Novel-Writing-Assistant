@@ -21,7 +21,7 @@
 4. Planner 新增结构化 `propose_novel_change` intent、workflow 和 tool。模型只能提供 Change Proposal 结构化事实，不能传入 `autonomyLevel`、`policyMode` 或 `submitForReview`；tool 在服务端绑定当前小说的 Director task。
 5. Planner prompt `planner.intent.parse` 升至 v2，以注册 Prompt 的结构化 schema 输出提案 intent；没有增加关键词、正则或非 AI 路由 fallback。
 6. Director runtime 首次初始化会采纳初始推进 `policyMode`；已有 runtime 的 continue/resume 保留用户当前 mode 和独立 Proposal 授权，避免用户降权后被静默抬回。
-7. AI 声明的 severity 增加确定性风险下界：角色状态、角色资源、删除和结构型关系变化至少为 major；关系数值跨度达到 20 时即使自报 minor 也必须审批。
+7. AI 声明的 severity 增加确定性风险下界：角色状态、角色资源、删除和结构型关系变化至少为 major；关系数值跨度达到 20 时即使自报 minor 也必须审批。关系目标值以正式 payload 为准，展示值与 payload 不一致时按 major 处理，并在最终 apply 边界阻止任何不一致的已批准项执行。
 
 ### 策略验收结果
 
@@ -35,7 +35,7 @@
 | 用户明确批准 major | 可通过 `explicit_review` 执行，不重复卡审批 |
 | AI 输入自行指定 policy/autonomy | strict schema 拒绝 |
 
-真实 SQLite 组合场景确认：默认生产式 L2 Director 任务仍以 Proposal L1 把 minor 留在审阅入口，关系值保持 50；显式 Proposal L3 的小幅关系变化把信任值写到 55；随后一条自报 minor、实际从 50 降到 10 的大幅变化被确定性下界升级为 major 并留待审阅，正式值保持 55。
+真实 SQLite 组合场景确认：默认生产式 L2 Director 任务仍以 Proposal L1 把 minor 留在审阅入口，关系值保持 50；显式 Proposal L3 的小幅关系变化把信任值写到 55；随后自报 minor 的大幅变化，以及展示为 55→54、payload 实际写 5 的不一致变化，均被确定性下界升级为 major 并留待审阅，正式值保持 55。
 
 ### Verification
 
@@ -47,6 +47,8 @@
 - `aiChangeProposalProducerRealSqlite.test.js` 与 `changeProposalRealSqlite.test.js`：2 项通过，0 失败。
 
 评审修复后重新执行 Proposal policy、Director runtime store、Director agent tools、正式 apply 和 AI producer 的定向测试：51 项通过，0 失败；上述两项真实 SQLite 组合测试重新执行仍为 2 项通过，0 失败。
+
+M3 修复后执行 server build、Proposal policy 与 apply 定向测试：31 项通过，0 失败；AI producer 真实 SQLite 测试：1 项通过，0 失败。覆盖展示小幅变化但 payload 大幅改值时 L3 仍不得自动写入，以及 accepted 项在人工执行边界仍需通过展示值/payload 一致性校验。
 
 “变更提案确认”字段的 Director policy command 入队用例隔离执行：1 项通过，0 失败。补跑整个 `directorRunCommandService.test.js` 时为 20/21：未被本阶段修改的 stale recovery 用例仍预期 `failed`、实际得到 `queued`；该用例及其覆盖的 `DirectorCommandService` 恢复逻辑均不在本次 diff 中，作为独立验证缺口保留，不以调整断言掩盖。
 

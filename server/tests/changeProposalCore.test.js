@@ -471,6 +471,37 @@ test("Phase 1 ChangeProposal core", async (t) => {
       assert.equal(executed.status, "executed");
     });
 
+    await t.test("accepted approval cannot execute a payload that disagrees with the displayed value", async () => {
+      store = makeStore();
+      const { proposalService, reviewService, applyService } = services();
+      const input = proposalInput();
+      input.changes = [{
+        proposalType: "relation_state_update",
+        path: "Character.hero.relationship.partner.trust",
+        operation: "replace",
+        category: "relationship",
+        severity: "minor",
+        before: 62,
+        after: 61,
+        payload: {
+          sourceCharacterId: "hero",
+          targetCharacterId: "partner",
+          trustScore: 5,
+        },
+        reason: "The displayed diff and executable state disagree.",
+        sourceRefs: [],
+        evidence: ["Structured state evidence"],
+      }];
+      const created = await proposalService.createProposal("novel-1", input);
+      await reviewService.approveProposal("novel-1", created.id);
+
+      await assert.rejects(
+        applyService.executeProposal("novel-1", created.id),
+        (error) => error.code === "invalid_review",
+      );
+      assert.equal(store.committedBatches.length, 0);
+    });
+
     await t.test("concurrent proposal review prevents a late item edit", async () => {
       store = makeStore();
       const { proposalService, reviewService } = services();

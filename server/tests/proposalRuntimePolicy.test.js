@@ -117,6 +117,15 @@ test("deterministic severity floor prevents a large relation change from self-re
   assert.deepEqual(evaluation.decision.riskTags, ["proposal_major"]);
 });
 
+test("deterministic severity floor uses payload and rejects a misleading displayed delta", async () => {
+  const proposal = buildProposal({ severity: "minor", before: 62, after: 61 });
+  proposal.changes[0].payload.trustScore = 5;
+  const evaluation = await gateForLevel("L3").evaluate(proposal);
+
+  assert.equal(evaluation.decision.requiresApproval, true);
+  assert.deepEqual(evaluation.decision.riskTags, ["proposal_major"]);
+});
+
 test("character state changes cannot self-report below the major severity floor", async () => {
   const proposal = buildProposal();
   proposal.changes = [{

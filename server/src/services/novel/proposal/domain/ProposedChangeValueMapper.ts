@@ -37,17 +37,17 @@ export function resolveEditedValueFromPayload(input: {
     : { mapped: false };
 }
 
-export function assertEditedValueMatchesPayload(input: {
+export function assertProposedValueMatchesPayload(input: {
   proposalType: StateChangeProposal["proposalType"];
   path: string;
   payload: Record<string, unknown>;
-  editedValue: unknown;
+  proposedValue: unknown;
 }): void {
   const payloadKey = resolveProposedChangePayloadKey(input);
-  if (!payloadKey || !jsonEqual(input.payload[payloadKey], input.editedValue)) {
+  if (!payloadKey || !jsonEqual(input.payload[payloadKey], input.proposedValue)) {
     throw new ChangeProposalError(
       "invalid_review",
-      `Edited value at ${input.path} does not match the executable payload.`,
+      `Proposed value at ${input.path} does not match the executable payload.`,
       { proposalType: input.proposalType, path: input.path, payloadKey },
     );
   }

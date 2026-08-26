@@ -51,7 +51,8 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 - Director runtime policy 中的 `mode` 只表达一次推进多远；`proposalAutonomyLevel` 独立表达 Proposal 是否可免审写入。两者正交，禁止再从 `mode` 反推 Proposal 授权。旧快照没有新字段时必须归一化为 L1，Director 以 L2/L3 推进也不改变这个默认值。
 - Proposal 自治等级内部使用唯一评估映射：L0=`suggest_only`、L1=`run_next_step`、L2=`run_until_gate`、L3=`auto_safe_scope`。该映射只用于把独立授权翻译给 `DirectorPolicyEngine`，不能回写或替代 Director 的推进 `mode`。
 - `ChangeProposalApplyService.executeProposal()` 是最终 policy 门禁。它把已批准项的有效最高 severity 与提案的 `outlineFidelity` 交给 `DirectorPolicyEngine`；自动化执行必须同时满足 `canRun=true` 与 `requiresApproval=false`，否则返回稳定错误码 `approval_required`，且不得写入正式状态。人工执行不查询此自动化门禁。
-- AI 声明的 severity 只能抬高风险，不能压低确定性风险下界。角色状态、角色资源、删除操作、非数值型关系结构变化，以及关系分值跨度达到 20 的变化至少为 major；只有可识别且跨度小于 20 的关系数值调整可保留 minor。
+- AI 声明的 severity 只能抬高风险，不能压低确定性风险下界。角色状态、角色资源、删除操作、非数值型关系结构变化，以及关系分值跨度达到 20 的变化至少为 major；只有可识别且跨度小于 20 的关系数值调整可保留 minor。关系分值的目标值必须从正式执行 payload 读取，展示 `after` 与 payload 不一致时按 major 处理。
+- 正式执行前，所有已批准项（accepted 与 modified）都必须校验展示 `after` 与最终执行 payload 一致；不一致返回 `invalid_review` 且不得提交。该规则既约束自动批准，也约束人工误接受，保证审阅界面展示的 diff 就是实际写入内容。
 - policy 判定必须区分执行授权来源：`automation` 表示无人值守执行，必须服从上述自动放行条件；`explicit_review` 表示用户已经完成审阅，可以越过“需要审批”这一等待条件，但仍保留 stale、状态转换、正式 applier 与事务原子性检查。禁止把这两种授权混成一个布尔开关，否则 major 提案会在批准后再次要求批准。
 - 带 `taskId` 的提案读取冻结 policy 中独立的 `proposalAutonomyLevel`；没有 DirectorRun 绑定的手工提案和旧 runtime 快照都使用保守的 L1 默认值。运行时缺失或兼容读取不能静默升级到更高自治等级。
 - AI 提案统一通过 `AiChangeProposalProducerService` 进入 Proposal Core：先创建提案但延后 task checkpoint，再读取冻结 policy；需要确认时保留 `pending_review` 并写入既有 checkpoint，允许自动执行时复用正式 review service 接受全部项，并以 `authority=automation` 进入 apply 边界。自动执行失败必须把任务留在可审阅恢复状态，不能吞成成功。

@@ -97,7 +97,7 @@ async function main() {
       contextMode: "novel",
       novelId: novel.id,
     };
-    function proposalInput(taskId, severity, trustScore, summary) {
+    function proposalInput(taskId, severity, trustScore, summary, displayedAfter = trustScore) {
       return {
         taskId,
         proposalType: "relationship_change",
@@ -113,7 +113,7 @@ async function main() {
           category: "relationship",
           severity,
           before: 50,
-          after: trustScore,
+          after: displayedAfter,
           payload: {
             sourceCharacterId: source.id,
             targetCharacterId: target.id,
@@ -155,6 +155,28 @@ async function main() {
         },
       },
     });
+    const l3Mismatched = await proposalTool.execute(
+      toolContext,
+      {
+        novelId: novel.id,
+        ...proposalInput(
+          l3Task.id,
+          "minor",
+          5,
+          "A large payload change hidden behind a small displayed delta.",
+          54,
+        ),
+      },
+    );
+    const relationAfterMismatch = await prisma.characterRelation.findUnique({
+      where: {
+        novelId_sourceCharacterId_targetCharacterId: {
+          novelId: novel.id,
+          sourceCharacterId: source.id,
+          targetCharacterId: target.id,
+        },
+      },
+    });
     const l3Major = await proposalTool.execute(
       toolContext,
       { novelId: novel.id, ...proposalInput(l3Task.id, "minor", 10, "A large relationship break under-reported as minor.") },
@@ -183,6 +205,9 @@ async function main() {
       l3MinorStatus: l3Minor.proposal.status,
       l3MinorAutonomy: l3Minor.autonomyLevel,
       trustAfterMinor: relationAfterMinor?.trustScore ?? null,
+      l3MismatchedDisposition: l3Mismatched.disposition,
+      l3MismatchedStatus: l3Mismatched.proposal.status,
+      trustAfterMismatch: relationAfterMismatch?.trustScore ?? null,
       l3MajorDisposition: l3Major.disposition,
       l3MajorStatus: l3Major.proposal.status,
       trustAfterGates: relationAfterGates?.trustScore ?? null,
@@ -247,6 +272,9 @@ test("AI proposal producer enforces L1/L3 policy on real SQLite", () => {
   assert.equal(result.l3MinorStatus, "executed");
   assert.equal(result.l3MinorAutonomy, "L3");
   assert.equal(result.trustAfterMinor, 55);
+  assert.equal(result.l3MismatchedDisposition, "pending_review");
+  assert.equal(result.l3MismatchedStatus, "pending_review");
+  assert.equal(result.trustAfterMismatch, 55);
   assert.equal(result.l3MajorDisposition, "pending_review");
   assert.equal(result.l3MajorStatus, "pending_review");
   assert.equal(result.trustAfterGates, 55);
