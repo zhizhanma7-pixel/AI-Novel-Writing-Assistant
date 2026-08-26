@@ -27,6 +27,24 @@ function buildSnapshot() {
   };
 }
 
+test("director runtime initialization honors an explicit policy mode", async () => {
+  const store = new DirectorRuntimeStore();
+  let snapshot = buildSnapshot();
+  store.mutateSnapshot = async (_taskId, mutator) => {
+    snapshot = mutator(snapshot, {});
+    return snapshot;
+  };
+
+  await store.initializeRun({
+    taskId: "task-1",
+    novelId: "novel-1",
+    entrypoint: "test",
+    policyMode: "auto_safe_scope",
+  });
+
+  assert.equal(snapshot.policy.mode, "auto_safe_scope");
+});
+
 test("director runtime store records repeated running updates as heartbeat events", async () => {
   const store = new DirectorRuntimeStore();
   let snapshot = buildSnapshot();

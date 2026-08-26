@@ -303,7 +303,13 @@ export class DirectorRuntimeStore {
         ...snapshot,
         novelId: snapshot.novelId ?? input.novelId ?? null,
         entrypoint: snapshot.entrypoint ?? input.entrypoint,
-        policy: snapshot.policy ?? buildDefaultDirectorPolicy(input.policyMode),
+        policy: input.policyMode
+          ? {
+            ...snapshot.policy,
+            mode: input.policyMode,
+            updatedAt: now,
+          }
+          : snapshot.policy ?? buildDefaultDirectorPolicy(),
       };
       const hasStarted = next.events.some((event) => event.type === "run_started");
       return {

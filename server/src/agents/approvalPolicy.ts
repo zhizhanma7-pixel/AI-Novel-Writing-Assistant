@@ -29,6 +29,7 @@ const AGENT_TOOL_ALLOWLIST: Record<AgentName, Set<AgentToolName>> = {
     "run_director_until_gate",
     "switch_director_policy",
     "evaluate_manual_edit_impact",
+    "propose_novel_change",
     "get_novel_context",
     "list_chapters",
     "get_chapter_by_order",

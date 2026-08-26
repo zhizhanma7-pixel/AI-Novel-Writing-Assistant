@@ -20,3 +20,10 @@ export {
   changeProposalPolicyGateService,
   type ChangeProposalPolicyEvaluation,
 } from "./runtime/ChangeProposalPolicyGateService";
+export {
+  AiChangeProposalProducerService,
+  aiChangeProposalProducerService,
+  aiChangeProposalInputSchema,
+  type AiChangeProposalInput,
+  type AiChangeProposalProductionResult,
+} from "./runtime/AiChangeProposalProducerService";

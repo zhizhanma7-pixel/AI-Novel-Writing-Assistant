@@ -52,7 +52,9 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 - `ChangeProposalApplyService.executeProposal()` 是最终 policy 门禁。它把已批准项中的最高 `proposalSeverity` 与提案的 `outlineFidelity` 交给 `DirectorPolicyEngine`；自动化执行必须同时满足 `canRun=true` 与 `requiresApproval=false`，否则返回稳定错误码 `approval_required`，且不得写入正式状态。
 - policy 判定必须区分执行授权来源：`automation` 表示无人值守执行，必须服从上述自动放行条件；`explicit_review` 表示用户已经完成审阅，可以越过“需要审批”这一等待条件，但仍保留 stale、状态转换、正式 applier 与事务原子性检查。禁止把这两种授权混成一个布尔开关，否则 major 提案会在批准后再次要求批准。
 - 带 `taskId` 的提案读取冻结的 Director runtime policy；没有 DirectorRun 绑定的手工提案使用保守的 L1=`run_next_step` 默认值。运行时缺失不能静默升级到更高自治等级。
-- 当前切片已经完成 policy 门禁与自治等级契约；AI 提案生产者仍需在 Phase 2A 后续接线。AI tool 输入不得接收 `autonomyLevel`、`policyMode` 或同类绕过字段，权限只能来自服务端冻结的 runtime snapshot。
+- AI 提案统一通过 `AiChangeProposalProducerService` 进入 Proposal Core：先创建提案但延后 task checkpoint，再读取冻结 policy；需要确认时保留 `pending_review` 并写入既有 checkpoint，允许自动执行时复用正式 review service 接受全部项，并以 `authority=automation` 进入 apply 边界。自动执行失败必须把任务留在可审阅恢复状态，不能吞成成功。
+- Planner 的 `propose_novel_change` 结构化 intent 和同名 tool 是 AI 入口。Planner prompt 只负责输出通过 schema 校验的提案事实；workflow registry 负责生成 tool call，tool 负责绑定当前小说的 Director task。AI 输入不得接收 `autonomyLevel`、`policyMode`、`submitForReview` 或同类绕过字段，权限只能来自服务端冻结的 runtime snapshot。
+- `propose_novel_change` 只授权 Planner 使用，也不设置静态的“一律审批”工具门禁；最终是 `pending_review` 还是 `executed` 必须由 Proposal policy gate 根据任务策略、最高 severity 与 outline fidelity 决定。这样既不会让 Agent 绕过 policy，也不会把 L2/L3 的安全自动执行提前卡死在通用 Agent 审批层。
 - 带 `taskId` 的批准、部分批准、拒绝、再生和执行请求通过 `review_proposal` DirectorRunCommand 排队，HTTP 返回 202，不创建第二套队列。
 - 提案被索引为 `change_proposal` DirectorArtifact，并沿用 artifact dependency 进行 stale 检测。
 - 事件沿用 `DirectorEvent`，记录 `proposal_created`、`proposal_reviewed`、`proposal_applied` 和 `proposal_superseded`。

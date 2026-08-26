@@ -62,7 +62,7 @@ function buildAuditWorkbenchSampleContextBlocks() {
 test("prompt workbench catalog exposes registered prompts without override execution", () => {
   const service = new PromptWorkbenchService();
   const catalog = service.listCatalog({ keyword: "planner.intent.parse" });
-  const planner = catalog.find((item) => item.key === "planner.intent.parse@v1");
+  const planner = catalog.find((item) => item.key === "planner.intent.parse@v2");
 
   assert.ok(planner);
   assert.equal(planner.slotSupported, false);
@@ -139,7 +139,7 @@ test("context broker resolves creative hub bindings and supplied recent messages
 test("prompt preview renders base prompt messages with resolved context but does not call the LLM", async () => {
   const service = new PromptWorkbenchService();
   const preview = await service.preview({
-    promptKey: "planner.intent.parse@v1",
+    promptKey: "planner.intent.parse@v2",
     promptInput: buildPlannerPromptInput(),
     executionContext: {
       entrypoint: "creative_hub",
@@ -155,7 +155,7 @@ test("prompt preview renders base prompt messages with resolved context but does
     maxContextTokens: 2000,
   });
 
-  assert.equal(preview.prompt.key, "planner.intent.parse@v1");
+  assert.equal(preview.prompt.key, "planner.intent.parse@v2");
   assert.equal(preview.prompt.slotSupported, false);
   assert.ok(preview.messages.length >= 2);
   assert.ok(preview.messages.some((message) => message.role === "system"));

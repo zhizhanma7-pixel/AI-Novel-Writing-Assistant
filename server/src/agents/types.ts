@@ -2,6 +2,7 @@ import type { AgentApproval, AgentRun, AgentStep } from "@ai-novel/shared/types/
 import type { DirectorPolicyMode, DirectorRuntimePolicySnapshot } from "@ai-novel/shared/types/directorRuntime";
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
 import type { AgentPlan, AgentToolErrorCode } from "@ai-novel/shared/types/agent";
+import type { CreateChangeProposalInput } from "@ai-novel/shared/types/changeProposal";
 
 export type AgentName = "Planner" | "Writer" | "Reviewer" | "Continuity" | "Repair";
 
@@ -26,6 +27,7 @@ export type AgentToolName =
   | "run_director_until_gate"
   | "switch_director_policy"
   | "evaluate_manual_edit_impact"
+  | "propose_novel_change"
   | "get_novel_context"
   | "list_chapters"
   | "get_chapter_by_order"
@@ -91,6 +93,7 @@ export type AgentIntentName =
   | "run_director_until_gate"
   | "switch_director_policy"
   | "evaluate_manual_edit_impact"
+  | "propose_novel_change"
   | "query_novel_title"
   | "query_chapter_content"
   | "query_progress"
@@ -135,6 +138,7 @@ export interface StructuredIntent {
   mayOverwriteUserContent?: boolean;
   allowExpensiveReview?: boolean;
   modelTier?: DirectorRuntimePolicySnapshot["modelTier"];
+  changeProposal?: Omit<CreateChangeProposalInput, "taskId" | "submitForReview">;
   chapterSelectors: {
     chapterId?: string;
     orders?: number[];

@@ -147,7 +147,7 @@ function getSinglePromptQualityEntry() {
 
 test("prompt registry exposes versioned planning assets", () => {
   const keys = [
-    "planner.intent.parse@v1",
+    "planner.intent.parse@v2",
     "agent.runtime.fallback_answer@v1",
     "agent.runtime.setup_guidance@v1",
     "agent.runtime.setup_ideation@v1",

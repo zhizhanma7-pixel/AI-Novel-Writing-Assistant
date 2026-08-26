@@ -5,6 +5,7 @@ import { directorRuntimeToolDefinitions } from "./tools/directorRuntimeTools";
 import { formulaToolDefinitions } from "./tools/formulaTools";
 import { knowledgeToolDefinitions } from "./tools/knowledgeTools";
 import { novelToolDefinitions } from "./tools/novelTools";
+import { proposalToolDefinitions } from "./tools/proposal";
 import { taskToolDefinitions } from "./tools/taskTools";
 import { worldToolDefinitions } from "./tools/worldTools";
 import { writeToolDefinitions } from "./tools/writeTools";
@@ -19,6 +20,7 @@ const definitions = {
   ...formulaToolDefinitions,
   ...characterToolDefinitions,
   ...directorRuntimeToolDefinitions,
+  ...proposalToolDefinitions,
   ...taskToolDefinitions,
   ...writeToolDefinitions,
 } as Record<AgentToolName, AgentToolDefinition<Record<string, unknown>, Record<string, unknown>>>;
