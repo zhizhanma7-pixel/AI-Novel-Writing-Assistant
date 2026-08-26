@@ -8,10 +8,12 @@ import { ChangeProposalError } from "../domain/ChangeProposalError";
 import { assertChangeProposalTransition } from "../domain/ChangeProposalStateMachine";
 import { changeProposalArtifactService } from "../infrastructure/ChangeProposalArtifactService";
 import {
+  mapChangeProposal,
   parseProposalSourceRefs,
   type ChangeProposalRow,
 } from "../infrastructure/ChangeProposalMapper";
 import { changeProposalStalenessService } from "../infrastructure/ChangeProposalStalenessService";
+import { changeProposalPolicyGateService } from "../runtime/ChangeProposalPolicyGateService";
 import { changeProposalService } from "./ChangeProposalService";
 import { assertEditedValueMatchesPayload } from "../domain/ProposedChangeValueMapper";
 
@@ -26,6 +28,13 @@ type ProposalCommitService = Pick<typeof stateCommitService, "commitExistingProp
 type ProposalArtifactService = Pick<typeof changeProposalArtifactService, "markStatus">;
 type ProposalEventService = Pick<typeof directorAutomationLedgerEventService, "recordEvent">;
 type ProposalStalenessService = Pick<typeof changeProposalStalenessService, "inspect">;
+type ProposalPolicyGate = Pick<typeof changeProposalPolicyGateService, "evaluate">;
+
+export type ChangeProposalExecutionAuthority = "explicit_review" | "automation";
+
+export interface ChangeProposalExecutionOptions {
+  authority?: ChangeProposalExecutionAuthority;
+}
 
 function artifactSnapshot(proposal: ChangeProposal) {
   return {
@@ -62,9 +71,15 @@ export class ChangeProposalApplyService {
     private readonly artifactService: ProposalArtifactService = changeProposalArtifactService,
     private readonly eventService: ProposalEventService = directorAutomationLedgerEventService,
     private readonly stalenessService: ProposalStalenessService = changeProposalStalenessService,
+    private readonly policyGate: ProposalPolicyGate = changeProposalPolicyGateService,
   ) {}
 
-  async executeProposal(novelId: string, proposalId: string): Promise<ChangeProposal> {
+  async executeProposal(
+    novelId: string,
+    proposalId: string,
+    options: ChangeProposalExecutionOptions = {},
+  ): Promise<ChangeProposal> {
+    const authority = options.authority ?? "explicit_review";
     const row = await this.findRow(novelId, proposalId);
     assertChangeProposalTransition(row.status as ChangeProposalStatus, "executed");
     const stale = await this.stalenessService.inspect({
@@ -87,6 +102,25 @@ export class ChangeProposalApplyService {
       throw new ChangeProposalError(
         "no_approved_changes",
         "Change proposal has no approved changes to execute.",
+      );
+    }
+    const policyEvaluation = await this.policyGate.evaluate(
+      mapChangeProposal(row, stale),
+      { changes: approvedChanges.map((change) => ({ severity: change.severity as "minor" | "major" })) },
+    );
+    if (
+      authority === "automation"
+      && (!policyEvaluation.decision.canRun || policyEvaluation.decision.requiresApproval)
+    ) {
+      throw new ChangeProposalError(
+        "approval_required",
+        "Change proposal policy requires explicit review before execution.",
+        {
+          authority,
+          autonomyLevel: policyEvaluation.autonomyLevel,
+          policyMode: policyEvaluation.policyMode,
+          policyDecision: policyEvaluation.decision,
+        },
       );
     }
     const ledgerOnlyChanges = approvedChanges.filter((change) => (

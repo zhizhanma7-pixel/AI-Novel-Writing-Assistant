@@ -36,7 +36,7 @@ executed / superseded -> 终态
 
 ## 执行与旧链路隔离
 
-`ChangeProposalApplyService` 只把 reviewDecision 为 accepted 或 modified 的逐项 ID 交给 `StateCommitService.commitExistingProposals()`。拒绝项不会进入正式状态。所有批准项成功提交后，信封才能进入 `executed`。
+`ChangeProposalApplyService` 只把 reviewDecision 为 accepted 或 modified 的逐项 ID 交给 `StateCommitService.commitExistingProposals()`。拒绝项不会进入正式状态。所有批准项成功提交后，信封才能进入 `executed`。正式执行前必须在 apply 边界重新评估 Director policy；自动化调用只有在 policy 允许且不要求审批时才能继续，用户在审阅界面明确批准后的调用则视为已经满足审批门禁。
 
 旧的 pending-review 自动放行、导演状态解析、写作上下文和角色资源确认查询均只处理 `changeProposalId = null` 的历史独立记录，避免新提案在人工审阅前被旧自动链路放行。
 
@@ -48,7 +48,11 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 
 ## Policy、任务与审计复用
 
-- `DirectorPolicyEngine` 已预留 `proposalSeverity` 和 `outlineFidelity` 输入，但章节 Proposal Step 尚未接线。Proposal Core 当前对所有信封都要求显式审阅；按自治等级自动放行 minor 提案属于 Phase 2A（Proposal Runtime Bridge）接线范围。
+- Proposal 自治等级与 Director policy mode 使用唯一映射：L0=`suggest_only`、L1=`run_next_step`、L2=`run_until_gate`、L3=`auto_safe_scope`。转换定义位于 shared 契约，服务端和后续 UI 不得各自维护另一套映射。
+- `ChangeProposalApplyService.executeProposal()` 是最终 policy 门禁。它把已批准项中的最高 `proposalSeverity` 与提案的 `outlineFidelity` 交给 `DirectorPolicyEngine`；自动化执行必须同时满足 `canRun=true` 与 `requiresApproval=false`，否则返回稳定错误码 `approval_required`，且不得写入正式状态。
+- policy 判定必须区分执行授权来源：`automation` 表示无人值守执行，必须服从上述自动放行条件；`explicit_review` 表示用户已经完成审阅，可以越过“需要审批”这一等待条件，但仍保留 stale、状态转换、正式 applier 与事务原子性检查。禁止把这两种授权混成一个布尔开关，否则 major 提案会在批准后再次要求批准。
+- 带 `taskId` 的提案读取冻结的 Director runtime policy；没有 DirectorRun 绑定的手工提案使用保守的 L1=`run_next_step` 默认值。运行时缺失不能静默升级到更高自治等级。
+- 当前切片已经完成 policy 门禁与自治等级契约；AI 提案生产者仍需在 Phase 2A 后续接线。AI tool 输入不得接收 `autonomyLevel`、`policyMode` 或同类绕过字段，权限只能来自服务端冻结的 runtime snapshot。
 - 带 `taskId` 的批准、部分批准、拒绝、再生和执行请求通过 `review_proposal` DirectorRunCommand 排队，HTTP 返回 202，不创建第二套队列。
 - 提案被索引为 `change_proposal` DirectorArtifact，并沿用 artifact dependency 进行 stale 检测。
 - 事件沿用 `DirectorEvent`，记录 `proposal_created`、`proposal_reviewed`、`proposal_applied` 和 `proposal_superseded`。

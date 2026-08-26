@@ -15,3 +15,8 @@ export {
   changeProposalStalenessService,
 } from "./infrastructure/ChangeProposalStalenessService";
 export { ChangeProposalError } from "./domain/ChangeProposalError";
+export {
+  ChangeProposalPolicyGateService,
+  changeProposalPolicyGateService,
+  type ChangeProposalPolicyEvaluation,
+} from "./runtime/ChangeProposalPolicyGateService";
