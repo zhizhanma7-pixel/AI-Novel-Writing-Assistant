@@ -14,6 +14,7 @@ function buildSnapshot() {
     entrypoint: "test",
     policy: {
       mode: "run_until_gate",
+      proposalAutonomyLevel: "L1",
       mayOverwriteUserContent: false,
       maxAutoRepairAttempts: 1,
       allowExpensiveReview: false,
@@ -26,6 +27,50 @@ function buildSnapshot() {
     updatedAt: "2026-04-28T00:00:00.000Z",
   };
 }
+
+test("director runtime initialization honors an explicit policy mode", async () => {
+  const store = new DirectorRuntimeStore();
+  let snapshot = buildSnapshot();
+  store.mutateSnapshot = async (_taskId, mutator) => {
+    snapshot = mutator(snapshot, {}, { hasExistingRuntime: false });
+    return snapshot;
+  };
+
+  await store.initializeRun({
+    taskId: "task-1",
+    novelId: "novel-1",
+    entrypoint: "test",
+    policyMode: "auto_safe_scope",
+  });
+
+  assert.equal(snapshot.policy.mode, "auto_safe_scope");
+});
+
+test("director runtime reinitialization preserves user policy and proposal autonomy", async () => {
+  const store = new DirectorRuntimeStore();
+  let snapshot = {
+    ...buildSnapshot(),
+    policy: {
+      ...buildSnapshot().policy,
+      mode: "suggest_only",
+      proposalAutonomyLevel: "L0",
+    },
+  };
+  store.mutateSnapshot = async (_taskId, mutator) => {
+    snapshot = mutator(snapshot, {}, { hasExistingRuntime: true });
+    return snapshot;
+  };
+
+  await store.initializeRun({
+    taskId: "task-1",
+    novelId: "novel-1",
+    entrypoint: "continue",
+    policyMode: "auto_safe_scope",
+  });
+
+  assert.equal(snapshot.policy.mode, "suggest_only");
+  assert.equal(snapshot.policy.proposalAutonomyLevel, "L0");
+});
 
 test("director runtime store records repeated running updates as heartbeat events", async () => {
   const store = new DirectorRuntimeStore();

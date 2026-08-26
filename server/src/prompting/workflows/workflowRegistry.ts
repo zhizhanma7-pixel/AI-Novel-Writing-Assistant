@@ -14,6 +14,7 @@ const EXECUTION_FIRST_INTENTS = new Set<StructuredIntent["intent"]>([
   "write_chapter",
   "rewrite_chapter",
   "save_chapter_draft",
+  "propose_novel_change",
   "start_pipeline",
 ]);
 

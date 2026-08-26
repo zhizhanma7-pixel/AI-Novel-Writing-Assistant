@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createChangeProposalInputSchema } from "@ai-novel/shared/types/changeProposal";
 import { getPermissionMatrixSummary } from "../approvalPolicy";
 import { listAgentToolDefinitions, listPlannerSemanticDefinitions } from "../toolRegistry";
 import type { PlannerInput, StructuredIntent } from "../types";
@@ -22,6 +23,7 @@ export const INTENT_NAMES = [
   "run_director_until_gate",
   "switch_director_policy",
   "evaluate_manual_edit_impact",
+  "propose_novel_change",
   "query_novel_title",
   "query_chapter_content",
   "query_progress",
@@ -86,6 +88,14 @@ const WORKFLOW_RECIPES = [
       "我改了第三章，看看影响什么",
       "我改了主角动机，后续要不要重算",
       "我删了一个伏笔，会影响哪些章节",
+    ],
+  },
+  {
+    intent: "propose_novel_change",
+    when: "用户明确要求把已说明的小说状态变化整理成可审阅、可按当前策略执行的变更方案。",
+    examples: [
+      "把这次关系变化做成变更提案",
+      "为刚才的角色状态调整提交一份提案",
     ],
   },
   {
@@ -181,6 +191,10 @@ export const intentSchema: z.ZodType<StructuredIntent> = z.object({
   mayOverwriteUserContent: z.boolean().optional(),
   allowExpensiveReview: z.boolean().optional(),
   modelTier: z.enum(["cheap_fast", "balanced", "high_quality"]).optional(),
+  changeProposal: createChangeProposalInputSchema
+    .omit({ taskId: true, submitForReview: true })
+    .strict()
+    .optional(),
   chapterSelectors: z.object({
     chapterId: z.string().trim().min(1).optional(),
     orders: z.array(z.number().int().min(1)).max(8).optional(),
@@ -282,7 +296,7 @@ export function buildPlannerIntentPromptParts(input: PlannerInput): { systemProm
       "如果用户只是寒暄、打招呼、简单问候，且还没有进入具体创作任务，intent 应优先使用 social_opening，而不是 general_chat。",
       "你是小说创作 Agent 的意图解析器，只能返回一个 JSON 对象。",
       "你的任务不是直接规划所有工具，而是先识别用户真实意图和章节槽位。",
-      `intent 必须是以下枚举之一：${(readonly ? INTENT_NAMES.filter((intent) => !["create_novel", "select_novel_workspace", "bind_world_to_novel", "unbind_world_from_novel", "produce_novel", "run_director_next_step", "run_director_until_gate", "switch_director_policy", "write_chapter", "rewrite_chapter", "save_chapter_draft", "start_pipeline", "ideate_novel_setup"].includes(intent)) : INTENT_NAMES).join(", ")}。`,
+      `intent 必须是以下枚举之一：${(readonly ? INTENT_NAMES.filter((intent) => !["create_novel", "select_novel_workspace", "bind_world_to_novel", "unbind_world_from_novel", "produce_novel", "run_director_next_step", "run_director_until_gate", "switch_director_policy", "propose_novel_change", "write_chapter", "rewrite_chapter", "save_chapter_draft", "start_pipeline", "ideate_novel_setup"].includes(intent)) : INTENT_NAMES).join(", ")}。`,
       ...(readonly ? [
         "用户要求创建、生成、写作、修改、保存、启动、继续、恢复、重试、取消或审批时，统一返回 workflow_handoff，并在 note 中说明应该进入正式小说工作台、自动导演、任务中心或模型设置。",
         "不要用 preview_pipeline_run 或任何只读工具替代正式执行。",
@@ -294,6 +308,7 @@ export function buildPlannerIntentPromptParts(input: PlannerInput): { systemProm
       "如果用户明确提到世界观名称，可以放入 worldName。",
       "如果用户是在描述一本完整新书的生产任务，请使用 produce_novel，并尽量提取 description、targetChapterCount、genre、worldType、styleTone、projectMode、pacePreference、narrativePov、emotionIntensity、aiFreedom、defaultChapterLength。",
       "如果用户围绕自动导演询问当前状态、下一步、继续推进、推进到检查点、切换推进方式或手动改文影响，应优先使用对应 director intent，而不是普通任务状态或整本生产状态。",
+      "如果用户明确要求把已说明的小说状态变化提交为变更提案，使用 propose_novel_change，并在 changeProposal 中返回完整结构化提案。changeProposal 不得包含 taskId、submitForReview、autonomyLevel 或 policyMode；运行权限由服务端任务策略决定。信息不足以形成合法 changes 时应追问，不能猜测记录 ID。",
       "切换自动导演策略时，如果用户指定只给建议、推进下一步、推进到检查点或安全范围自动推进，应分别填 directorPolicyMode 为 suggest_only、run_next_step、run_until_gate、auto_safe_scope。",
       "如果用户明确允许覆盖手写内容，mayOverwriteUserContent 可设为 true；否则不要猜测。",
       "如果用户在问某个关键词、关系模式、题材、设定或世界观原型是否存在于知识库、已索引的拆书资料或世界观中，或者想找类似于 X 的设定或参考案例，优先使用 search_knowledge，不要误判成 general_chat。",

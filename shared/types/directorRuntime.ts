@@ -1,4 +1,5 @@
 import type { LLMProvider } from "./llm";
+import type { ProposalAutonomyLevel } from "./proposalRuntime";
 import type { NovelWorkflowStage } from "./novelWorkflow";
 import type {
   DirectorCircuitBreakerState,
@@ -365,6 +366,7 @@ export type DirectorQualityGateResult =
 
 export interface DirectorRuntimePolicySnapshot {
   mode: DirectorPolicyMode;
+  proposalAutonomyLevel: ProposalAutonomyLevel;
   mayOverwriteUserContent: boolean;
   maxAutoRepairAttempts: 1;
   allowExpensiveReview: boolean;
@@ -374,6 +376,7 @@ export interface DirectorRuntimePolicySnapshot {
 
 export interface DirectorRuntimePolicyUpdateRequest {
   mode: DirectorPolicyMode;
+  proposalAutonomyLevel?: ProposalAutonomyLevel;
   mayOverwriteUserContent?: boolean;
   allowExpensiveReview?: boolean;
   modelTier?: DirectorRuntimePolicySnapshot["modelTier"];

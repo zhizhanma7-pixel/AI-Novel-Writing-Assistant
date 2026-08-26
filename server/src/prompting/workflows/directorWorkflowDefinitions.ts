@@ -107,4 +107,20 @@ export const directorWorkflowDefinitions: WorkflowDefinition[] = [
         : "manual_edit_impact",
     }],
   },
+  {
+    id: "propose_novel_change",
+    intent: "propose_novel_change",
+    kind: "workflow",
+    requiresNovelContext: true,
+    resolve: ({ intent, plannerInput }) => intent.changeProposal ? [{
+      agent: "Planner",
+      tool: "propose_novel_change",
+      reason: "把 AI 识别出的状态变化提交到正式提案与策略门禁",
+      input: {
+        novelId: plannerInput.novelId,
+        ...intent.changeProposal,
+      },
+      keyPrefix: "propose_novel_change",
+    }] : [],
+  },
 ];

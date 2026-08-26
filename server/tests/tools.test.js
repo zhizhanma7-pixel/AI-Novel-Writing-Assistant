@@ -33,6 +33,7 @@ test("tool registry exposes chapter range and cross-domain tools", () => {
   assert.ok(tools.includes("run_director_until_gate"));
   assert.ok(tools.includes("switch_director_policy"));
   assert.ok(tools.includes("evaluate_manual_edit_impact"));
+  assert.ok(tools.includes("propose_novel_change"));
   assert.ok(tools.includes("list_writing_formulas"));
   assert.ok(tools.includes("list_base_characters"));
   assert.ok(tools.includes("list_tasks"));

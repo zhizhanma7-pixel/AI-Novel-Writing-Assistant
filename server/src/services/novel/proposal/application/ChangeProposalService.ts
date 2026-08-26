@@ -45,6 +45,10 @@ type ProposalStalenessService = Pick<
   "inspect"
 >;
 
+export interface CreateChangeProposalOptions {
+  deferTaskCheckpoint?: boolean;
+}
+
 function json(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
@@ -121,7 +125,11 @@ export class ChangeProposalService {
     private readonly stalenessService: ProposalStalenessService = changeProposalStalenessService,
   ) {}
 
-  async createProposal(novelId: string, rawInput: CreateChangeProposalInput): Promise<ChangeProposal> {
+  async createProposal(
+    novelId: string,
+    rawInput: CreateChangeProposalInput,
+    options: CreateChangeProposalOptions = {},
+  ): Promise<ChangeProposal> {
     const input = createChangeProposalInputSchema.parse(rawInput);
     await this.assertScope(novelId, input.chapterId ?? null, input.taskId ?? null);
     const status: ChangeProposalStatus = input.submitForReview ? "pending_review" : "draft";
@@ -171,7 +179,9 @@ export class ChangeProposalService {
         reasoningSummary: proposal.reasoningSummary,
       },
     });
-    await this.markTaskPendingReview(proposal);
+    if (!options.deferTaskCheckpoint) {
+      await this.markTaskProposalReviewRequired(proposal);
+    }
     return this.getProposal(novelId, proposal.id);
   }
 
@@ -230,7 +240,7 @@ export class ChangeProposalService {
     }
     const proposal = await this.getProposal(novelId, proposalId);
     await this.artifactService.markStatus(this.toArtifactSnapshot(proposal));
-    await this.markTaskPendingReview(proposal);
+    await this.markTaskProposalReviewRequired(proposal);
     return proposal;
   }
 
@@ -319,7 +329,7 @@ export class ChangeProposalService {
         nextVersion: proposal.version,
       },
     });
-    await this.markTaskPendingReview(proposal);
+    await this.markTaskProposalReviewRequired(proposal);
     return this.getProposal(novelId, proposal.id);
   }
 
@@ -388,8 +398,11 @@ export class ChangeProposalService {
     };
   }
 
-  private async markTaskPendingReview(proposal: ChangeProposal): Promise<void> {
-    if (!proposal.taskId || proposal.status !== "pending_review") {
+  async markTaskProposalReviewRequired(proposal: ChangeProposal): Promise<void> {
+    if (
+      !proposal.taskId
+      || !["pending_review", "approved", "partially_approved"].includes(proposal.status)
+    ) {
       return;
     }
     await prisma.novelWorkflowTask.updateMany({

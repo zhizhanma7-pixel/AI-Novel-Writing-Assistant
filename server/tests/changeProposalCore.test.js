@@ -227,7 +227,7 @@ const stalenessService = {
   }),
 };
 
-function services() {
+function services(options = {}) {
   const proposalService = new ChangeProposalService(artifactService, eventService, stalenessService);
   const reviewService = new ChangeProposalReviewService(
     proposalService,
@@ -252,6 +252,32 @@ function services() {
     artifactService,
     eventService,
     stalenessService,
+    options.policyGate ?? {
+      evaluate: async () => ({
+        autonomyLevel: "L2",
+        policyMode: "run_until_gate",
+        policy: {
+          mode: "run_until_gate",
+          proposalAutonomyLevel: "L2",
+          mayOverwriteUserContent: false,
+          maxAutoRepairAttempts: 1,
+          allowExpensiveReview: false,
+          modelTier: "balanced",
+          updatedAt: "2026-08-26T00:00:00.000Z",
+        },
+        decision: {
+          canRun: true,
+          requiresApproval: false,
+          gateType: "none",
+          reason: "test policy allows execution",
+          mayOverwriteUserContent: false,
+          affectedArtifacts: [],
+          riskTags: [],
+          autoRetryBudget: 0,
+          onQualityFailure: "continue_with_risk",
+        },
+      }),
+    },
   );
   return { proposalService, reviewService, applyService };
 }
@@ -445,6 +471,37 @@ test("Phase 1 ChangeProposal core", async (t) => {
       assert.equal(executed.status, "executed");
     });
 
+    await t.test("accepted approval cannot execute a payload that disagrees with the displayed value", async () => {
+      store = makeStore();
+      const { proposalService, reviewService, applyService } = services();
+      const input = proposalInput();
+      input.changes = [{
+        proposalType: "relation_state_update",
+        path: "Character.hero.relationship.partner.trust",
+        operation: "replace",
+        category: "relationship",
+        severity: "minor",
+        before: 62,
+        after: 61,
+        payload: {
+          sourceCharacterId: "hero",
+          targetCharacterId: "partner",
+          trustScore: 5,
+        },
+        reason: "The displayed diff and executable state disagree.",
+        sourceRefs: [],
+        evidence: ["Structured state evidence"],
+      }];
+      const created = await proposalService.createProposal("novel-1", input);
+      await reviewService.approveProposal("novel-1", created.id);
+
+      await assert.rejects(
+        applyService.executeProposal("novel-1", created.id),
+        (error) => error.code === "invalid_review",
+      );
+      assert.equal(store.committedBatches.length, 0);
+    });
+
     await t.test("concurrent proposal review prevents a late item edit", async () => {
       store = makeStore();
       const { proposalService, reviewService } = services();
@@ -550,6 +607,57 @@ test("Phase 1 ChangeProposal core", async (t) => {
       assert.equal(store.changes.get(partial.changes[0].id).status, "committed");
       assert.equal(store.changes.get(partial.changes[1].id).status, "rejected");
       assert.equal(store.events.at(-1).type, "proposal_applied");
+    });
+
+    await t.test("automation obeys proposal policy while explicit review satisfies the approval gate", async () => {
+      store = makeStore();
+      const policyCalls = [];
+      const policyGate = {
+        evaluate: async (proposal) => {
+          policyCalls.push(proposal.id);
+          return {
+            autonomyLevel: "L3",
+            policyMode: "auto_safe_scope",
+            policy: {
+              mode: "auto_safe_scope",
+              proposalAutonomyLevel: "L3",
+              mayOverwriteUserContent: false,
+              maxAutoRepairAttempts: 1,
+              allowExpensiveReview: false,
+              modelTier: "balanced",
+              updatedAt: "2026-08-26T00:00:00.000Z",
+            },
+            decision: {
+              canRun: false,
+              requiresApproval: true,
+              gateType: "approval",
+              reason: "major proposal requires review",
+              mayOverwriteUserContent: false,
+              affectedArtifacts: [],
+              riskTags: ["proposal_major"],
+              autoRetryBudget: 0,
+              onQualityFailure: "pause_for_manual",
+            },
+          };
+        },
+      };
+      const { proposalService, reviewService, applyService } = services({ policyGate });
+      const input = proposalInput();
+      input.changes = [input.changes[0]];
+      const created = await proposalService.createProposal("novel-1", input);
+      await reviewService.approveProposal("novel-1", created.id);
+
+      await assert.rejects(
+        applyService.executeProposal("novel-1", created.id, { authority: "automation" }),
+        (error) => error.code === "approval_required",
+      );
+      assert.deepEqual(store.committedBatches, []);
+
+      const executed = await applyService.executeProposal("novel-1", created.id, {
+        authority: "explicit_review",
+      });
+      assert.equal(executed.status, "executed");
+      assert.deepEqual(policyCalls, [created.id]);
     });
 
     await t.test("approved ledger-only changes remain unsupported instead of claiming execution", async () => {

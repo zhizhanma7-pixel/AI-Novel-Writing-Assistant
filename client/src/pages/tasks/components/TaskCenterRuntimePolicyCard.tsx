@@ -4,6 +4,7 @@ import type {
   DirectorPolicyMode,
   DirectorRuntimeSnapshot,
 } from "@ai-novel/shared/types/directorRuntime";
+import type { ProposalAutonomyLevel } from "@ai-novel/shared/types/proposalRuntime";
 import { updateDirectorRuntimePolicy } from "@/api/novelDirector";
 import { queryKeys } from "@/api/queryKeys";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,33 @@ const POLICY_OPTIONS: Array<{ value: DirectorPolicyMode; label: string; descript
   },
 ];
 
+const PROPOSAL_AUTONOMY_OPTIONS: Array<{
+  value: ProposalAutonomyLevel;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "L0",
+    label: "只生成提案",
+    description: "AI 只整理建议，不自动应用到角色、关系或其他正式状态。",
+  },
+  {
+    value: "L1",
+    label: "每次确认（推荐）",
+    description: "所有变更提案都先交给你审阅，确认后才应用。",
+  },
+  {
+    value: "L2",
+    label: "小调整自动应用",
+    description: "只有通过风险校验的小幅关系数值调整可以自动应用。",
+  },
+  {
+    value: "L3",
+    label: "安全范围自动应用",
+    description: "允许 AI 在明确的安全范围内应用小调整，重大变化仍需确认。",
+  },
+];
+
 function formatPolicyMode(mode: DirectorPolicyMode): string {
   return POLICY_OPTIONS.find((item) => item.value === mode)?.label ?? mode;
 }
@@ -49,7 +77,9 @@ export default function TaskCenterRuntimePolicyCard({
 }: TaskCenterRuntimePolicyCardProps) {
   const queryClient = useQueryClient();
   const currentMode = snapshot?.policy.mode ?? "run_until_gate";
+  const currentProposalAutonomy = snapshot?.policy.proposalAutonomyLevel ?? "L1";
   const [selectedMode, setSelectedMode] = useState<DirectorPolicyMode>(currentMode);
+  const [proposalAutonomyLevel, setProposalAutonomyLevel] = useState<ProposalAutonomyLevel>(currentProposalAutonomy);
   const [allowExpensiveReview, setAllowExpensiveReview] = useState(false);
   const [mayOverwriteUserContent, setMayOverwriteUserContent] = useState(false);
   const selectedOption = useMemo(
@@ -59,6 +89,7 @@ export default function TaskCenterRuntimePolicyCard({
   const mutation = useMutation({
     mutationFn: () => updateDirectorRuntimePolicy(taskId, {
       mode: selectedMode,
+      proposalAutonomyLevel,
       allowExpensiveReview,
       mayOverwriteUserContent,
     }),
@@ -73,9 +104,10 @@ export default function TaskCenterRuntimePolicyCard({
 
   useEffect(() => {
     setSelectedMode(currentMode);
+    setProposalAutonomyLevel(currentProposalAutonomy);
     setAllowExpensiveReview(Boolean(snapshot?.policy.allowExpensiveReview));
     setMayOverwriteUserContent(Boolean(snapshot?.policy.mayOverwriteUserContent));
-  }, [currentMode, snapshot?.policy.allowExpensiveReview, snapshot?.policy.mayOverwriteUserContent]);
+  }, [currentMode, currentProposalAutonomy, snapshot?.policy.allowExpensiveReview, snapshot?.policy.mayOverwriteUserContent]);
 
   if (!snapshot) {
     return null;
@@ -103,6 +135,26 @@ export default function TaskCenterRuntimePolicyCard({
           ))}
         </SelectControl>
         <div className="text-xs leading-5 text-muted-foreground">{selectedOption.description}</div>
+      </div>
+      <div className="mt-3 space-y-2 rounded-md border bg-background/70 p-3">
+        <div>
+          <div className="text-sm font-medium">变更提案确认</div>
+          <div className="mt-1 text-xs leading-5 text-muted-foreground">
+            选择 AI 建议修改角色、关系或故事状态时，哪些变化必须先让你确认。
+          </div>
+        </div>
+        <SelectControl
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          value={proposalAutonomyLevel}
+          onChange={(event) => setProposalAutonomyLevel(event.target.value as ProposalAutonomyLevel)}
+        >
+          {PROPOSAL_AUTONOMY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </SelectControl>
+        <div className="text-xs leading-5 text-muted-foreground">
+          {PROPOSAL_AUTONOMY_OPTIONS.find((option) => option.value === proposalAutonomyLevel)?.description}
+        </div>
       </div>
       <div className="mt-3 space-y-2 rounded-md border bg-background/70 p-3">
         <label className="flex items-start gap-2 text-sm">
@@ -142,12 +194,13 @@ export default function TaskCenterRuntimePolicyCard({
             mutation.isPending
             || (
               selectedMode === snapshot.policy.mode
+              && proposalAutonomyLevel === snapshot.policy.proposalAutonomyLevel
               && allowExpensiveReview === Boolean(snapshot.policy.allowExpensiveReview)
               && mayOverwriteUserContent === Boolean(snapshot.policy.mayOverwriteUserContent)
             )
           }
         >
-          {mutation.isPending ? "保存中..." : "保存推进方式"}
+          {mutation.isPending ? "保存中..." : "保存导演设置"}
         </Button>
       </div>
     </div>

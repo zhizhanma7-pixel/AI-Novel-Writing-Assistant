@@ -452,6 +452,7 @@ test("director command service queues policy updates without directly mutating r
   try {
     const accepted = await harness.service.enqueuePolicyUpdateCommand("task-1", {
       mode: "run_next_step",
+      proposalAutonomyLevel: "L1",
       autoApproveActions: ["chapter_execution_continue"],
     });
 
@@ -460,6 +461,7 @@ test("director command service queues policy updates without directly mutating r
     assert.equal(harness.commands.length, 1);
     const payload = JSON.parse(harness.commands[0].payloadJson);
     assert.equal(payload.policyUpdateRequest.mode, "run_next_step");
+    assert.equal(payload.policyUpdateRequest.proposalAutonomyLevel, "L1");
     assert.deepEqual(payload.policyUpdateRequest.autoApproveActions, ["chapter_execution_continue"]);
     assert.equal(harness.task.currentItemKey, "policy_update");
     assert.equal(harness.task.currentItemLabel, "已提交运行策略调整，等待 AI 按新策略推进");
