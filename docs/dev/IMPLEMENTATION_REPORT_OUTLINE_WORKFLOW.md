@@ -56,15 +56,19 @@ M3 修复后执行 server build、Proposal policy 与 apply 定向测试：31 �
 
 ### Beta Integration Verification
 
-Phase 2A 经 `718d745` 合入 `beta` 后执行 `pnpm --filter @ai-novel/server test:integration`：138 项中 120 项通过、16 项失败、2 项按设计跳过。Phase 2A 与 Phase 1 相关的四条真实链路均通过：AI Proposal L1/L3、Change Proposal 正式写入、legacy pending-review 隔离，以及常规拒绝/legacy apply-failure 过滤。
+Phase 2A 经 `718d745` 合入 `beta` 后，先在 `main@308ca1b` 与 `beta@cd58b86` 分别执行 `pnpm --filter @ai-novel/server test:integration`。两边的失败名称清单完全相同，均为 16 项；`beta` 新增失败差集为 0。这个对照证明 Phase 2A 没有引入新的 integration 回归，也补上了此前仓库没有 integration 基线、只能按 diff 范围推理归因的证据缺口。
 
-16 项失败集中在本次 `ab09655..718d745` diff 未修改的范围：Director pipeline/retry 测试依赖缺失的 `novelContextService` mock 或小说 fixture、旧 SQLite/RAG 测试在 Windows 直接 spawn `pnpm.cmd` 返回 `EINVAL`，以及 Comic 服务的既有 Prompt Governance 违规。结论是 Phase 2A 集成链通过，但当前 `beta` 整体测试未全绿，不得晋升 `main`；这些失败应作为独立稳定化任务处理，不能通过调整 Phase 2A 断言掩盖。
+随后在 `codex/beta-integration-stabilization` 处理这 16 项既有失败：统一 Windows 下真实 SQLite 测试的 pnpm 子进程调用与数据库 URL；补齐 Director pipeline/retry fixture；将漫画跨话事实抽取纳入 Prompt Registry；并修复真实 SQLite 链暴露的 NovelService 兼容门面 receiver 丢失和 legacy 卷迁移来源过早变为 `volume` 两个产品缺陷。P0-B 测试同时隔离在线 LLM，只验证真实 SQLite、共享上下文与恢复链路。
+
+稳定化后的完整 integration 结果为：138 项中 136 项通过、0 项失败、2 项按设计跳过。Phase 1 / Phase 2A 的四条真实链路、P0-B、RAG compatibility、Director pipeline/retry 和 Prompt Governance 均在同一套件中通过；测试失败没有通过放宽业务断言处理。
 
 ### Architecture Notes
 
 - Durable workflow rules 已同步到：
   - `docs/wiki/workflows/change-proposal-review.md`
   - `docs/wiki/workflows/auto-director-runtime.md`
+  - `docs/wiki/workflows/comic-panel-production-prompt-governance.md`
+  - `docs/wiki/debugging/real-sqlite-integration-baseline.md`
 - 任务中心沿用现有 runtime policy 卡片，新增独立的“变更提案确认”选择项；没有新增页面。Phase 2A 是 2B Outline Workflow 的运行时前置。
 
 ## Next — Phase 2B Outline Workflow MVP

@@ -3,22 +3,21 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
+const { pnpmInvocation, sqliteDatabaseUrl } = require("./helpers/processInvocation.js");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 const serverRoot = path.resolve(repoRoot, "server");
 
-function pnpmExecutable() {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-}
-
 function setupTempSqliteDatabase(tempDir) {
   const databasePath = path.join(tempDir, "p0b-real-chain.db");
-  const databaseUrl = `file:${databasePath.replace(/\\/g, "/")}`;
-  childProcess.execFileSync(pnpmExecutable(), ["--filter", "@ai-novel/server", "prisma:push"], {
+  const databaseUrl = sqliteDatabaseUrl(serverRoot, databasePath);
+  const invocation = pnpmInvocation(["--filter", "@ai-novel/server", "prisma:push"]);
+  childProcess.execFileSync(invocation.command, invocation.args, {
     cwd: repoRoot,
     env: {
       ...process.env,
       DATABASE_URL: databaseUrl,
+      ...(process.platform === "win32" ? { RUST_LOG: "info" } : {}),
     },
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -38,6 +37,7 @@ async function main() {
   const { prisma } = require(path.join(repoRoot, "server", "dist", "db", "prisma.js"));
   const { NovelService } = require(path.join(repoRoot, "server", "dist", "services", "novel", "NovelService.js"));
   const { NovelCoreReviewService } = require(path.join(repoRoot, "server", "dist", "services", "novel", "novelCoreReviewService.js"));
+  const { PlannerService } = require(path.join(repoRoot, "server", "dist", "services", "planner", "PlannerService.js"));
   const { NovelDirectorService } = require(path.join(repoRoot, "server", "dist", "services", "novel", "director", "NovelDirectorService.js"));
   const { NovelWorldSliceService } = require(path.join(repoRoot, "server", "dist", "services", "novel", "storyWorldSlice", "NovelWorldSliceService.js"));
   const { NovelContinuationService } = require(path.join(repoRoot, "server", "dist", "services", "novel", "NovelContinuationService.js"));
@@ -51,6 +51,7 @@ async function main() {
     resolveForGeneration: StyleBindingService.prototype.resolveForGeneration,
     buildContextBlock: ragServices.hybridRetrievalService.buildContextBlock,
     auditChapter: auditService.auditChapter,
+    ensureChapterPlan: PlannerService.prototype.ensureChapterPlan,
   };
 
   NovelWorldSliceService.prototype.ensureStoryWorldSlice = async () => null;
@@ -68,6 +69,12 @@ async function main() {
     compiledBlocks: null,
   });
   ragServices.hybridRetrievalService.buildContextBlock = async () => "";
+  PlannerService.prototype.ensureChapterPlan = async (novelId, chapterId) => (
+    prisma.storyPlan.findFirst({
+      where: { novelId, chapterId, level: "chapter", status: "active" },
+      include: { scenes: { orderBy: { sortOrder: "asc" } } },
+    })
+  );
 
   const scenario = process.env.P0B_SCENARIO ?? "legacy";
   let capturedContextPackage = null;
@@ -433,6 +440,7 @@ async function main() {
     NovelContinuationService.prototype.buildChapterContextPack = original.buildChapterContextPack;
     StyleBindingService.prototype.resolveForGeneration = original.resolveForGeneration;
     ragServices.hybridRetrievalService.buildContextBlock = original.buildContextBlock;
+    PlannerService.prototype.ensureChapterPlan = original.ensureChapterPlan;
     await prisma.$disconnect();
     global.prisma = undefined;
   }
