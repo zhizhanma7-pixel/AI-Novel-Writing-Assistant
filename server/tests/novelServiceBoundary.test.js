@@ -43,6 +43,19 @@ test("NovelService compatibility facade does not inherit the legacy service chai
   }
 });
 
+test("NovelService compatibility facade preserves the application service receiver", () => {
+  const { NovelService } = require("../dist/services/novel/NovelService.js");
+  const applicationServices = {
+    getVolumes(novelId) {
+      assert.equal(this, applicationServices);
+      return [`volume:${novelId}`];
+    },
+  };
+
+  const facade = new NovelService(applicationServices);
+  assert.deepEqual(facade.getVolumes("novel-1"), ["volume:novel-1"]);
+});
+
 test("production code uses the application capability layer instead of new NovelService", () => {
   const sourceFiles = walkTsFiles(srcRoot);
   const offenders = sourceFiles

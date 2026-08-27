@@ -302,11 +302,14 @@ export class NovelVolumeService {
     if (!hydrated.changed) {
       return hydrated.document;
     }
-    return this.persistWorkspaceDocument(novelId, hydrated.document, {
+    const persisted = await this.persistWorkspaceDocument(novelId, hydrated.document, {
       emitEvent: false,
       syncPayoffLedger: false,
       volumeUpdateReason: "chapter_sync",
     });
+    return document.source === "legacy"
+      ? { ...persisted, source: "legacy" }
+      : persisted;
   }
 
   private findVolumeChapterMatch(

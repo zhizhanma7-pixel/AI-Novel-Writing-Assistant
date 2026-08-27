@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
+const { pnpmInvocation, sqliteDatabaseUrl } = require("./helpers/processInvocation.js");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 const serverRoot = path.resolve(repoRoot, "server");
@@ -18,23 +19,9 @@ const serverRoot = path.resolve(repoRoot, "server");
 // rejected array, so it can't catch a mismatch between what StateCommitService
 // actually produces and what the filter expects.
 
-function pnpmInvocation(args) {
-  if (process.platform === "win32") {
-    return {
-      command: process.env.ComSpec || "cmd.exe",
-      args: ["/d", "/s", "/c", "pnpm.cmd", ...args],
-    };
-  }
-  return { command: "pnpm", args };
-}
-
 function setupTempSqliteDatabase(tempDir) {
   const databasePath = path.join(tempDir, "state-commit-apply-failure-filter.db");
-  const relativeDatabasePath = path.relative(serverRoot, databasePath).replace(/\\/g, "/");
-  if (relativeDatabasePath.startsWith("../")) {
-    throw new Error(`Database escaped the server root: ${databasePath}`);
-  }
-  const databaseUrl = `file:./${relativeDatabasePath}`;
+  const databaseUrl = sqliteDatabaseUrl(serverRoot, databasePath);
   const invocation = pnpmInvocation(["--filter", "@ai-novel/server", "prisma:push"]);
   childProcess.execFileSync(invocation.command, invocation.args, {
     cwd: repoRoot,

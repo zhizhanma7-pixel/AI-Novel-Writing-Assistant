@@ -81,6 +81,8 @@ const PROMPT_CATALOG_SHORT_DESCRIPTIONS: Record<string, string> = {
   "drama.video.prompt": "短剧视频提示词",
   "comic.episodeOutline": "漫画分集大纲",
   "comic.panelScript": "漫画分镜脚本",
+  "comic.factExtraction": "漫画跨话视觉事实提取",
+  "comic.visualAnchorRewrite": "漫画角色外貌锚点优化",
   "rag.contextual_chunk.prefix": "知识片段上下文",
   "audit.chapter.full": "完整章节审校",
   "audit.chapter.light": "快速章节审校",

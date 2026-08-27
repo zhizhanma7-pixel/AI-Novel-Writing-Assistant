@@ -53,6 +53,12 @@ function buildDirectorInput(overrides = {}) {
   };
 }
 
+function createDirectorService() {
+  const service = new NovelDirectorService();
+  service.resolveDirectorRiskPolicy = async () => null;
+  return service;
+}
+
 function stubDirectorRuntimeNode(service, onRunNode) {
   const originalRunNode = service.directorRuntime.runNode;
   service.directorRuntime.runNode = async (contract, input, collectArtifacts) => {
@@ -293,7 +299,7 @@ test("applyDirectorLlmOverride also rewrites candidate-stage seed payload before
 });
 
 test("generateCandidates marks workflow task failed when candidate-stage generation throws", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalGenerate = service.candidateStageService.generateCandidates;
   const originalMarkTaskFailed = service.workflowService.markTaskFailed;
   const failures = [];
@@ -324,7 +330,7 @@ test("generateCandidates marks workflow task failed when candidate-stage generat
 });
 
 test("continueTask resumes queued candidate-stage tasks before novel creation", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalScheduleBackgroundRun = service.scheduleBackgroundRun;
   const originalGenerate = service.candidateStageService.generateCandidates;
@@ -372,7 +378,7 @@ test("continueTask resumes queued candidate-stage tasks before novel creation", 
 });
 
 test("continueTask ignores stale candidate-stage state after the workflow has entered story macro", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalResolveAssetFirstRecovery = service.resolveAssetFirstRecovery;
   const originalGetVolumes = service.volumeService.getVolumes;
@@ -466,7 +472,7 @@ test("continueTask ignores stale candidate-stage state after the workflow has en
 });
 
 test("resolveAssetFirstRecovery uses the runtime default resolver without recursive callback", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalResolveFromAssets = service.continueRuntime.resolveAssetFirstRecoveryFromAvailableAssets;
   const calls = [];
 
@@ -492,7 +498,7 @@ test("resolveAssetFirstRecovery uses the runtime default resolver without recurs
 });
 
 test("continueTask resumes auto-director tasks that are still marked running after manual-recovery pause", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalContinueCandidateStageTask = service.continueCandidateStageTask;
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalResolveAssetFirstRecovery = service.resolveAssetFirstRecovery;
@@ -578,7 +584,7 @@ test("continueTask resumes auto-director tasks that are still marked running aft
 });
 
 test("continueTask resumes auto execution in the background instead of blocking the request", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalContinueCandidateStageTask = service.continueCandidateStageTask;
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalResolveAssetFirstRecovery = service.resolveAssetFirstRecovery;
@@ -679,7 +685,7 @@ test("continueTask resumes auto execution in the background instead of blocking 
 });
 
 test("continueTask lets full_book_autopilot recover review-blocked chapter checkpoints", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalContinueCandidateStageTask = service.continueCandidateStageTask;
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalResolveAssetFirstRecovery = service.resolveAssetFirstRecovery;
@@ -778,7 +784,7 @@ test("continueTask lets full_book_autopilot recover review-blocked chapter check
 });
 
 test("continueTask upgrades an explicit auto-execution continuation to execution mode", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalContinueCandidateStageTask = service.continueCandidateStageTask;
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalResolveAssetFirstRecovery = service.resolveAssetFirstRecovery;
@@ -901,7 +907,7 @@ test("continueTask upgrades an explicit auto-execution continuation to execution
 });
 
 test("continueTask does not skip the current chapter when approving a waiting auto-execution checkpoint", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalContinueCandidateStageTask = service.continueCandidateStageTask;
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalResolveAssetFirstRecovery = service.resolveAssetFirstRecovery;
@@ -998,7 +1004,7 @@ test("continueTask does not skip the current chapter when approving a waiting au
 });
 
 test("continueTask replans the affected window before continuing from a replan checkpoint", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalContinueCandidateStageTask = service.continueCandidateStageTask;
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalResolveAssetFirstRecovery = service.resolveAssetFirstRecovery;
@@ -1111,7 +1117,7 @@ test("continueTask replans the affected window before continuing from a replan c
 });
 
 test("continueTask keeps the replan checkpoint when window replanning fails", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalContinueCandidateStageTask = service.continueCandidateStageTask;
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalResolveAssetFirstRecovery = service.resolveAssetFirstRecovery;
@@ -1184,7 +1190,7 @@ test("continueTask keeps the replan checkpoint when window replanning fails", as
 });
 
 test("continueTask resumes structured outline when stale chapter_range checkpoint lacks a fully detailed range", async () => {
-  const service = new NovelDirectorService();
+  const service = createDirectorService();
   const originalContinueCandidateStageTask = service.continueCandidateStageTask;
   const originalGetTaskById = service.workflowService.getTaskById;
   const originalResolveAssetFirstRecovery = service.resolveAssetFirstRecovery;
@@ -1397,6 +1403,7 @@ test("runDirectorStructuredOutlinePhase resumes from the first incomplete beat a
           },
         },
         novelContextService: {
+          getNovelById: async () => null,
           listChapters: async () => [
           {
             id: "volume-2-chapter-1",

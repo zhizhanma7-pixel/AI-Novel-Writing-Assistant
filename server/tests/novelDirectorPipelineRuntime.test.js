@@ -43,13 +43,17 @@ function buildDirectorInput(overrides = {}) {
 }
 
 function createRuntime(overrides = {}) {
+  const defaultNovelContextService = {
+    async getNovelById() {
+      return null;
+    },
+    async listCharacters() {
+      return [];
+    },
+  };
   const deps = {
     workflowService: {},
-    novelContextService: {
-      async listCharacters() {
-        return [];
-      },
-    },
+    novelContextService: defaultNovelContextService,
     characterDynamicsService: {},
     characterPreparationService: {
       async listCharacterCastOptions() {
@@ -83,6 +87,10 @@ function createRuntime(overrides = {}) {
     },
     async assertHighMemoryStartAllowed() {},
     ...overrides,
+  };
+  deps.novelContextService = {
+    ...defaultNovelContextService,
+    ...overrides.novelContextService,
   };
   return new NovelDirectorPipelineRuntime(deps);
 }

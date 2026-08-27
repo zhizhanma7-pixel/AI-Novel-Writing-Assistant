@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
+const { pnpmInvocation, sqliteDatabaseUrl } = require("./helpers/processInvocation.js");
 const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 const { PrismaClient } = require("@prisma/client");
 
@@ -79,21 +80,19 @@ function createPrisma(databasePath) {
   });
 }
 
-function pnpmExecutable() {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-}
-
 function createTempDatabase(prefix) {
   const tempRoot = path.join(serverRoot, ".tmp");
   fs.mkdirSync(tempRoot, { recursive: true });
   const tempDir = fs.mkdtempSync(path.join(tempRoot, `${prefix}-`));
   const databasePath = path.join(tempDir, `${prefix}.db`);
-  const databaseUrl = `file:${databasePath.replace(/\\/g, "/")}`;
-  childProcess.execFileSync(pnpmExecutable(), ["--filter", "@ai-novel/server", "prisma:push"], {
+  const databaseUrl = sqliteDatabaseUrl(serverRoot, databasePath);
+  const invocation = pnpmInvocation(["--filter", "@ai-novel/server", "prisma:push"]);
+  childProcess.execFileSync(invocation.command, invocation.args, {
     cwd: repoRoot,
     env: {
       ...process.env,
       DATABASE_URL: databaseUrl,
+      ...(process.platform === "win32" ? { RUST_LOG: "info" } : {}),
     },
     stdio: ["ignore", "ignore", "pipe"],
   });

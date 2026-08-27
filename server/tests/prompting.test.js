@@ -177,6 +177,8 @@ test("prompt registry exposes versioned planning assets", () => {
     "novel.framing.suggest@v1",
     "novel.production.characters@v1",
     "state.snapshot.extract@v4",
+    "comic.factExtraction@v1",
+    "comic.visualAnchorRewrite@v1",
     "novel.payoff_ledger.sync@v6",
     "novel.characterDynamics.volumeProjection@v3",
     "novel.character_resource.extract_updates@v1",
