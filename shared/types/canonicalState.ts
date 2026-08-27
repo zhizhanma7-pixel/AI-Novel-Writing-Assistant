@@ -14,6 +14,7 @@ export const stateChangeProposalTypeSchema = z.enum([
   "character_resource_update",
   "world_rule_change",
   "book_contract_change",
+  "outline_plan_update",
 ]);
 
 export const canonicalBookContractStateSchema = z.object({

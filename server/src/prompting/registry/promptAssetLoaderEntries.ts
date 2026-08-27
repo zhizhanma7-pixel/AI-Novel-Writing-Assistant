@@ -10,6 +10,14 @@ export interface PromptAssetLoaderEntry {
 
 export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
   {
+    key: "novel.outline.import.parse@v1",
+    load: () => require("../prompts/novel/outlineWorkflow.prompts").outlineImportParsePrompt as UnknownPromptAsset,
+  },
+  {
+    key: "novel.outline.faithfulPolish@v1",
+    load: () => require("../prompts/novel/outlineWorkflow.prompts").outlineFaithfulPolishPrompt as UnknownPromptAsset,
+  },
+  {
     key: "director.issue.assessment@v1",
     load: () => require("../prompts/director/directorIssueAssessment.prompts").directorIssueAssessmentPrompt as UnknownPromptAsset,
   },

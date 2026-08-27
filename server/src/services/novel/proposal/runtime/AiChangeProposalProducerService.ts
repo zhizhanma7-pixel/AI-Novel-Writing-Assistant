@@ -18,7 +18,7 @@ import { changeProposalPolicyGateService } from "./ChangeProposalPolicyGateServi
 export const aiChangeProposalInputSchema = createChangeProposalInputSchema
   .omit({ taskId: true, submitForReview: true })
   .extend({
-    taskId: z.string().trim().min(1),
+    taskId: z.string().trim().min(1).nullable().optional(),
   })
   .strict();
 

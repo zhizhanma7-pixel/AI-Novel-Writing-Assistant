@@ -9,6 +9,7 @@ export const STATE_PROPOSAL_APPLICATION_MODES = {
   payoff_progression: "ledger_only",
   world_rule_change: "ledger_only",
   book_contract_change: "ledger_only",
+  outline_plan_update: "domain_state",
   character_resource_update: "domain_state",
   character_state_update: "domain_state",
   relation_state_update: "domain_state",

@@ -13,6 +13,7 @@ const integrationTests = new Set([
   "novelDirectorPipelineRuntime.test.js",
   "novelDirectorRetry.test.js",
   "novelWorkflowRuntime.test.js",
+  "outlineProposalRealSqlite.test.js",
   "p0bRealPrismaChain.test.js",
   "pendingReviewAutoPromotionRealSqlite.test.js",
   "prompting-governance.test.js",
