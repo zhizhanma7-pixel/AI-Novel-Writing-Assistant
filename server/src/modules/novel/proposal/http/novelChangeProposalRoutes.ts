@@ -20,6 +20,8 @@ import {
   changeProposalService,
 } from "../../../../services/novel/proposal";
 import { DirectorCommandService } from "../../../../services/novel/director/commands/DirectorCommandService";
+import { outlineImportRequestSchema } from "@ai-novel/shared/types/outlineWorkflow";
+import { outlineImportProposalService } from "../../../../services/novel/proposal/outline/application/OutlineImportProposalService";
 
 const proposalParamsSchema = z.object({
   id: z.string().trim().min(1),
@@ -69,6 +71,27 @@ export function forwardProposalError(error: unknown, next: (error?: unknown) => 
 }
 
 export function registerNovelChangeProposalRoutes(router: Router): void {
+  router.post(
+    "/:id/outline-import/propose",
+    validate({
+      params: z.object({ id: z.string().trim().min(1) }),
+      body: outlineImportRequestSchema,
+    }),
+    async (req, res, next) => {
+      try {
+        const { id } = z.object({ id: z.string().trim().min(1) }).parse(req.params);
+        const data = await outlineImportProposalService.propose(id, req.body);
+        res.status(201).json({
+          success: true,
+          data,
+          message: "AI 已整理核心事件和大纲建议，请审阅后应用。",
+        } satisfies ApiResponse<typeof data>);
+      } catch (error) {
+        forwardProposalError(error, next);
+      }
+    },
+  );
+
   router.get(
     "/:id/change-proposals",
     validate({

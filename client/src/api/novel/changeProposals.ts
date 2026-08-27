@@ -10,6 +10,11 @@ import type {
   ReviewChangeProposalInput,
 } from "@ai-novel/shared/types/changeProposal";
 import type { DirectorCommandAcceptedResponse } from "@ai-novel/shared/types/directorRuntime";
+import type {
+  FaithfulOutlineResult,
+  NormalizedOutlineDraft,
+  OutlineImportRequest,
+} from "@ai-novel/shared/types/outlineWorkflow";
 import { apiClient } from "../client";
 import {
   toChangeProposalActionResult,
@@ -23,6 +28,25 @@ export interface ChangeProposalListFilters {
   status?: ChangeProposalStatus;
   type?: ChangeProposalType;
   chapterId?: string;
+}
+
+export interface OutlineImportProposalResult {
+  draft: NormalizedOutlineDraft;
+  polished: FaithfulOutlineResult;
+  proposal: ChangeProposal;
+  disposition: "pending_review" | "executed";
+}
+
+export async function proposeOutlineImport(
+  novelId: string,
+  input: OutlineImportRequest,
+): Promise<OutlineImportProposalResult> {
+  const { data } = await apiClient.post<ApiResponse<OutlineImportProposalResult>>(
+    `/novels/${novelId}/outline-import/propose`,
+    input,
+    { silentErrorStatuses: REVIEW_ERROR_STATUSES },
+  );
+  return requireData(data, "无法整理这份大纲，请检查内容后重试。");
 }
 
 const REVIEW_ERROR_STATUSES = [400, 404, 409];

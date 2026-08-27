@@ -9,6 +9,7 @@ import type { Prisma } from "@prisma/client";
 import { characterResourceLedgerService } from "../characterResource/CharacterResourceLedgerService";
 import { applyCharacterRelationStateProposal } from "../dynamics/characterRelationStateMutation";
 import { StateProposalDomainError } from "./StateProposalDomainError";
+import { applyOutlinePlanUpdate } from "../proposal/outline/application/OutlinePlanProposalApplier";
 
 type StateProposalApplier = (
   tx: Prisma.TransactionClient,
@@ -26,6 +27,7 @@ function parseJsonRecord(value: unknown): Record<string, unknown> {
 }
 
 const DOMAIN_STATE_PROPOSAL_APPLIERS: Record<DomainStateProposalType, StateProposalApplier> = {
+  outline_plan_update: applyOutlinePlanUpdate,
   character_resource_update: async (tx, proposal) => {
     const parsed = characterResourceUpdatePayloadSchema.safeParse(proposal.payload);
     if (!parsed.success) {

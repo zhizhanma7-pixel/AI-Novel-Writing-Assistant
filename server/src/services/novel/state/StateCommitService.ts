@@ -35,6 +35,7 @@ const ALWAYS_REVIEW_TYPES = new Set<StateChangeProposal["proposalType"]>([
   "information_disclosure",
   "world_rule_change",
   "book_contract_change",
+  "outline_plan_update",
 ]);
 
 function compactText(value: string | null | undefined): string {

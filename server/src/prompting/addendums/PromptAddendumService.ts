@@ -61,6 +61,8 @@ const PROMPT_ADDENDUM_DESCRIPTIONS: Record<string, string> = {
 };
 
 const PROMPT_CATALOG_SHORT_DESCRIPTIONS: Record<string, string> = {
+  "novel.outline.import.parse": "自由文本大纲解析",
+  "novel.outline.faithfulPolish": "大纲忠实润色",
   "novel.chapter.writer": "章节正文生成",
   "novel.short_story.segment.write": "短篇正文生成",
   "novel.short_story.full.audit": "短篇全文审校",
