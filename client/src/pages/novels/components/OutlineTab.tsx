@@ -13,6 +13,7 @@ import SelectControl from "@/components/common/SelectControl";
 import OutlineCurrentVolumeWorkspace from "./outline/OutlineCurrentVolumeWorkspace";
 import OutlineResourceCommitments from "./outline/OutlineResourceCommitments";
 import type { VolumeBeatImpactItem } from "@ai-novel/shared/types/novel";
+import OutlineImportPanel from "./outlineImport/OutlineImportPanel";
 
 type OutlineWorkspaceTab = "current" | "strategy" | "assets";
 
@@ -179,6 +180,7 @@ export default function OutlineTab(props: OutlineTabViewProps) {
         description="AI 会先判断卷战略和卷骨架是否已齐，再决定继续补缺失部分还是重跑当前步骤。"
         entry={props.directorTakeoverEntry}
       />
+      <OutlineImportPanel novelId={props.novelId} />
       <section className="overflow-hidden rounded-2xl border border-border/70 bg-background shadow-sm">
       <div className="border-b border-border/60 bg-[linear-gradient(135deg,hsl(var(--background))_0%,hsl(var(--muted)/0.38)_100%)] px-5 py-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

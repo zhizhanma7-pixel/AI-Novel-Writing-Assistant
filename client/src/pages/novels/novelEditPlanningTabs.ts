@@ -201,6 +201,7 @@ export function buildNovelEditPlanningTabs(input: BuildNovelEditPlanningTabsInpu
   };
 
   const outlineTab: OutlineTabViewProps = {
+    novelId: input.id,
     worldInjectionSummary: input.worldInjectionSummary,
     hasCharacters: input.hasCharacters,
     hasUnsavedVolumeDraft: input.hasUnsavedVolumeDraft,
@@ -258,7 +259,6 @@ export function buildNovelEditPlanningTabs(input: BuildNovelEditPlanningTabsInpu
   };
 
   const structuredTab: StructuredTabViewProps = {
-    novelId: input.id,
     directorTakeoverEntry: input.structuredDirectorTakeoverEntry,
     ...outlineTab,
     beatSheets: input.beatSheets,

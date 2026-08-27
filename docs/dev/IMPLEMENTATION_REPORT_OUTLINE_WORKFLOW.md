@@ -1,8 +1,8 @@
 # Outline Workflow Implementation Report
 
-> 分支：`codex/outline-workflow`
+> 分支：Phase 2A `codex/outline-workflow`；Phase 2B `codex/outline-workflow-2b`
 > 计划：`docs/dev/IMPLEMENTATION_PLAN_OUTLINE_WORKFLOW.md`
-> 当前状态：Phase 2A 完成；Phase 2B 待开始
+> 当前状态：Phase 2A、Phase 2B 完成；待进入 Phase 2C
 
 ## Phase 2A — Proposal Runtime Bridge
 
@@ -71,6 +71,27 @@ Phase 2A 经 `718d745` 合入 `beta` 后，先在 `main@308ca1b` 与 `beta@cd58b
   - `docs/wiki/debugging/real-sqlite-integration-baseline.md`
 - 任务中心沿用现有 runtime policy 卡片，新增独立的“变更提案确认”选择项；没有新增页面。Phase 2A 是 2B Outline Workflow 的运行时前置。
 
-## Next — Phase 2B Outline Workflow MVP
+## Phase 2B — Outline Workflow MVP
 
-下一阶段按实施计划进入自由文本大纲解析、Faithful polish、依赖影响分析、Outline Proposal 与正式大纲写入 adapter。Phase 2C 的 Expected vs Actual 和章节执行偏离仍不在本轮 2A/2B 范围内。
+### 已交付
+
+1. 新增 `novel.outline.import.parse@v1` 与 `novel.outline.faithfulPolish@v1` 两个注册 PromptAsset：自由文本先归一为带稳定事件 ID、原文证据和原顺序的 draft，再生成保留义务、章节建议、依赖影响与 warnings。
+2. Strict 忠实度默认启用。Prompt post-validation 确认全部核心事件同时出现在 `preservedEventIds` 和 proposed chapters 的 `sourceEventIds`，并验证首次出现顺序；缺失或乱序会触发一次 semantic retry，重试仍失败则不创建 Proposal。
+3. `OutlineImportProposalService` 使用数据库中的现有章节重新计算依赖影响。已有正文发生标题或规划变化时确定性升级为 major，并通过 chapter source ref 进入 stale 检测；风险不由模型自报决定。
+4. Outline Proposal 继续经过 2A producer 和 policy gate，使用 `outline_edit` 信封与 `outline_plan_update` domain-state item，复用原有审阅抽屉、逐项决定、Artifact Ledger 和状态机。
+5. `OutlinePlanProposalApplier` 在 State Commit 事务中写入 VolumePlan、VolumeChapterPlan、Chapter 和 `Novel.structuredOutline` 兼容投影。它按章节序号 upsert，不删除提案未覆盖章节，也不删除或移动已有正文。
+6. 大纲工作区新增新手入口：粘贴文本、选择严格保留 / 平衡优化 / 导演重构，先查看“AI 会保留什么”和“AI 会补什么”，再打开现有变更提案审阅；没有新增第二套审批页面。
+
+### Verification
+
+- shared build、server build：通过。
+- client typecheck：通过。
+- Strict 22/23/24 核心事件保留、缺失与乱序拒绝：2 项通过。
+- Proposal policy / producer / core / State Commit 聚焦回归：58 项通过，0 失败。
+- 真实 SQLite Outline Proposal：批准后 3 个章节规划、VolumeChapterPlan 与 structured outline 一致；第 23 章已有正文保持不变。
+- 完整 server integration：139 项中 137 项通过、0 失败、2 项按设计跳过。
+- 浏览器与视觉验收按仓库规则留给用户执行。
+
+## Next — Phase 2C Expected vs Actual
+
+下一阶段是章节执行偏离检测、Expected vs Actual 对照和 Chapter Execution Proposal；不在本轮 2B 范围内。
