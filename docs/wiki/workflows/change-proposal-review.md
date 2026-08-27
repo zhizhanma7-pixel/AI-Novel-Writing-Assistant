@@ -46,6 +46,35 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 
 旧 pending-review 自动放行若隔离出 rejected 项，沿用 `pending_review_auto_promotion` 事件并追加拒绝计数与截断后的 item ID，severity 至少为 medium；全拒绝批次的幂等键包含 rejected 分量，避免被同时间点的空结果覆盖。无拒绝项时事件字段和幂等键保持原格式。
 
+## 待审提案与正文生产的关系（不阻塞，有意为之）
+
+**待审 Change Proposal 一律不阻塞正文生成。** `buildBlockingPendingReviewProposalWhere`
+（`server/src/services/novel/runtime/context/pendingReviewContext.ts`）通过
+`changeProposalId: null` 把信封逐项排除在阻塞集合之外——这是**设计结论，不是漏接线**，
+修改它之前必须先推翻下面的理由。
+
+`AGENTS.md` 的 Auto-Director Quality Gate Rules 是最高优先级硬规则：章节局部质量问题
+不得中断全书执行链。需要停下来的情形只由既有结构化判据表达——`replan_required`、
+`stop_for_replan`、不可恢复且无可用正文的生成失败、数据安全问题——走既有 replan 与
+熔断路径。让一条 pending 提案间接把链路卡住，等于绕过这套判据另开一个停链入口。
+
+因此章节执行偏离提案使用**非阻塞投影**（`reviewProjection: "non_blocking"`）：写账本事件
+让 AI 驾驶舱时间线可见，但不投 checkpoint、不改任务状态，全书继续生产，用户事后审阅。
+`CODE_REVIEW_PROPOSAL_CORE.md` 早期把这条记为「Phase 2C 待接线缺口」，其前提是
+「提案要能拦住正文」；该前提在 2026-08-27 的 D2 定稿后不再成立。
+
+## 章节执行偏离的两条出口
+
+- **接受偏离**（`accepted_divergence`）：承认正文，只更新**下游**卷规划条目，
+  本章原始 Expected 合同原样保留作审计证据，随提案 payload 留存。
+  下游 patch 只能改卷规划文档自有字段（`purpose` / `endingState` /
+  `nextChapterEntryState` / `exclusiveEvent`）；`title` / `summary` / `taskSheet` 等
+  由 `Chapter` 数据列权威拥有，`hydrateCanonicalChapterFields` 每次读工作区都会用
+  Chapter 行覆盖文档侧的值，改文档侧会在下一次 hydrate 时被无声还原。
+- **按计划修正**（`corrected_to_expected`）：不新建修复链路，把偏离翻译成既有的
+  `ChapterExecutionMissingObligation` 交给现有修复通路，从而复用既有修复预算与
+  `maxAutoRepairAttempts`。
+
 ## Policy、任务与审计复用
 
 - Director runtime policy 中的 `mode` 只表达一次推进多远；`proposalAutonomyLevel` 独立表达 Proposal 是否可免审写入。两者正交，禁止再从 `mode` 反推 Proposal 授权。旧快照没有新字段时必须归一化为 L1，Director 以 L2/L3 推进也不改变这个默认值。
