@@ -148,9 +148,8 @@ test("two divergences targeting the same path are rejected at production time", 
   assert.equal(calls.length, 0);
 });
 
-test("chapter_execution_plan_update stays ledger-only until the 2C.4 applier lands", () => {
-  // 登记为 ledger_only 时执行会明确返回 unsupported_change，而不是假装写入成功。
-  assert.equal(getStateProposalApplicationMode("chapter_execution_plan_update"), "ledger_only");
+test("chapter_execution_plan_update is a domain-state type with a real applier (2C.4)", () => {
+  assert.equal(getStateProposalApplicationMode("chapter_execution_plan_update"), "domain_state");
 });
 
 // ---- T1 核心断言：偏离提案不得改变章节推进决定 ----

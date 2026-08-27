@@ -282,6 +282,33 @@ export class NovelVolumeService {
     return persistedDocument;
   }
 
+  /**
+   * 在**调用方已有的事务**内完成一次版本化卷规划写入。
+   *
+   * 为 Change Proposal applier 提取：信封执行要求「任一批准项失败，整次回滚」，
+   * 而 `updateVolumesWithOptions` 会用 `runVolumeWorkspaceTransaction` 自开事务，
+   * 从 applier 的 tx 里调用它既破坏信封原子性，又会在 SQLite 上触发
+   * `database is locked`。因此这里只做 active version + normalized workspace 的
+   * 一致写入，**不发事件、不同步伏笔账本**——两者都是提交后才应发生的副作用，
+   * 由调用方在信封提交之后自行触发。
+   */
+  async applyWorkspaceDocumentWithinTransaction(
+    tx: Prisma.TransactionClient,
+    novelId: string,
+    input: unknown,
+  ): Promise<VolumePlanDocument> {
+    const currentDocument = await this.ensureVolumeWorkspace(novelId);
+    const mergedDocument = mergeVolumeWorkspaceInput(novelId, currentDocument, input);
+    const { versionId } = await this.ensureActiveVersionRecord(tx, novelId, mergedDocument);
+    const nextDocument = {
+      ...mergedDocument,
+      activeVersionId: versionId,
+      source: "volume" as const,
+    };
+    await persistActiveVolumeWorkspace(tx, novelId, nextDocument, versionId);
+    return nextDocument;
+  }
+
   private parseVersionDocument(novelId: string, contentJson: string): VolumePlanDocument {
     return normalizeVolumeWorkspaceDocument(novelId, contentJson, {
       source: "volume",

@@ -18,8 +18,9 @@
 | 2C.0 正文保护 guard | ✅ 7/7（6 fast + 1 real SQLite），Claude 独立复跑确认 | `e7ae664` |
 | 2C.1 偏离契约 | ✅ 10/10 新增单测；prompt registry 相关 82 通过 0 失败 | `b52551a` |
 | 2C.2 非阻塞投递 | ✅ 6 项新增投影用例；含 2A 既有用例共 43 通过 0 失败 | `28bf161` |
-| 2C.3 偏离生产者 + 章节链接线 | ✅ 9/9 新增用例（含 T1 旁路隔离两条） | 本次 |
-| 2C.4–2C.7 | ⏳ 未开始 | — |
+| 2C.3 偏离生产者 + 章节链接线 | ✅ 9/9 新增用例（含 T1 旁路隔离两条） | `86d1641` |
+| 2C.4 接受分支 applier | ✅ T10/T11 真实 SQLite 1/1 | 本次 |
+| 2C.5–2C.7 | ⏳ 未开始 | — |
 
 ### 本分支的 fast 基线（2026-08-27 首次建立）
 
@@ -450,6 +451,41 @@ applier 行为，**逐条对应口径 4**：
 
 审计证据的归宿：提案本身已经是不可变、带版本、进 Artifact Ledger 的记录，`originalExpected` 随 payload 留存即可，**不需要新表**。
 
+### 2C.4 实现与草案的差异（三处均由实测暴露）
+
+**1. 卷规划写入必须事务感知，为此在 volume 模块提取了新方法。**
+`updateVolumesWithOptions` 用 `runVolumeWorkspaceTransaction` 自开事务；从 applier 的
+信封 `tx` 里调用它会破坏「任一批准项失败整次回滚」的原子性，SQLite 上还会撞
+`database is locked`。新增 `NovelVolumeService.applyWorkspaceDocumentWithinTransaction(tx, …)`，
+只做 active version + normalized workspace 的一致写入。**代价：该方法不发
+`volume_updated` 事件、也不同步伏笔账本**——两者都是提交后才应发生的副作用，
+目前由信封提交后无人触发，属于已知残留（见 Known Risks K5）。
+
+**2. 下游 patch 只能改「卷规划文档自有」的字段——这是个静默 no-op 陷阱。**
+`NovelVolumeService.hydrateCanonicalChapterFields`（`NovelVolumeService.ts:120-148`）
+在每次读取工作区时用 `Chapter` 行覆盖文档侧字段：`title`←`row.title`、
+**`summary`←`row.expectation`**、`taskSheet` / `targetWordCount` / `revealLevel` /
+`mustAvoid` / `sceneCards` 同理。草案允许 patch `summary` 和 `taskSheet`，
+实测结果是：写入成功、当次可见、**下一次 hydrate 后无声还原**。
+
+已把 patch schema 收紧为 `.strict()` 且只收文档自有字段
+（`purpose` / `endingState` / `nextChapterEntryState` / `exclusiveEvent`），
+让这类写入在 schema 层就被拒绝，而不是留到运行期变成看不见的丢失。
+将来若确实要改下游章节的 summary，必须走 `Chapter` 列的正式写入路径，届时
+才需要接入 `ChapterContentProtectionGuard`。
+
+**3. 本 applier 不调用 `ChapterContentProtectionGuard`（与草案不同）。**
+`persistActiveVolumeWorkspace` 只写 `volumePlan` / `volumeChapterPlan` / `novel`，
+**从不触碰 `Chapter` 行**，既不删除也不重排章节，与该 guard 的保护面无交集；
+而对尚未生成 `Chapter` 行的未来章节调用它，`resolveMutationTarget` 会返回 null
+并抛 `invalid_payload`，反而制造假失败。guard 仍由 2B 的 outline applier 使用。
+
+**4. `originalExpected` 用宽松 schema。** 严格引用
+`chapterExecutionObligationContractSchema` 会把 `chapterRuntime` 拉进 shared 的
+ESM 运行时加载路径，而该模块含 7 处无扩展名相对导入，纯 ESM 下直接
+`ERR_MODULE_NOT_FOUND`（既有问题，不在本阶段修）。审计快照 applier 从不解读，
+宽松即可。
+
 ---
 
 ## 2C.5 — 修正分支
@@ -553,3 +589,5 @@ T1 是本阶段的核心验收——它是唯一能证明「2C 没有违反自�
 | K2 | 2C.0 改动已合入的 2B 代码 | 独立 commit + T12 |
 | K3 | 非阻塞下 apply 失败偏安静 | high severity 账本事件 + T4 |
 | K4 | 六类 kind 覆盖不全真实偏离形态 | 首轮按定稿六类实现；扩类需回到本文档改阈值表，不得在 Prompt 里私自加 kind |
+| K5 | 接受偏离的卷规划写入不发 `volume_updated` 事件、不同步伏笔账本 | 事务感知写入刻意剥离了提交后副作用（见 2C.4 差异 1）。若下游依赖这两者，需在 apply 服务提交后补一个 post-commit 钩子；当前作为已知残留记录，**不得**改成在事务内触发 |
+| K6 | shared `chapterRuntime` 含 7 处无扩展名相对导入，纯 ESM 下不可加载 | 既有问题，本阶段以宽松 schema 绕开。若后续有模块必须在运行时 value-import 它，需要先统一补 `.js` 扩展名 |
