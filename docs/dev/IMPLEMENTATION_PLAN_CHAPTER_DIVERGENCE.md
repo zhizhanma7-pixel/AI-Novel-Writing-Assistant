@@ -16,8 +16,27 @@
 |---|---|---|
 | 规划文档 | ✅ | `846295b` |
 | 2C.0 正文保护 guard | ✅ 7/7（6 fast + 1 real SQLite），Claude 独立复跑确认 | `e7ae664` |
-| 2C.1 偏离契约 | ✅ 10/10 新增单测；prompt registry 相关 82 通过 0 失败 | 本次 |
-| 2C.2–2C.7 | ⏳ 未开始 | — |
+| 2C.1 偏离契约 | ✅ 10/10 新增单测；prompt registry 相关 82 通过 0 失败 | `b52551a` |
+| 2C.2 非阻塞投递 | ✅ 6 项新增投影用例；含 2A 既有用例共 43 通过 0 失败 | 本次 |
+| 2C.3–2C.7 | ⏳ 未开始 | — |
+
+### 本分支的 fast 基线（2026-08-27 首次建立）
+
+仓库此前只有 `main@308ca1b` 的 fast 基线（`TEST_BASELINE_PROPOSAL_CORE.md`，2026-08-22），
+本分支从未量过。为了让「新增失败」可判定，这里记录实测：
+
+| 对象 | tests | pass | fail | skipped |
+|---|---:|---:|---:|---:|
+| `b52551a`（2C.1） | 1323 | 1272 | 39 | 12 |
+| `b52551a` + 2C.2 | 1329 | 1278 | 39 | 12 |
+
+**两次失败用例集合逐条相同，双向差集为空。** 39 条中 38 条在 `main` 基线清单里；
+剩下的 `dramaPipelineContract.test.js::drama service pipeline keeps repairable quality
+issues before storyboard and video tasks` 单独跑通过、进全套件才失败——该文件会手动
+删除 `require.cache` 里的 `prisma.js` / `promptRunner.js`，在 `run-tests.cjs fast` 的
+单进程 `require()` 模型下对执行顺序敏感。它在 2C.2 之前的基线全套件里同样失败。
+
+后续子项判定「有没有引入新失败」时，请与本表对照，不要只看 fail 总数。
 
 ---
 
@@ -337,6 +356,19 @@ async produce(
 - 不改 producer 默认值（口径 1）。
 - 不让 2C 绕开 producer 自己拼 proposal——那就是第二套审批。
 - 不在 producer 里判断「要不要停全书链」；停链只由既有结构化判据决定（口径 2）。
+
+### 2C.2 实现与草案的差异
+
+| 草案 | 实际 | 原因 |
+|---|---|---|
+| 只说「写一条 DirectorEvent」 | 新增事件类型 `proposal_review_deferred` | 复用 `proposal_created` 会与 `ChangeProposalService.createProposal` 已有的事件重复；驾驶舱时间线直接透传 `event.type` 作为 status，新类型不会破坏投影 |
+| 未提账本写入失败怎么办 | 捕获后降级为可注入的 `warn`，不抛 | 账本写入失败若抛出就会停链，违反口径 2；但完全静默又是 K3 风险，折中为服务端日志兜底 |
+| 未提成功自动执行时的事件 | 自动执行成功不写 deferred 事件 | 该事件的语义是「需要人来看但没停下」，成功执行没有待审内容 |
+
+**信封 vs 逐项类型的坑（实测发现）：** 信封的 `ChangeProposal.proposalType` 用的是
+`chapter_execution` / `outline_edit` / … 这一组，与逐项 `StateChangeProposal.proposalType`
+（`relation_state_update` / 后续的 `chapter_execution_plan_update`）是两个不同的枚举。
+2C.3 / 2C.4 实现时信封用既有的 `chapter_execution`，只有逐项类型需要新增。
 
 ---
 

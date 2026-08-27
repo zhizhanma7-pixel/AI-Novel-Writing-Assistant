@@ -315,7 +315,9 @@ export type DirectorEventType =
   | "proposal_created"
   | "proposal_reviewed"
   | "proposal_applied"
-  | "proposal_superseded";
+  | "proposal_superseded"
+  /** 需要审阅但按非阻塞投影处理，全书生产不停。 */
+  | "proposal_review_deferred";
 
 export interface DirectorEvent {
   eventId: string;
