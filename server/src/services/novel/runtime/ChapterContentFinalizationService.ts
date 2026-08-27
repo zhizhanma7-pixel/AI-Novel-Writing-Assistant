@@ -6,6 +6,7 @@ import { openConflictService } from "../../state/OpenConflictService";
 import { directorAutomationLedgerEventService } from "../director/runtime/DirectorAutomationLedgerEventService";
 import { filterAcceptedFactItems, type FactLedgerExcludedItem } from "../fact/factLedgerFilter";
 import { novelFactService } from "../fact/NovelFactService";
+import { chapterDivergenceProposalService } from "../proposal/chapterExecution/application/ChapterDivergenceProposalService";
 import { ChapterArtifactSyncService } from "./ChapterArtifactSyncService";
 import type { ChapterRuntimeRequestInput } from "./chapterRuntimeSchema";
 import type { StyleReviewResult } from "./PostGenerationStyleReviewRunner";
@@ -28,6 +29,11 @@ export interface ChapterContentFinalizationServiceDeps {
   artifactSyncService: Pick<ChapterArtifactSyncService, "syncChapterArtifacts">;
   plannerService: ChapterRuntimePlannerPort;
   agentRuntime: ChapterContentFinalizationAgentRuntime;
+  divergenceProposalService?: Pick<
+    typeof chapterDivergenceProposalService,
+    "createForChapter"
+  >;
+  warn?: (message: string, details?: Record<string, unknown>) => void;
 }
 
 export interface FinalizeChapterContentInput {
@@ -54,12 +60,57 @@ export class ChapterContentFinalizationService {
   private readonly artifactSyncService: Pick<ChapterArtifactSyncService, "syncChapterArtifacts">;
   private readonly plannerService: ChapterRuntimePlannerPort;
   private readonly agentRuntime: ChapterContentFinalizationAgentRuntime;
+  private readonly divergenceProposalService: Pick<
+    typeof chapterDivergenceProposalService,
+    "createForChapter"
+  >;
+  private readonly warn: (message: string, details?: Record<string, unknown>) => void;
 
   constructor(deps: ChapterContentFinalizationServiceDeps) {
     this.qualityGateService = deps.qualityGateService;
     this.artifactSyncService = deps.artifactSyncService;
     this.plannerService = deps.plannerService;
     this.agentRuntime = deps.agentRuntime;
+    this.divergenceProposalService = deps.divergenceProposalService ?? chapterDivergenceProposalService;
+    this.warn = deps.warn ?? console.warn;
+  }
+
+  /**
+   * 偏离提案是**旁路**：无论成功、失败还是抛错，都不改变本章的推进决定。
+   * 全书自动执行途中出现偏离必须继续跑完，这由 T1 整书回归锁定。
+   */
+  private async produceChapterDivergenceProposal(
+    input: FinalizeChapterContentInput,
+    assessment: { divergences?: unknown; repairability?: string },
+  ): Promise<void> {
+    const divergences = Array.isArray(assessment.divergences) ? assessment.divergences : [];
+    if (divergences.length === 0) {
+      return;
+    }
+    const expectedSource = input.contextPackage.chapterReviewContext
+      ?? input.contextPackage.chapterWriteContext
+      ?? null;
+    try {
+      await this.divergenceProposalService.createForChapter({
+        novelId: input.novelId,
+        chapterId: input.chapterId,
+        chapterOrder: input.contextPackage.chapter.order,
+        taskId: input.request.workflowTaskId ?? null,
+        divergences: divergences as Parameters<
+          typeof chapterDivergenceProposalService.createForChapter
+        >[0]["divergences"],
+        obligationContract: expectedSource?.obligationContract ?? null,
+        boundaryContract: expectedSource?.chapterBoundary ?? null,
+        repairability: assessment.repairability ?? null,
+      });
+    } catch (error) {
+      this.warn("[chapter-divergence] failed to produce divergence proposal.", {
+        novelId: input.novelId,
+        chapterId: input.chapterId,
+        divergenceCount: divergences.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async finalizeChapterContent(input: FinalizeChapterContentInput): Promise<FinalizeChapterContentResult> {
@@ -111,6 +162,11 @@ export class ChapterContentFinalizationService {
       runId: input.runId,
       plannerService: this.plannerService,
     });
+    // Phase 2C：把本章的执行偏离聚合成一份非阻塞提案。
+    // 这一步的任何结果都**不得**参与下面的 needsRepair 判定，也不得抛出——
+    // 章节推进只能由既有结构化判据决定（`AGENTS.md` 自动导演质量门规则）。
+    await this.produceChapterDivergenceProposal(input, acceptance.assessment);
+
     const needsRepair = acceptance.assessment.status === "repairable"
       || acceptance.assessment.status === "needs_manual_review"
       || timelineCheck.status === "failed"

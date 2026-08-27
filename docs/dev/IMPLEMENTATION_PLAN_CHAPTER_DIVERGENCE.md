@@ -17,8 +17,9 @@
 | 规划文档 | ✅ | `846295b` |
 | 2C.0 正文保护 guard | ✅ 7/7（6 fast + 1 real SQLite），Claude 独立复跑确认 | `e7ae664` |
 | 2C.1 偏离契约 | ✅ 10/10 新增单测；prompt registry 相关 82 通过 0 失败 | `b52551a` |
-| 2C.2 非阻塞投递 | ✅ 6 项新增投影用例；含 2A 既有用例共 43 通过 0 失败 | 本次 |
-| 2C.3–2C.7 | ⏳ 未开始 | — |
+| 2C.2 非阻塞投递 | ✅ 6 项新增投影用例；含 2A 既有用例共 43 通过 0 失败 | `28bf161` |
+| 2C.3 偏离生产者 + 章节链接线 | ✅ 9/9 新增用例（含 T1 旁路隔离两条） | 本次 |
+| 2C.4–2C.7 | ⏳ 未开始 | — |
 
 ### 本分支的 fast 基线（2026-08-27 首次建立）
 
@@ -386,6 +387,20 @@ async produce(
 6. **无论结果如何都不改变章节执行链的推进决定**——这是 R1 的实现约束，需要在代码里以显式注释固定，并由整书回归锁定。
 
 若 acceptance 同时给出 `replan_required` / `stop_for_replan`，走既有 replan 路径，**不建偏离提案**（口径 2 末句）——避免同一件事既 replan 又留一份待审提案。
+
+### 2C.3 实现与草案的差异
+
+| 草案 | 实际 | 原因 |
+|---|---|---|
+| 未指明章节链的接入点 | `ChapterContentFinalizationService.finalizeChapterContent()`，放在 `needsRepair` 计算**之前**且结果不参与该判定 | 该方法每章定稿只跑一次；acceptance gate 本身带缓存，挂在那里会导致缓存命中时漏建提案 |
+| 未指明失败如何处置 | 整段包在 try/catch 里降级为可注入 `warn` | 沿用同文件 `writeAcceptedFacts` 已有的「失败只告警，不阻断定稿返回」先例 |
+| `chapter_execution_plan_update` 直接是 `domain_state` | 2C.3 先登记为 `ledger_only`，2C.4 落 applier 时再翻 | applier 未落地前执行应明确返回 `unsupported_change`，而不是注册成 domain_state 却没有 applier |
+| 未提 `path` 的形状约束 | `path` 末段必须是 payload 里真实存在的键 | apply 边界的 `assertProposedValueMatchesPayload`（2A 的 M3 修复）会校验展示值与可执行值一致，末段解析不到 payload 键会抛 `invalid_review` |
+
+**T1 的当前覆盖范围（重要，不要误读）：** 已锁定的是**旁路隔离**——偏离生产者抛错时
+异常不会逃出定稿流程，且无偏离时根本不调用生产者。真正的「整书自动执行途中产生偏离、
+全书跑完不中断」端到端回归**尚未编写**，它需要真实 SQLite + 完整 pipeline，排在 2C.4
+之后与接受分支的真实链路一起做。在那条用例跑通之前，不得声称 T1 已满足。
 
 ---
 

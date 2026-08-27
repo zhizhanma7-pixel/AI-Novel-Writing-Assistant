@@ -10,6 +10,10 @@ export const STATE_PROPOSAL_APPLICATION_MODES = {
   world_rule_change: "ledger_only",
   book_contract_change: "ledger_only",
   outline_plan_update: "domain_state",
+  // Phase 2C.3 阶段先登记为 ledger_only：偏离提案可以创建与审阅，但「接受偏离」
+  // 的正式写入 applier 属于 2C.4。在 applier 落地前执行会明确返回
+  // unsupported_change，而不是假装写入成功。2C.4 会把它改为 domain_state。
+  chapter_execution_plan_update: "ledger_only",
   character_resource_update: "domain_state",
   character_state_update: "domain_state",
   relation_state_update: "domain_state",
