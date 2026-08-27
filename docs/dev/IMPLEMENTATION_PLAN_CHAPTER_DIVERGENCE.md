@@ -2,8 +2,22 @@
 
 > 基线：`beta@2c5614f`
 > 架构分析：`docs/dev/ARCH_ANALYSIS_CHAPTER_DIVERGENCE.md`
-> 作者：Claude Code（Architect）。**本文所有代码均为未编译草案**，编译核验与修正由 Codex 负责。
 > 口径来源：2026-08-27 用户拍板的六条修订。
+>
+> **分工变更（2026-08-27）：** Codex 额度耗尽，实现改由 Claude Code 承担，Codex 转为评审。
+> 本文中标注「未编译草案」的代码块是**当初的设计草案**，已实现的子项以实际代码为准，
+> 差异记录在各子项的「实现与草案的差异」小节。Claude Code 已确认本机可用的
+> Node 24.19.0 / pnpm 11.19.0（在 `~/.cache/codex-runtimes/`，不在 PATH），
+> 因此后续子项均自行编译与测试，不再以未验证草案交付。
+
+## 进度
+
+| 子项 | 状态 | 提交 |
+|---|---|---|
+| 规划文档 | ✅ | `846295b` |
+| 2C.0 正文保护 guard | ✅ 7/7（6 fast + 1 real SQLite），Claude 独立复跑确认 | `e7ae664` |
+| 2C.1 偏离契约 | ✅ 10/10 新增单测；prompt registry 相关 82 通过 0 失败 | 本次 |
+| 2C.2–2C.7 | ⏳ 未开始 | — |
 
 ---
 
@@ -260,6 +274,24 @@ divergences: z.array(chapterDivergenceSchema).default([]),
 ```
 
 第 18 条后半句是为了满足 `AGENTS.md` 不保存隐藏推理的要求。
+
+### 2C.1 实现与草案的差异（实测修正）
+
+草案编译时暴露了四处与真实代码不符，已按实际结构修正：
+
+| 草案 | 实际 | 原因 |
+|---|---|---|
+| `postValidate` 直接拿到合同 | `ChapterAcceptancePromptInput` 新增 `obligationContract` / `boundaryContract` | `postValidate(output, input, context)` 只能看到 prompt input，合同原本只存在于渲染后的上下文文本里，反解析不可靠 |
+| 合同取自 `contextPackage.writeContext` | 取自 `contextPackage.chapterReviewContext`，回退 `chapterWriteContext` | `GenerationContextPackage` 上没有 `writeContext` 字段；`chapterReviewContextSchema` 继承自 `chapterWriteContextSchema`，两个合同都在，且 acceptance 属于 review 阶段 |
+| 指令编号 15–19 | 实际编号 18–22 | 现行 prompt 已有 17 条指令 |
+| 只加 `divergences` 到 schema | 还需给 `buildFallbackAssessment` 补 `divergences: []` | 该字段非可选，闸门降级路径也必须提供 |
+
+另外把 `collectChapterDivergenceContractEntries` 与 `isVerifiableChapterDivergence` 放进
+`shared/types/chapterDivergence.ts`，让 Prompt 的 `postValidate` 与服务端阈值模块共用同一套
+回查逻辑——两处各写一份必然漂移，这正是 D1 想避免的问题在契约层的翻版。
+
+**分层边界：** Prompt 层负责「这条偏离可不可核验」（不可核验→重试→剥离），
+服务端阈值层负责「可核验的偏离够不够格建提案」。两层都做 default-deny。
 
 ---
 

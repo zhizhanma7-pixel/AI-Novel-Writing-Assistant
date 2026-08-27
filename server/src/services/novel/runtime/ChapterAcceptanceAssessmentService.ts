@@ -238,6 +238,7 @@ function buildFallbackAssessment(content: string): ChapterAcceptanceAssessmentOu
     }],
     repairDirectives: [],
     missingObligations: [],
+    divergences: [],
     repairability: "none",
     decisionReason: "接收闸门不可用，系统保留正文并继续推进后续复查。",
     riskTags: ["acceptance_gate_unavailable"],
@@ -278,6 +279,13 @@ export class ChapterAcceptanceAssessmentService {
   }
 
   private async invokeAssessment(input: ChapterAcceptanceAssessmentInput): Promise<ChapterAcceptanceAssessmentOutput> {
+    const expectedSource = input.contextPackage.chapterReviewContext
+      ?? input.contextPackage.chapterWriteContext
+      ?? null;
+    const expectedContracts = {
+      obligationContract: expectedSource?.obligationContract ?? null,
+      boundaryContract: expectedSource?.chapterBoundary ?? null,
+    };
     const fallbackBlocks = input.contextPackage.chapterReviewContext
       ? buildChapterReviewContextBlocks(input.contextPackage.chapterReviewContext)
       : [];
@@ -301,6 +309,11 @@ export class ChapterAcceptanceAssessmentService {
         chapterTitle: input.chapterTitle,
         targetWordCount: input.targetWordCount ?? null,
         content: input.content,
+        // Phase 2C：显式传入本章 Expected 合同，供 postValidate 对 divergences 的
+        // contractQuotes 做确定性回查。渲染后的上下文文本不能可靠反解析。
+        // review context 继承自 write context，本阶段优先用它，缺失时回退。
+        obligationContract: expectedContracts.obligationContract,
+        boundaryContract: expectedContracts.boundaryContract,
       },
       contextBlocks: resolvedContext.blocks,
       options: {
