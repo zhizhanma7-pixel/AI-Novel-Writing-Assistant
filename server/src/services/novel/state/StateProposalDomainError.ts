@@ -5,7 +5,8 @@ export type StateProposalDomainErrorReason =
   | "missing_character_id"
   | "character_not_found"
   | "same_character_relation"
-  | "character_outside_novel";
+  | "character_outside_novel"
+  | "chapter_content_protected";
 
 export interface StateProposalDomainErrorInput {
   proposalType: StateChangeProposal["proposalType"];

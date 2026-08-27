@@ -45,11 +45,14 @@ Outline 导入只能通过 2A `AiChangeProposalProducerService` 进入 Change Pr
 
 批准的 `outline_plan_update` 由 outline-owned applier 在 State Commit 事务中执行：
 
-1. upsert 正式 VolumePlan 和 VolumeChapterPlan；
-2. 按章节序号更新或创建 Chapter；
-3. 保留 Chapter.content，不删除或移动已有正文；
-4. 保留提案未覆盖的已有章节；
-5. 从最终 Chapter 列表刷新 `Novel.structuredOutline` 兼容投影。
+1. 在任何写入前，把已校验 payload 转成 planning mutation descriptor，并由 planning-owned 正文保护 guard 对数据库当前章节做只读校验；
+2. upsert 正式 VolumePlan 和 VolumeChapterPlan；
+3. 按章节序号更新或创建 Chapter；
+4. 保留 Chapter.content，不删除或移动已有正文；
+5. 保留提案未覆盖的已有章节；
+6. 从最终 Chapter 列表刷新 `Novel.structuredOutline` 兼容投影。
+
+正文保护不是“当前 applier 恰好没有写 `content`”这一实现偶然。规划提案的 Chapter 写字段采用白名单，只允许 `title`、`expectation`、`taskSheet`；带正文的章节若被描述为 `remove` 或 `reorder`，guard 必须在首条写 SQL 之前以稳定 domain error 拒绝。提案期的影响探查与 apply 期的强制校验共用同一条数据库事实判断，模型自报的影响等级不能覆盖它。未来新增规划 applier 也必须复用该 guard，不能复制一份局部判断。
 
 任一写入失败会回滚整个信封的 domain-state apply，不得把 ledger-only 状态冒充执行成功。
 
@@ -60,6 +63,7 @@ Outline 导入只能通过 2A `AiChangeProposalProducerService` 进入 Change Pr
 - AI 自报 minor 但影响已有正文：服务端 dependency analysis 升级为 major。
 - 审批期间正文发生变化：chapter content hash 触发 stale，要求重新生成或审阅。
 - applier 直接删除不在新大纲里的章节：违反正文保护与 source-of-truth 合同；只能保留并通过后续明确提案处理。
+- guard 在写入之后才检查：违反 State Proposal 的事务安全约束；domain error 必须来自写入前的确定性读取，不能把失败 SQL 包装成可继续的业务拒绝。
 - route 或 Prompt 直接写 Prisma：绕过 Proposal、事务和审计边界，禁止使用。
 
 ## Related Modules
@@ -68,6 +72,7 @@ Outline 导入只能通过 2A `AiChangeProposalProducerService` 进入 Change Pr
 - `server/src/prompting/prompts/novel/outlineWorkflow.prompts.ts`
 - `server/src/services/novel/proposal/outline/application/OutlineImportProposalService.ts`
 - `server/src/services/novel/proposal/outline/application/OutlinePlanProposalApplier.ts`
+- `server/src/services/novel/planning/guards/ChapterContentProtectionGuard.ts`
 - `client/src/pages/novels/components/outlineImport/OutlineImportPanel.tsx`
 - `client/src/pages/novels/components/changeProposal/`
 

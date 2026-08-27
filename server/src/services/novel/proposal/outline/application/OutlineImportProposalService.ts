@@ -12,6 +12,7 @@ import {
   outlineFaithfulPolishPrompt,
   outlineImportParsePrompt,
 } from "../../../../../prompting/prompts/novel/outlineWorkflow.prompts";
+import { probeChapterPlanImpacts } from "../../../planning/guards/ChapterContentProtectionGuard";
 import { aiChangeProposalProducerService } from "../../runtime/AiChangeProposalProducerService";
 
 type StructuredPromptRunner = typeof runStructuredPrompt;
@@ -75,19 +76,33 @@ export class OutlineImportProposalService {
     });
     const result = polished.output as FaithfulOutlineResult;
     const existingByOrder = new Map(chapters.map((chapter) => [chapter.order, chapter]));
-    const deterministicImpacts = result.chapters.flatMap((chapter) => {
+    const changedExistingChapters = result.chapters.flatMap((chapter) => {
       const existing = existingByOrder.get(chapter.order);
       if (!existing) return [];
       const changed = existing.title !== chapter.title || (existing.expectation ?? "") !== chapter.summary;
       if (!changed) return [];
-      return [{
+      return [{ chapter, existing }];
+    });
+    const probedImpacts = await probeChapterPlanImpacts({
+      novelId,
+      mutations: changedExistingChapters.map(({ existing }) => ({
+        operation: "update_plan_fields",
+        chapterId: existing.id,
+        currentChapterOrder: existing.order,
+        fields: ["title", "expectation", "taskSheet"],
+      })),
+    });
+    const probedImpactByChapterId = new Map(probedImpacts.map((impact) => [impact.chapterId, impact]));
+    const deterministicImpacts = changedExistingChapters.map(({ chapter, existing }) => {
+      const impact = probedImpactByChapterId.get(existing.id);
+      return {
         chapterOrder: chapter.order,
-        summary: existing.content?.trim()
+        summary: impact?.hasExistingContent
           ? `第 ${chapter.order} 章已有正文；应用后只更新标题和规划，不删除或移动正文。`
           : `第 ${chapter.order} 章的标题或规划将更新。`,
-        severity: existing.content?.trim() ? "major" as const : "minor" as const,
-        hasExistingContent: Boolean(existing.content?.trim()),
-      }];
+        severity: impact?.severityFloor ?? "minor",
+        hasExistingContent: impact?.hasExistingContent ?? false,
+      };
     });
     const impacts = [...result.dependencyImpacts, ...deterministicImpacts];
     const severity = impacts.some((impact) => impact.severity === "major") ? "major" : "minor";
