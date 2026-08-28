@@ -15,7 +15,10 @@
 | 2C.2 非阻塞投递 | `28bf161` | ✅ |
 | 2C.3 生产者 + 章节链接线 | `86d1641` | ✅ |
 | 2C.4 接受分支 applier | `79b4012` | ✅ |
-| 2C.5 修正接线 + 2C.6 G4 锁定 | `ae02c5d` | ✅ |
+| 2C.5 修正分支 mapper + 2C.6 G4 锁定 | `ae02c5d` | ✅ |
+| 复审 H1 / M5 修复 | `5bf5527` | ✅ |
+| 复审 H3 修复 | `ed14501` | ✅ |
+| 复审 H2：修正分支 application command | 本次 | ✅ |
 | 2C.7 前端 | — | ⏳ 未开始 |
 | T1 端到端整书回归 | — | ⏳ 未开始 |
 
@@ -42,7 +45,9 @@ Node 24.19.0 / pnpm 11.19.0（在 `~/.cache/codex-runtimes/`，不在 PATH），
    计算之前且不参与该判定，整段 try/catch 降级为 warn。
 7. **接受分支 applier**：只更新下游卷规划，本章原始 Expected 原样保留作审计证据；
    `riskFlags` 只 merge `divergenceResolutions`，保留全部既有顶层键。
-8. **修正分支**：偏离翻译成既有 `ChapterExecutionMissingObligation`，复用既有修复
+8. **修正分支**（`ae02c5d` 时**只有 mapper、没有调用方**，复审 H2 指出后由
+   `ChapterDivergenceCorrectionService` 补齐 application command；对外 HTTP 入口
+   仍留到 2C.7 一起接）：偏离翻译成既有 `ChapterExecutionMissingObligation`，复用既有修复
    通路与修复预算，现有修复 Prompt 无需改动。
 9. **G4 锁定**：待审 Change Proposal 不阻塞正文生成，补回归与 wiki 说明。
 

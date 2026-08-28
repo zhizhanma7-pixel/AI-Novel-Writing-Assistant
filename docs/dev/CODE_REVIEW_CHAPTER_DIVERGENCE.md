@@ -116,7 +116,8 @@ applier 写入 `riskFlags.divergenceResolutions[payload.kind]`。同一章后续
 | H1 | ✅ 关闭 | 生产者改为直接产出可执行 payload（`chapterId` / 稳定 `divergenceId` / `originalExpected`）。真实 SQLite 用例改用**真实生产者输出**驱动，并断言该 payload 直接通过 applier schema——这条断言就是 H1 的回归。`5bf5527` |
 | M5 | ✅ 关闭 | resolution 改用稳定 `divergenceId` 作键。`5bf5527` |
 | H3 | ✅ 关闭（口径略有调整，见下） | 新增 `apply_failed` disposition；账本 summary 与 metadata 如实反映提案停在 `approved`。本次 |
-| H2 / M1 / M2 / M3 / M4 | ⭕ 开放 | 按 §6 顺序处理 |
+| H2 | ✅ 关闭（口径见下） | 新增 `ChapterDivergenceCorrectionService`，成功/失败/stale 三条路径均有真实 SQLite 覆盖。本次 |
+| M1 / M2 / M3 / M4 | ⭕ 开放 | 按 §6 顺序处理 |
 
 ### H3 的口径调整
 
@@ -137,6 +138,33 @@ applier 写入 `riskFlags.divergenceResolutions[payload.kind]`。同一章后续
 - 账本事件 summary 改为「已确认但未能应用，需要重新执行或重新生成」，
   metadata 增加 `proposalStatus`——`approved` 与 `pending_review` 的可用操作完全不同；
 - agent 工具输出 schema 与用户文案同步更新，不再误导用户去审阅。
+
+### H2 的落地范围与两处判断
+
+`ChapterDivergenceCorrectionService.correct()` 覆盖复审列出的五项中的前四项：
+
+1. ✅ 校验信封仍待审、逐项尚无 `reviewDecision`、且经 `stalenessService` 确认未 stale；
+2. ✅ 经 `ChapterDivergenceRepairPort` 调既有修复能力（端口的默认实现接
+   `chapterRepairRuntime`，**不新建修复链路**，因此既有修复模式与预算规则一并继承）；
+3. ✅ **正文保存成功之后**才写 `corrected_to_expected`，与正文写入同一事务；
+4. ✅ 修复失败时逐项保持可审阅（`reviewDecision` 仍为 `null`），只落显式质量债
+   `divergenceDebt`，且不写任何 resolution；
+5. ⭕ **对外 HTTP 入口未做**——留到 2C.7 前端一起接，避免先造一个没有调用方的路由。
+
+两处判断需要评审确认：
+
+- **「修正」在逐项上记为 `rejected`。** `proposedChangeReviewDecisionSchema` 只有
+  `accepted` / `modified` / `rejected`，没有 `corrected`。修正的语义是「不把这条偏离
+  接受进计划」，因此复用 `rejected` 表达评审决定，真正的「已按计划改回」记在
+  `riskFlags.divergenceResolutions[divergenceId].resolution = "corrected_to_expected"`。
+  这样不必为 2C 扩张全局评审词汇表。
+- **端口而非直接调用。** `prepareChapterRepairExecution` 返回「已补丁内容」或「重修
+  Prompt 请求」两种形态，后者还要调用方再执行一次。把这层收在
+  `ChapterDivergenceRepairPort` 后面，命令本身可以在无 LLM 环境下测三条路径；
+  代价是端口默认实现的接线本身没有被本轮测试覆盖。
+
+另：复审低优先级提到实施报告把 2C.5 完成度写高了——`ae02c5d` 当时确实只有 mapper。
+本次补上 application command 后该表述成立，实施报告已同步更新。
 
 ## 6. 建议修复顺序
 
