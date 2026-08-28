@@ -142,8 +142,10 @@ export async function applyChapterExecutionPlanUpdate(
         ...riskFlags,
         divergenceResolutions: {
           ...existingResolutions,
-          [payload.kind]: {
+          // 以稳定 divergenceId 为键：同一章后续出现同类偏离时不覆盖历史（M5）。
+          [payload.divergenceId]: {
             resolution: "accepted_divergence",
+            kind: payload.kind,
             expected: payload.expected,
             actual: payload.actual,
             resolvedAt: new Date().toISOString(),

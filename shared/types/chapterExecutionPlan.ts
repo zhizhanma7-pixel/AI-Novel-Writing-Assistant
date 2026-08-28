@@ -33,6 +33,11 @@ export const chapterExecutionPlanPatchSchema = z.object({
 export const chapterExecutionPlanUpdatePayloadSchema = z.object({
   chapterId: z.string().trim().min(1),
   chapterOrder: z.number().int().positive(),
+  /**
+   * 稳定偏离标识，作 `riskFlags.divergenceResolutions` 的键。
+   * 用 `kind` 作键会让同一章后续同类偏离覆盖历史解决记录（复审 M5）。
+   */
+  divergenceId: z.string().trim().min(1),
   kind: z.string().trim().min(1),
   expected: z.string().trim().min(1),
   actual: z.string().trim().min(1),

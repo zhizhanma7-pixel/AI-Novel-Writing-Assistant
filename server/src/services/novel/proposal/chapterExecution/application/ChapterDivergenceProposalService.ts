@@ -48,10 +48,34 @@ function divergenceChangePath(chapterOrder: number, divergence: ChapterDivergenc
   return `Chapter.${chapterOrder}.divergence.${divergence.kind}.actual`;
 }
 
-function toProposedChange(
+/**
+ * 稳定偏离标识。用 kind 作 resolution 键会让同一章后续同类偏离覆盖历史记录
+ * （复审 M5），因此这里生成含章节与序号的稳定 id。
+ */
+function buildDivergenceId(
   chapterOrder: number,
   divergence: ChapterDivergence,
-): ProposedChangeInput {
+  index: number,
+): string {
+  return `ch${chapterOrder}:${divergence.kind}:${index}`;
+}
+
+/**
+ * **生产者必须直接产出 applier 可执行的完整 payload**（复审 H1）。
+ *
+ * 此前只写了展示字段，缺 `chapterId`，导致批准后 apply 稳定判为 `invalid_payload`；
+ * 而 2C.4 的真实 SQLite 用例手写了另一份完整 payload，所以没能覆盖到这个断点。
+ * 教训与 Phase 1 的 O2 同类：fixture 与真实生产输出不一致时，测试证明不了链路。
+ */
+function toProposedChange(input: {
+  chapterId: string;
+  chapterOrder: number;
+  divergence: ChapterDivergence;
+  index: number;
+  obligationContract?: unknown;
+  boundaryContract?: unknown;
+}): ProposedChangeInput {
+  const { chapterId, chapterOrder, divergence, index } = input;
   return {
     proposalType: "chapter_execution_plan_update",
     path: divergenceChangePath(chapterOrder, divergence),
@@ -63,11 +87,23 @@ function toProposedChange(
     before: divergence.expected,
     after: divergence.actual,
     payload: {
+      chapterId,
       chapterOrder,
+      divergenceId: buildDivergenceId(chapterOrder, divergence, index),
       kind: divergence.kind,
       expected: divergence.expected,
       actual: divergence.actual,
       references: divergence.references,
+      // 审计证据：偏离发生时的本章原始合同，applier 只读不写。
+      originalExpected: {
+        obligationContract: input.obligationContract ?? null,
+        boundaryContract: input.boundaryContract ?? null,
+      },
+      // 本阶段不自动推导下游计划变换：AI 只给出「哪里不一致」，
+      // 「下游该怎么改」需要用户在审阅时决定。空数组时 applier 只记录
+      // accepted_divergence 解决结果，不改任何计划——这比伪造一个
+      // 看似可执行的 patch 诚实。
+      downstreamPlanPatches: [],
     },
     reason: divergence.summary,
     sourceRefs: [],
@@ -115,8 +151,14 @@ export class ChapterDivergenceProposalService {
       };
     }
 
-    const changes = routed.proposalWorthy.map((divergence) =>
-      toProposedChange(input.chapterOrder, divergence));
+    const changes = routed.proposalWorthy.map((divergence, index) => toProposedChange({
+      chapterId: input.chapterId,
+      chapterOrder: input.chapterOrder,
+      divergence,
+      index,
+      obligationContract: input.obligationContract,
+      boundaryContract: input.boundaryContract,
+    }));
     this.assertNoConflictingDownstreamWrites(changes);
 
     const produced = await this.producer.produce(

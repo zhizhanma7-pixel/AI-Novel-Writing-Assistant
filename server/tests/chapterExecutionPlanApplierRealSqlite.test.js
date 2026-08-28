@@ -74,6 +74,57 @@ async function main() {
     const beforeDoc = await volumeService.getVolumes(novel.id);
     const beforeCh10 = beforeDoc.volumes[0].chapters.find((c) => c.chapterOrder === 10);
 
+    // 关键：payload 必须来自**真实生产者**，不能手写。
+    // 复审 H1 正是因为此前手写了一份完整 payload，掩盖了生产者缺 chapterId。
+    const {
+      ChapterDivergenceProposalService,
+    } = require(path.join(repoRoot, "server", "dist", "services", "novel", "proposal", "chapterExecution", "application", "ChapterDivergenceProposalService.js"));
+    const {
+      chapterExecutionPlanUpdatePayloadSchema,
+    } = require(path.join(repoRoot, "shared", "dist", "types", "chapterExecutionPlan.js"));
+
+    const obligationContract = {
+      mustHitNow: ["主角识破敌方试探"], mustPreserve: [], requiredPayoffTouches: [],
+      requiredCharacterAppearances: [], requiredGoalChanges: [], canDefer: [], forbiddenCrossings: [],
+    };
+    const boundaryContract = {
+      exclusiveEvent: "城内接头", entryState: "主角在城内待命", endingState: "主角仍在城内",
+      nextChapterEntryState: "章末主角留在城内等待接头", doNotCross: [], protectedReveals: [],
+    };
+
+    let capturedChanges = null;
+    const producer = new ChapterDivergenceProposalService({
+      produce: async (_novelId, produceInput) => {
+        capturedChanges = produceInput.changes;
+        return { proposal: { id: "envelope-1" }, disposition: "pending_review" };
+      },
+    });
+    await producer.createForChapter({
+      novelId: novel.id,
+      chapterId: chapter9.id,
+      chapterOrder: 9,
+      taskId: null,
+      divergences: [{
+        kind: "next_entry_state_changed",
+        summary: "计划要求章末留城，正文写成离城。",
+        expected: "章末主角留在城内等待接头",
+        actual: "主角连夜带队离城。",
+        evidence: null,
+        references: {
+          affectedCharacterContractEntries: [],
+          affectedPayoffContractEntries: [],
+          touchedProtectedReveals: [],
+          contractQuotes: ["章末主角留在城内等待接头"],
+        },
+      }],
+      obligationContract,
+      boundaryContract,
+    });
+
+    // 生产者产出的 payload 必须直接通过 applier 的 schema。
+    const producedPayload = capturedChanges[0].payload;
+    const schemaCheck = chapterExecutionPlanUpdatePayloadSchema.safeParse(producedPayload);
+
     const proposal = {
       id: "state-proposal-1",
       novelId: novel.id,
@@ -84,22 +135,9 @@ async function main() {
       riskLevel: "high",
       status: "committed",
       summary: "接受章末离城的偏离。",
+      // 用户在审阅时补充下游计划变换；其余字段原样取自生产者输出。
       payload: {
-        chapterId: chapter9.id,
-        chapterOrder: 9,
-        kind: "next_entry_state_changed",
-        expected: "章末主角留在城内等待接头",
-        actual: "主角连夜带队离城。",
-        originalExpected: {
-          obligationContract: {
-            mustHitNow: ["主角识破敌方试探"], mustPreserve: [], requiredPayoffTouches: [],
-            requiredCharacterAppearances: [], requiredGoalChanges: [], canDefer: [], forbiddenCrossings: [],
-          },
-          boundaryContract: {
-            exclusiveEvent: "城内接头", entryState: "主角在城内待命", endingState: "主角仍在城内",
-            nextChapterEntryState: "章末主角留在城内等待接头", doNotCross: [], protectedReveals: [],
-          },
-        },
+        ...producedPayload,
         downstreamPlanPatches: [{
           chapterOrder: 10,
           purpose: "在城外接应，按新的行进路线推进。",
@@ -121,6 +159,11 @@ async function main() {
     const ch10Row = await prisma.chapter.findUnique({ where: { id: chapter10.id } });
 
     console.log(JSON.stringify({
+      producedPayloadValid: schemaCheck.success,
+      producedPayloadErrors: schemaCheck.success
+        ? null
+        : schemaCheck.error.issues.map((issue) => issue.path.join(".")),
+      producedDivergenceId: producedPayload.divergenceId,
       downstreamPurpose: afterCh10.purpose,
       downstreamEntryState: afterCh10.nextChapterEntryState,
       downstreamPurposeChanged: (beforeCh10.purpose ?? null) !== (afterCh10.purpose ?? null),
@@ -176,6 +219,14 @@ function runScenario() {
 test("T10/T11 — accepting a divergence updates downstream plans and preserves the original Expected", () => {
   const result = runScenario();
 
+  // H1 回归：真实生产者的 payload 必须直接满足 applier schema。
+  assert.equal(
+    result.producedPayloadValid,
+    true,
+    `producer payload rejected by applier schema: ${JSON.stringify(result.producedPayloadErrors)}`,
+  );
+  assert.match(result.producedDivergenceId, /^ch9:next_entry_state_changed:0$/);
+
   // T10 下游文档自有字段确实被改
   assert.equal(result.downstreamPurposeChanged, true);
   assert.equal(result.downstreamPurpose, "在城外接应，按新的行进路线推进。");
@@ -196,11 +247,11 @@ test("T10/T11 — accepting a divergence updates downstream plans and preserves 
   assert.deepEqual(result.riskFlags.qualityLoop, { keep: "me" });
   assert.equal(result.riskFlags.unknownTopLevel, 42);
   assert.equal(
-    result.riskFlags.divergenceResolutions.next_entry_state_changed.resolution,
+    result.riskFlags.divergenceResolutions["ch9:next_entry_state_changed:0"].resolution,
     "accepted_divergence",
   );
   assert.equal(
-    result.riskFlags.divergenceResolutions.next_entry_state_changed.expected,
+    result.riskFlags.divergenceResolutions["ch9:next_entry_state_changed:0"].expected,
     "章末主角留在城内等待接头",
   );
 });
