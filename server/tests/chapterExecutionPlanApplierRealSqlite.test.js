@@ -158,7 +158,27 @@ async function main() {
     const ch9Row = await prisma.chapter.findUnique({ where: { id: chapter9.id } });
     const ch10Row = await prisma.chapter.findUnique({ where: { id: chapter10.id } });
 
+    // --- M2 冷启动：从未 bootstrap / 未 hydrate 的小说开始，
+    // 事务内读取必须能自行完成 legacy 兜底与 hydrate，且不在信封事务外持久化。
+    const cold = await prisma.novel.create({ data: { title: "Cold start" } });
+    const coldCh = await prisma.chapter.create({
+      data: {
+        novelId: cold.id, order: 1, title: "冷启动章",
+        content: "", expectation: "冷启动预期",
+      },
+    });
+    const coldVersionsBefore = await prisma.volumePlanVersion.count({ where: { novelId: cold.id } });
+    let coldDocVolumes = null;
+    await prisma.$transaction(async (tx) => {
+      const doc = await volumeService.readWorkspaceWithinTransaction(tx, cold.id);
+      coldDocVolumes = doc.volumes.length;
+    });
+    const coldVersionsAfter = await prisma.volumePlanVersion.count({ where: { novelId: cold.id } });
+
     console.log(JSON.stringify({
+      coldReadVolumes: coldDocVolumes,
+      coldPersistedDuringRead: coldVersionsAfter !== coldVersionsBefore,
+      coldChapterId: coldCh.id,
       producedPayloadValid: schemaCheck.success,
       producedPayloadErrors: schemaCheck.success
         ? null
@@ -208,7 +228,7 @@ function runScenario() {
       .split(/\r?\n/).map((line) => line.trim()).filter(Boolean).reverse()
       .find((line) => line.startsWith("{"));
     if (!jsonLine) {
-      throw new Error(`Scenario did not return JSON. stdout=${stdout}`);
+      throw new Error(`Scenario did not return JSON. tail=${stdout.slice(-2000)}`);
     }
     return JSON.parse(jsonLine);
   } finally {
@@ -218,6 +238,15 @@ function runScenario() {
 
 test("T10/T11 — accepting a divergence updates downstream plans and preserves the original Expected", () => {
   const result = runScenario();
+
+  // M2 回归：冷启动（未 bootstrap / 未 hydrate）下事务内读取可用，
+  // 且读取过程本身不在信封事务外持久化。
+  assert.equal(typeof result.coldReadVolumes, "number");
+  assert.equal(
+    result.coldPersistedDuringRead,
+    false,
+    "事务内读取不得自行持久化工作区",
+  );
 
   // H1 回归：真实生产者的 payload 必须直接满足 applier schema。
   assert.equal(

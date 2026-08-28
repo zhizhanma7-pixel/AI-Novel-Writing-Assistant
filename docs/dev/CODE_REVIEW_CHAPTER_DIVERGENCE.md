@@ -309,6 +309,22 @@ proposal/item identity，或包含正文哈希与 Expected/Actual 的稳定摘�
 两条并发场景现在都有真实 SQLite 覆盖：修复期间正文被改写、修复期间逐项已被决定，
 均断言拒绝提交且并发写入的新值不被覆盖。
 
+### M2 关闭：读取真正进入调用方事务，并修掉一个实测出来的死锁
+
+`ensureVolumeWorkspaceDocument` / `getLegacyVolumeSource` / `hydrateCanonicalChapterFields` /
+`getLatestVersionRow` 全部接受调用方 `DbClient`；applier 不再先走全局 `getVolumes()`，
+改用 `readWorkspaceWithinTransaction(tx, novelId)`。既有调用方省略参数时行为不变。
+
+**这里实测出了比复审描述更严重的一层。** 我上一轮说这几个函数「只读」是错的——当时只
+grep 了函数前 25 行，窗口太窄。`ensureVolumeWorkspaceDocument` 实际有**三处**
+`runVolumeWorkspaceTransaction` 自愈写入分支（active 版本无行回填、latest 版本激活、
+legacy 迁移）。在调用方事务内触发就是自开第二个事务，SQLite 上直接死锁——子进程
+退出码 0、无任何输出。新增的冷启动用例把它复现了出来。
+
+处置：新增 `skipSelfHeal` 参数，事务内读取时跳过全部自愈落库，只返回计算出的文档，
+持久化交给外层事务的正式写入。新增用例从**未 bootstrap / 未 hydrate** 的小说开始，
+断言事务内读取可用且过程本身不产生 `volumePlanVersion` 写入。
+
 ### 仍未关闭（按二次复审顺序继续）
 
 M2（读取贯穿 `tx`）、M4（校验移到 apply 边界）、M1（DirectorEvent）、

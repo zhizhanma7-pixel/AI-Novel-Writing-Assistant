@@ -1,9 +1,17 @@
 import { prisma } from "../../../db/prisma";
+import type { DbClient } from "./volumeModels";
 import type { LegacyVolumeSource } from "./volumePlanUtils";
 
-export async function getLegacyVolumeSource(novelId: string): Promise<LegacyVolumeSource> {
+/**
+ * `db` 传入调用方事务客户端时，legacy 兜底读取也在同一事务快照内完成（复审 M2）。
+ * 省略时沿用全局客户端，既有调用方行为不变。
+ */
+export async function getLegacyVolumeSource(
+  novelId: string,
+  db: DbClient = prisma,
+): Promise<LegacyVolumeSource> {
   const [novel, arcPlans] = await Promise.all([
-    prisma.novel.findUnique({
+    db.novel.findUnique({
       where: { id: novelId },
       select: {
         id: true,
@@ -26,7 +34,7 @@ export async function getLegacyVolumeSource(novelId: string): Promise<LegacyVolu
         },
       },
     }),
-    prisma.storyPlan.findMany({
+    db.storyPlan.findMany({
       where: { novelId, level: "arc" },
       orderBy: [{ createdAt: "asc" }],
       select: {

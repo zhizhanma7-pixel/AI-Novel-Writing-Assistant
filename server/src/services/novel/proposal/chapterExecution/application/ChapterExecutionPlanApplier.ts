@@ -108,7 +108,9 @@ export async function applyChapterExecutionPlanUpdate(
   }
 
   if (payload.downstreamPlanPatches.length > 0) {
-    const document = await volumeService.getVolumes(proposal.novelId);
+    // 必须用事务内读取：此前这里先走一次全局 `getVolumes()`，那不仅读的是
+    // 信封事务之外的快照，还可能在 hydrate 有差异时自行持久化（复审 M2）。
+    const document = await volumeService.readWorkspaceWithinTransaction(tx, proposal.novelId);
     const { volumes, appliedOrders } = applyPatchToDocument(
       document,
       payload.downstreamPlanPatches,

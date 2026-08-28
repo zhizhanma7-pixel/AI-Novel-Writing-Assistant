@@ -30,6 +30,7 @@ import { generateVolumePlanDocument } from "./volumeGenerationOrchestrator";
 import { VolumeChapterSyncService } from "./VolumeChapterSyncService";
 import { getLegacyVolumeSource } from "./legacyVolumeSource";
 import {
+  type DbClient,
   type VolumeDraftInput,
   type VolumeGenerateOptions,
   type VolumeImpactInput,
@@ -93,8 +94,9 @@ export class NovelVolumeService {
   private async hydrateCanonicalChapterFields(
     novelId: string,
     document: VolumePlanDocument,
+    db: DbClient = prisma,
   ): Promise<{ document: VolumePlanDocument; changed: boolean }> {
-    const chapterRows = await prisma.chapter.findMany({
+    const chapterRows = await db.chapter.findMany({
       where: { novelId },
       orderBy: { order: "asc" },
       select: {
@@ -301,14 +303,17 @@ export class NovelVolumeService {
    * 读取与归一化，但丢弃 `changed` 标志：hydrate 结果只用于本次合并，
    * 回写留给外层事务的正式写入。
    */
-  private async readVolumeWorkspaceWithinTransaction(
+  async readWorkspaceWithinTransaction(
+    tx: Prisma.TransactionClient,
     novelId: string,
   ): Promise<VolumePlanDocument> {
     const document = await ensureVolumeWorkspaceDocument({
       novelId,
-      getLegacySource: () => getLegacyVolumeSource(novelId),
+      getLegacySource: () => getLegacyVolumeSource(novelId, tx),
+      db: tx,
+      skipSelfHeal: true,
     });
-    const hydrated = await this.hydrateCanonicalChapterFields(novelId, document);
+    const hydrated = await this.hydrateCanonicalChapterFields(novelId, document, tx);
     return document.source === "legacy"
       ? { ...hydrated.document, source: "legacy" }
       : hydrated.document;
@@ -319,7 +324,7 @@ export class NovelVolumeService {
     novelId: string,
     input: unknown,
   ): Promise<VolumePlanDocument> {
-    const currentDocument = await this.readVolumeWorkspaceWithinTransaction(novelId);
+    const currentDocument = await this.readWorkspaceWithinTransaction(tx, novelId);
     const mergedDocument = mergeVolumeWorkspaceInput(novelId, currentDocument, input);
     const { versionId } = await this.ensureActiveVersionRecord(tx, novelId, mergedDocument);
     const nextDocument = {
