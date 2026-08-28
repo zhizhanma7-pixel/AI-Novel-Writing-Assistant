@@ -254,7 +254,8 @@ test("T10/T11 — accepting a divergence updates downstream plans and preserves 
     true,
     `producer payload rejected by applier schema: ${JSON.stringify(result.producedPayloadErrors)}`,
   );
-  assert.match(result.producedDivergenceId, /^ch9:next_entry_state_changed:0$/);
+  // M5 后 id 带正文哈希+Expected/Actual 指纹，防止跨信封重生成时覆盖历史 resolution。
+  assert.match(result.producedDivergenceId, /^ch9:next_entry_state_changed:0:[0-9a-f]{10}$/);
 
   // T10 下游文档自有字段确实被改
   assert.equal(result.downstreamPurposeChanged, true);
@@ -276,11 +277,11 @@ test("T10/T11 — accepting a divergence updates downstream plans and preserves 
   assert.deepEqual(result.riskFlags.qualityLoop, { keep: "me" });
   assert.equal(result.riskFlags.unknownTopLevel, 42);
   assert.equal(
-    result.riskFlags.divergenceResolutions["ch9:next_entry_state_changed:0"].resolution,
+    result.riskFlags.divergenceResolutions[result.producedDivergenceId].resolution,
     "accepted_divergence",
   );
   assert.equal(
-    result.riskFlags.divergenceResolutions["ch9:next_entry_state_changed:0"].expected,
+    result.riskFlags.divergenceResolutions[result.producedDivergenceId].expected,
     "章末主角留在城内等待接头",
   );
 });

@@ -252,6 +252,7 @@ function buildFinalizationService(overrides = {}) {
     plannerService: {},
     agentRuntime: { finishChapterGenRun: async () => {} },
     divergenceProposalService: overrides.divergenceProposalService,
+    ledgerEventService: overrides.ledgerEventService ?? { recordEvent: async () => {} },
     warn: (message, details) => warnings.push({ message, details }),
   });
   return { service, warnings };
@@ -287,6 +288,66 @@ test("T1 — a throwing divergence producer never escapes chapter finalization",
   assert.equal(warnings.length, 1, "failure must be surfaced as a warning, not thrown");
   assert.match(warnings[0].message, /failed to produce divergence proposal/);
   assert.equal(warnings[0].details.divergenceCount, 1);
+});
+
+test("M5 — divergence ids stay stable for the same judgement and differ across regenerations", async () => {
+  const first = [];
+  await buildService(first).createForChapter(baseInput({ chapterContentHash: "hash-v1" }));
+  const again = [];
+  await buildService(again).createForChapter(baseInput({ chapterContentHash: "hash-v1" }));
+  const afterRewrite = [];
+  await buildService(afterRewrite).createForChapter(baseInput({ chapterContentHash: "hash-v2" }));
+
+  const id1 = first[0].input.changes[0].payload.divergenceId;
+  const id2 = again[0].input.changes[0].payload.divergenceId;
+  const id3 = afterRewrite[0].input.changes[0].payload.divergenceId;
+
+  // 同一判断幂等：重复生成不产生新键，不会重复堆 resolution。
+  assert.equal(id1, id2);
+  // 正文改写后重新生成属于不同判断，必须换键，否则会覆盖历史 resolution。
+  assert.notEqual(id1, id3);
+});
+
+test("M1 — an unverified-divergence risk tag emits a non-blocking ledger event", async () => {
+  const events = [];
+  const { service } = buildFinalizationService({
+    divergenceProposalService: { createForChapter: async () => ({}) },
+    ledgerEventService: { recordEvent: async (event) => { events.push(event); } },
+  });
+
+  await service.produceChapterDivergenceProposal(
+    {
+      novelId: "novel-1",
+      chapterId: "chapter-9",
+      content: "正文",
+      request: {},
+      contextPackage: { chapter: { order: 9 } },
+    },
+    { divergences: [], riskTags: ["unverified_cross_chapter_divergence"] },
+  );
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "quality_issue_found");
+  assert.equal(events[0].metadata.code, "unverified_cross_chapter_divergence");
+  assert.equal(events[0].affectedScope, "chapter:chapter-9");
+});
+
+test("M1 — no risk tag means no event", async () => {
+  const events = [];
+  const { service } = buildFinalizationService({
+    divergenceProposalService: { createForChapter: async () => ({}) },
+    ledgerEventService: { recordEvent: async (event) => { events.push(event); } },
+  });
+
+  await service.produceChapterDivergenceProposal(
+    {
+      novelId: "novel-1", chapterId: "chapter-9", content: "正文",
+      request: {}, contextPackage: { chapter: { order: 9 } },
+    },
+    { divergences: [], riskTags: ["ending_hook"] },
+  );
+
+  assert.equal(events.length, 0);
 });
 
 test("M3 — the chapter finalization bypass actually supplies a content hash", async () => {

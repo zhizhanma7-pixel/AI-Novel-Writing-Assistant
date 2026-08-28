@@ -5,6 +5,7 @@ import { novelEventBus } from "../../../events";
 import { openConflictService } from "../../state/OpenConflictService";
 import { directorAutomationLedgerEventService } from "../director/runtime/DirectorAutomationLedgerEventService";
 import { stableDirectorContentHash } from "../director/runtime/DirectorArtifactLedger";
+import { UNVERIFIED_DIVERGENCE_DEBT_CODE } from "@ai-novel/shared/types/chapterDivergence";
 import { filterAcceptedFactItems, type FactLedgerExcludedItem } from "../fact/factLedgerFilter";
 import { novelFactService } from "../fact/NovelFactService";
 import { chapterDivergenceProposalService } from "../proposal/chapterExecution/application/ChapterDivergenceProposalService";
@@ -34,6 +35,7 @@ export interface ChapterContentFinalizationServiceDeps {
     typeof chapterDivergenceProposalService,
     "createForChapter"
   >;
+  ledgerEventService?: Pick<typeof directorAutomationLedgerEventService, "recordEvent">;
   warn?: (message: string, details?: Record<string, unknown>) => void;
 }
 
@@ -65,6 +67,7 @@ export class ChapterContentFinalizationService {
     typeof chapterDivergenceProposalService,
     "createForChapter"
   >;
+  private readonly ledgerEventService: Pick<typeof directorAutomationLedgerEventService, "recordEvent">;
   private readonly warn: (message: string, details?: Record<string, unknown>) => void;
 
   constructor(deps: ChapterContentFinalizationServiceDeps) {
@@ -73,6 +76,7 @@ export class ChapterContentFinalizationService {
     this.plannerService = deps.plannerService;
     this.agentRuntime = deps.agentRuntime;
     this.divergenceProposalService = deps.divergenceProposalService ?? chapterDivergenceProposalService;
+    this.ledgerEventService = deps.ledgerEventService ?? directorAutomationLedgerEventService;
     this.warn = deps.warn ?? console.warn;
   }
 
@@ -82,8 +86,39 @@ export class ChapterContentFinalizationService {
    */
   private async produceChapterDivergenceProposal(
     input: FinalizeChapterContentInput,
-    assessment: { divergences?: unknown; repairability?: string },
+    assessment: { divergences?: unknown; repairability?: string; riskTags?: unknown },
   ): Promise<void> {
+    // M1：不可核验的偏离被 Prompt recovery 剥离后会留下稳定 riskTag。
+    // 除了顺 riskTags 进质量债，还要写一条非阻塞账本事件，让它在驾驶舱可见、
+    // 可跟进——这是实施计划 T8 的原始要求。每章一条，不按偏离条数刷屏。
+    const riskTags = Array.isArray(assessment.riskTags) ? assessment.riskTags : [];
+    if (riskTags.includes(UNVERIFIED_DIVERGENCE_DEBT_CODE)) {
+      await this.ledgerEventService.recordEvent({
+        type: "quality_issue_found",
+        idempotencyKey: [
+          input.request.workflowTaskId ?? "book",
+          input.novelId,
+          input.chapterId,
+          UNVERIFIED_DIVERGENCE_DEBT_CODE,
+        ].join(":"),
+        taskId: input.request.workflowTaskId ?? null,
+        novelId: input.novelId,
+        nodeKey: "chapter.divergence.unverified",
+        summary: `第 ${input.contextPackage.chapter.order} 章检测到与计划不一致的地方，`
+          + "但依据无法核验，已记为待跟进提醒，不影响继续写作。",
+        affectedScope: `chapter:${input.chapterId}`,
+        severity: "medium",
+        metadata: { code: UNVERIFIED_DIVERGENCE_DEBT_CODE, chapterId: input.chapterId },
+      }).catch((error: unknown) => {
+        // 账本写入失败不停链，降级为日志。
+        this.warn("[chapter-divergence] failed to record unverified divergence event.", {
+          novelId: input.novelId,
+          chapterId: input.chapterId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+
     const divergences = Array.isArray(assessment.divergences) ? assessment.divergences : [];
     if (divergences.length === 0) {
       return;

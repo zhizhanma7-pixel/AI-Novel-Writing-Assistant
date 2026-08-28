@@ -325,6 +325,41 @@ legacy 迁移）。在调用方事务内触发就是自开第二个事务，SQLi
 持久化交给外层事务的正式写入。新增用例从**未 bootstrap / 未 hydrate** 的小说开始，
 断言事务内读取可用且过程本身不产生 `volumePlanVersion` 写入。
 
+### M1 / M4 / M5 关闭
+
+- **M1**：`riskTags` 之外补上 DirectorEvent。`ChapterContentFinalizationService` 在
+  acceptance 带 `unverified_cross_chapter_divergence` 标签时写一条
+  `quality_issue_found` 非阻塞事件（每章一条，按 chapterId 幂等，不按偏离条数刷屏）；
+  账本写入失败降级为日志，不停链。未修改验收口径，按原计划 T8 补齐可见性。
+- **M4**：校验移到 apply 边界 `ChangeProposalApplyService.executeProposal()`，
+  对**最终 payload**（含用户审阅时补的 patch，modified 项取 `userEditedPayloadJson`）
+  检测 `chapterOrder:field` 冲突。生产期的检查保留作早失败，但不再是唯一防线。
+- **M5**：`divergenceId` 加入本章正文哈希与 Expected/Actual 的稳定指纹。同一判断
+  幂等重现（重复生成不换键），正文改写后重新生成属于不同判断（换键，不覆盖历史
+  resolution）。新增用例同时断言这两面。
+
+### 重要更正：fast 套件存在不确定成员，「差集为空」不是充分证据
+
+M1/M4/M5 的全套件跑出现了首次非空差集（`routes.test.js` 里两条 route 用例）。
+按惯例 stash 回上一个 commit `afb06d4` 复跑作对照，结果是决定性的：
+
+| 运行 | 代码 | fail | 备注 |
+|---|---|---:|---|
+| 提交 `afb06d4` 时 | afb06d4 | 39 | 差集为空 |
+| 本次对照复跑 | **同一个 afb06d4** | 40 | 多出 `creative hub state route exposes latest turn summary metadata` |
+| M1/M4/M5 | +本轮 | 41 | 多出另外两条 route 用例 |
+
+**同一份代码两次跑出不同失败集合**，且三次多出来的是三个不同的 route 用例。
+`routes.test.js` 的 creative hub / llm probe 用例在 `run-tests.cjs fast` 的单进程
+`require()` 模型下不确定。单独跑 `routes.test.js` 只失败基线里那两条。
+
+这条更正也适用于我之前几次回填：那些「双向差集为空」的结论仍然成立（它们确实没
+引入确定性回归），但**「差集为空」只是必要条件，不是充分证据**——套件里有不确定
+成员时，它可能只是恰好这一次没抖。
+
+后续判定新增失败的正确做法：差集非空时，先单独跑该文件，再 stash 回上一个 commit
+复跑全套件对照，两者都看过才能下结论。只看一次全套件的 fail 总数或差集都不够。
+
 ### 仍未关闭（按二次复审顺序继续）
 
 M2（读取贯穿 `tx`）、M4（校验移到 apply 边界）、M1（DirectorEvent）、

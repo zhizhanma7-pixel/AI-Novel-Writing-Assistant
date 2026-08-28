@@ -57,6 +57,41 @@ export function isProposalWorthyDivergence(input: ChapterDivergenceThresholdInpu
     || divergence.kind === "relation_direction_reversed";
 }
 
+/**
+ * 下游写目标冲突检测（复审 M4）。
+ *
+ * 放在这里而不是只放生产期：生产期 `downstreamPlanPatches` 恒为空，那时候检测
+ * 没有输入；patch 是用户在审阅时补的，因此**最终 payload 的 apply 边界**才是
+ * 唯一拿得到完整输入的地方。两个已批准项若写同一个 `chapterOrder + 字段`，
+ * 最终结果会依赖执行顺序，必须在写入前拒绝。
+ */
+export function findConflictingDownstreamTarget(
+  changes: Array<{ path?: string; payload: Record<string, unknown> }>,
+): { target: string; first: string; second: string } | null {
+  const seen = new Map<string, string>();
+  for (const change of changes) {
+    const patches = Array.isArray(change.payload.downstreamPlanPatches)
+      ? change.payload.downstreamPlanPatches as Array<Record<string, unknown>>
+      : [];
+    const label = change.path
+      ?? String(change.payload.divergenceId ?? "unknown");
+    for (const patch of patches) {
+      for (const field of Object.keys(patch)) {
+        if (field === "chapterOrder") {
+          continue;
+        }
+        const target = `${String(patch.chapterOrder)}:${field}`;
+        const previous = seen.get(target);
+        if (previous) {
+          return { target, first: previous, second: label };
+        }
+        seen.set(target, label);
+      }
+    }
+  }
+  return null;
+}
+
 export interface ChapterDivergenceRoutingResult {
   /** 通过阈值、需要创建提案的偏离。 */
   proposalWorthy: ChapterDivergence[];

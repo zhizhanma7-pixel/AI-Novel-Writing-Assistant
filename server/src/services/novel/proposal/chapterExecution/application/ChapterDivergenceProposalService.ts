@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ChangeProposal,
   ProposedChangeInput,
@@ -65,8 +66,19 @@ function buildDivergenceId(
   chapterOrder: number,
   divergence: ChapterDivergence,
   index: number,
+  chapterContentHash?: string | null,
 ): string {
-  return `ch${chapterOrder}:${divergence.kind}:${index}`;
+  // 必须跨信封稳定且不碰撞（复审 M5）：`ch{order}:{kind}:{index}` 会在同一章
+  // 下一次生成同类偏离时再次出现，覆盖历史 resolution。加入本章正文哈希与
+  // Expected/Actual 的摘要——同一判断可幂等重现，不同判断不会撞键。
+  const fingerprint = stableDivergenceFingerprint(
+    `${chapterContentHash ?? "nohash"}|${divergence.expected}|${divergence.actual}`,
+  );
+  return `ch${chapterOrder}:${divergence.kind}:${index}:${fingerprint}`;
+}
+
+function stableDivergenceFingerprint(input: string): string {
+  return createHash("sha1").update(input).digest("hex").slice(0, 10);
 }
 
 /**
@@ -99,7 +111,7 @@ function toProposedChange(input: {
     payload: {
       chapterId,
       chapterOrder,
-      divergenceId: buildDivergenceId(chapterOrder, divergence, index),
+      divergenceId: buildDivergenceId(chapterOrder, divergence, index, input.chapterContentHash),
       kind: divergence.kind,
       expected: divergence.expected,
       actual: divergence.actual,
