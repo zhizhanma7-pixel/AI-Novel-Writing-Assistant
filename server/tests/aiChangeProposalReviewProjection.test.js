@@ -157,12 +157,19 @@ test("non-blocking apply failure stays non-blocking but escalates to high severi
   });
 
   // 信封原子回滚，正文仍可用，因此不满足 AGENTS.md 任何一条停链条件。
-  assert.equal(result.disposition, "pending_review");
   assert.equal(result.reviewProjection, "non_blocking");
   assert.deepEqual(checkpoints, []);
   assert.equal(events.length, 1);
   assert.equal(events[0].type, "proposal_review_deferred");
   assert.equal(events[0].severity, "high", "a silent apply failure must be loud in the ledger");
+
+  // H3：disposition 必须如实反映提案的真实状态。此前这里返回 pending_review，
+  // 而提案其实停在 approved——状态机从 approved 回不到待审，用户要做的是
+  // 重新执行或重新生成。
+  assert.equal(result.disposition, "apply_failed");
+  assert.equal(result.proposal.status, "approved");
+  assert.equal(events[0].metadata.proposalStatus, "approved");
+  assert.match(events[0].summary, /重新执行或重新生成/);
 });
 
 test("apply failure under the default projection still checkpoints the task", async () => {
@@ -185,6 +192,9 @@ test("apply failure under the default projection still checkpoints the task", as
   assert.equal(result.reviewProjection, "task_checkpoint");
   assert.deepEqual(checkpoints, ["approved"]);
   assert.equal(events.length, 0);
+  // 默认投影下同样如实报告：任务被 checkpoint 了，但提案本身是 approved 未执行。
+  assert.equal(result.disposition, "apply_failed");
+  assert.equal(result.proposal.status, "approved");
 });
 
 test("a failing ledger write degrades to a warning instead of stopping the chain", async () => {

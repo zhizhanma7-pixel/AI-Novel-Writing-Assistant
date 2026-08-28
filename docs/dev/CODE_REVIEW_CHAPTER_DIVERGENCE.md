@@ -109,6 +109,35 @@ applier 写入 `riskFlags.divergenceResolutions[payload.kind]`。同一章后续
 
 同时，T1 应排在 H1/H2/H3 修复后。否则它最多证明“旁路不中断”，不能证明用户随后能可靠地接受偏离或按计划修正。
 
+## 5b. 修复回填（Claude Code，2026-08-28）
+
+| 编号 | 状态 | 处置 |
+|---|---|---|
+| H1 | ✅ 关闭 | 生产者改为直接产出可执行 payload（`chapterId` / 稳定 `divergenceId` / `originalExpected`）。真实 SQLite 用例改用**真实生产者输出**驱动，并断言该 payload 直接通过 applier schema——这条断言就是 H1 的回归。`5bf5527` |
+| M5 | ✅ 关闭 | resolution 改用稳定 `divergenceId` 作键。`5bf5527` |
+| H3 | ✅ 关闭（口径略有调整，见下） | 新增 `apply_failed` disposition；账本 summary 与 metadata 如实反映提案停在 `approved`。本次 |
+| H2 / M1 / M2 / M3 / M4 | ⭕ 开放 | 按 §6 顺序处理 |
+
+### H3 的口径调整
+
+复审说「一个 `approved` 且未执行的提案可能无法按普通审核流程继续处理」。核实状态机
+（`ChangeProposalStateMachine.ts`）后，从 `approved` 允许 `executed` 与 `superseded`，
+且 HTTP 执行路由默认 `explicit_review` 授权、会跳过自动化门禁——因此人工点执行
+可以成功，提案**不是死锁**，「无法继续处理」这一表述略重。
+
+但复审指出的问题内核成立，而且比状态机可达性更具体：**这条路径返回的
+`disposition` 是假的**。代码返回 `pending_review`，而提案真实状态是 `approved`；
+`propose_novel_change` 工具据此对用户说「已放入审阅入口」，可用户真正要做的是
+重新执行或重新生成——按状态机根本回不到待审。
+
+因此修复落在契约诚实性而非状态回滚上（复审也明确要求「不能在可能存在部分写入的
+情况下盲目回滚状态」）：
+
+- `AiChangeProposalDisposition` 新增 `apply_failed`，两种投影下都返回它；
+- 账本事件 summary 改为「已确认但未能应用，需要重新执行或重新生成」，
+  metadata 增加 `proposalStatus`——`approved` 与 `pending_review` 的可用操作完全不同；
+- agent 工具输出 schema 与用户文案同步更新，不再误导用户去审阅。
+
 ## 6. 建议修复顺序
 
 1. 修 H1，并新增生产者 → review → apply 的真实 SQLite 组合测试。

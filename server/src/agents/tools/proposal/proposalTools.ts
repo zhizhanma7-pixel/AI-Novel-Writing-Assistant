@@ -57,7 +57,11 @@ export const proposalToolDefinitions: Partial<
         ...result,
         summary: result.disposition === "executed"
           ? "变更方案已通过当前安全策略并完成应用。"
-          : "变更方案需要你确认，已放入审阅入口。",
+          : result.disposition === "apply_failed"
+            // 这条提案已经确认过了，卡在写入这一步：让用户去重试执行，
+            // 而不是误导他再走一次审阅。
+            ? "变更方案已确认，但这次没能成功应用，可以在变更提案里重新执行或重新生成。"
+            : "变更方案需要你确认，已放入审阅入口。",
       });
     },
   },

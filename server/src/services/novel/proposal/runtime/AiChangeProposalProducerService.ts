@@ -24,7 +24,18 @@ export const aiChangeProposalInputSchema = createChangeProposalInputSchema
   .strict();
 
 export type AiChangeProposalInput = z.infer<typeof aiChangeProposalInputSchema>;
-export type AiChangeProposalDisposition = "pending_review" | "executed";
+/**
+ * - `pending_review`：提案停在待审状态，等待人工审阅。
+ * - `executed`：已自动批准并成功写入正式状态。
+ * - `apply_failed`：**已自动批准但写入失败**。信封事务原子回滚，没有半写状态；
+ *   提案实际停在 `approved`，不是 `pending_review`。
+ *
+ * `apply_failed` 是复审 H3 的修复：此前这条路径返回 `pending_review`，而提案
+ * 真实状态是 `approved`，导致调用方（含 agent 工具的用户可见文案）声称
+ * 「已放入审阅入口」，但状态机从 `approved` 只能到 `executed` / `superseded`，
+ * 回不到待审——用户真正要做的是重新执行或重新生成，不是审阅。
+ */
+export type AiChangeProposalDisposition = "pending_review" | "executed" | "apply_failed";
 
 /**
  * 待审提案的投影方式（Phase 2C / D2）。
@@ -138,13 +149,15 @@ export class AiChangeProposalProducerService {
         proposal: approved,
         reviewProjection,
         severity: "high",
-        summary: `变更方案未能自动应用，等待确认：${approved.summary}`,
+        // 文案必须如实：提案已经批准过了，卡在写入这一步，需要的是重新执行
+        // 或重新生成，不是再审一次。
+        summary: `变更方案已确认但未能应用，需要重新执行或重新生成：${approved.summary}`,
         reason: error instanceof Error ? error.message : String(error),
       });
       if (error instanceof ChangeProposalError && error.code === "approval_required") {
         return {
           proposal: approved,
-          disposition: "pending_review",
+          disposition: "apply_failed",
           autonomyLevel: evaluation.autonomyLevel,
           directorPolicyMode: evaluation.directorPolicyMode,
           policyMode: evaluation.policyMode,
@@ -194,6 +207,9 @@ export class AiChangeProposalProducerService {
           proposalType: input.proposal.proposalType,
           version: input.proposal.version,
           chapterId: input.proposal.chapterId ?? null,
+          // 真实状态必须进账本：approved 与 pending_review 的可用操作完全不同
+          // （前者只能重新执行或重新生成，回不到待审）。
+          proposalStatus: input.proposal.status,
           reason: input.reason,
         },
       });
