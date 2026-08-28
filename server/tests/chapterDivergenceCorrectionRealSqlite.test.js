@@ -140,6 +140,50 @@ async function main() {
     const failChapter = await prisma.chapter.findUnique({ where: { id: bad.chapter.id } });
     const failChange = await prisma.stateChangeProposal.findUnique({ where: { id: bad.change.id } });
 
+    // --- TOCTOU：修复期间正文被并发改写，必须拒绝提交 ---
+    const race = await seed("race");
+    const raceService = new ChapterDivergenceCorrectionService({
+      repairPort: {
+        repairChapter: async () => {
+          // 模拟 LLM 跑的这几分钟里，用户手动改了正文。
+          await prisma.chapter.update({
+            where: { id: race.chapter.id },
+            data: { content: "用户在修复期间手动改写的新正文。" },
+          });
+          return { content: "修复器基于旧正文产出的结果。" };
+        },
+      },
+      stalenessService: { inspect: async () => ({ isStale: false, reasons: [] }) },
+    });
+    const raceResult = await raceService.correct({
+      novelId: race.novel.id,
+      proposalId: race.envelope.id,
+      changeId: race.change.id,
+    });
+    const raceChapter = await prisma.chapter.findUnique({ where: { id: race.chapter.id } });
+    const raceChange = await prisma.stateChangeProposal.findUnique({ where: { id: race.change.id } });
+
+    // --- TOCTOU：修复期间逐项已被决定 ---
+    const decided = await seed("decided");
+    const decidedService = new ChapterDivergenceCorrectionService({
+      repairPort: {
+        repairChapter: async () => {
+          await prisma.stateChangeProposal.update({
+            where: { id: decided.change.id },
+            data: { reviewDecision: "accepted" },
+          });
+          return { content: "修复结果不应落库。" };
+        },
+      },
+      stalenessService: { inspect: async () => ({ isStale: false, reasons: [] }) },
+    });
+    const decidedResult = await decidedService.correct({
+      novelId: decided.novel.id,
+      proposalId: decided.envelope.id,
+      changeId: decided.change.id,
+    });
+    const decidedChapter = await prisma.chapter.findUnique({ where: { id: decided.chapter.id } });
+
     // --- stale 拒绝 ---
     const staleSeed = await seed("stale");
     const staleService = new ChapterDivergenceCorrectionService({
@@ -168,6 +212,12 @@ async function main() {
       failReviewDecision: failChange.reviewDecision,
       failRiskFlags: JSON.parse(failChapter.riskFlags || "{}"),
       staleError,
+      raceStatus: raceResult.status,
+      raceReason: raceResult.reason,
+      raceContent: raceChapter.content,
+      raceReviewDecision: raceChange.reviewDecision,
+      decidedStatus: decidedResult.status,
+      decidedContent: decidedChapter.content,
     }));
   } finally {
     await prisma.$disconnect();
@@ -244,4 +294,18 @@ test("H2 — correcting a divergence repairs the chapter and only then records t
 
   // stale 必须在动正文之前拒绝
   assert.equal(result.staleError, "stale_proposal");
+
+  // TOCTOU：修复跑在事务外，落库前必须重新校验，旧结果不得覆盖新正文
+  assert.equal(result.raceStatus, "conflict");
+  assert.match(result.raceReason, /content changed/);
+  assert.equal(
+    result.raceContent,
+    "用户在修复期间手动改写的新正文。",
+    "并发写入的新正文不得被旧修复结果覆盖",
+  );
+  assert.equal(result.raceReviewDecision, null, "冲突时逐项必须保持可审阅");
+
+  // 修复期间逐项已被决定，同样拒绝提交
+  assert.equal(result.decidedStatus, "conflict");
+  assert.equal(result.decidedContent, "主角连夜带队离城。", "正文不得被写入");
 });

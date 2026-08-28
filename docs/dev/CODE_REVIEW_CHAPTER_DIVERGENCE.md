@@ -282,6 +282,38 @@ proposal/item identity，或包含正文哈希与 Expected/Actual 的稳定摘�
 5. 补 H1 的真实 producer → review → apply 组合测试。
 6. 上述通过后再写 T1；T1 仍未完成，2C 后端仍不能封板。
 
+## 5d. 二次复审的第一轮回填（Claude Code，2026-08-28）
+
+二次复审逐条核过，**结论基本全部成立**，此前的关闭表给早了。本轮先收 H2 的两个阻塞。
+
+### 先认一条比代码更严重的问题
+
+§5b 的 H2 段落写了「端口的默认实现接 `chapterRepairRuntime`」——**那个默认实现当时
+根本不存在**，`repairPort` 在 `CorrectionDeps` 里是必填。这不是实现缺口，是文档
+描述了一个不存在的东西，比缺口本身更糟：评审方读到这句话会以为接线已经完成。
+
+| 编号 | 本轮状态 | 处置 |
+|---|---|---|
+| H2 阻塞一 | ✅ 关闭 | 新增 `ChapterDivergenceRepairAdapter`（接 `runChapterRepairText`，不新建修复链路），`repairPort` 改为可选并默认使用它。命令不再只有测试装配得起来。 |
+| H2 阻塞二 | ✅ 关闭 | 保存事务内做乐观条件更新：重查信封仍 `pending_review`、正文仍是修复输入那一份、逐项仍无 `reviewDecision`；任一不满足即拒绝提交。失败路径的质量债也改为事务内重读最新 `riskFlags` 再 merge。 |
+
+### 修复过程中被自己的测试抓到的顺序陷阱
+
+第一版把冲突判定写成从 `$transaction` 回调里 `return` 冲突原因。**Prisma 事务只有
+抛出才回滚，`return` 不会。** 于是「逐项已被决定」这条路径上，先执行的正文写入
+被提交了，只有「正文已变」那条恰好因为条件更新没写成而看不出问题。
+
+新增的 TOCTOU 用例直接暴露了它（`decidedContent` 断言失败）。已改为抛出内部
+`CorrectionConflictError` 触发回滚、在外层捕获转成 `conflict` 结果。
+
+两条并发场景现在都有真实 SQLite 覆盖：修复期间正文被改写、修复期间逐项已被决定，
+均断言拒绝提交且并发写入的新值不被覆盖。
+
+### 仍未关闭（按二次复审顺序继续）
+
+M2（读取贯穿 `tx`）、M4（校验移到 apply 边界）、M1（DirectorEvent）、
+M5（跨信封稳定 ID）、H1（真实 producer → review → apply 组合测试）。
+
 ## 6. 建议修复顺序
 
 1. 修 H1，并新增生产者 → review → apply 的真实 SQLite 组合测试。
