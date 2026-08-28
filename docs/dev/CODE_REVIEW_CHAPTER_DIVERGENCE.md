@@ -188,6 +188,100 @@ H2 的修复里，我把「修复执行失败」也用了 `UNVERIFIED_DIVERGENCE
 另：复审低优先级提到实施报告把 2C.5 完成度写高了——`ae02c5d` 当时确实只有 mapper。
 本次补上 application command 后该表述成立，实施报告已同步更新。
 
+## 5c. Codex 二次复审（2026-08-28）
+
+复审范围：`c85d7ee..1f1f0b5`。重新执行 shared/server build 与五个相关测试文件，
+共 **34/34 通过**（含两项真实 SQLite）。测试结果可信，但逐层穿透后，修复状态不能
+全部按上表关闭。
+
+| 编号 | 二次复审状态 | 结论 |
+|---|---|---|
+| H1 | ✅ 核心关闭；组合测试仍需补强 | 生产 payload 已满足 applier schema，缺 `chapterId` 的原始断点已修复。但 SQLite 用例仍用 stub 截获生产 payload，随后手工补 `downstreamPlanPatches` 并直接调用 applier；没有经过真实 `ChangeProposalService → review → ChangeProposalApplyService`。 |
+| H2 | ❌ 未关闭 | 新 service 仍没有生产调用方或默认 repair adapter；且 repair/LLM 执行后写入前不重新校验 proposal/item/chapter，存在并发覆盖窗口。 |
+| M1 | ⚠️ 部分关闭 | 不可核验偏离不再静默消失，稳定码会进入 `riskTags`；但计划要求的 DirectorEvent 没有实现，代码中也没有第二个消费点证明它成为可见、可跟进的质量债。 |
+| M2 | ❌ 未关闭 | 新方法名称含 `WithinTransaction`，实际读取仍全部走全局 Prisma；applier 在调用它前还先走一次全局 `getVolumes()`。避免了二次持久化，但没有解决事务外快照与锁竞争。 |
+| M3 | ✅ 关闭 | 定稿链使用同一哈希算法，逐项 source ref 会被 `ChangeProposalService.allSourceRefs()` 汇总进父信封，apply/correction 的 stale 检查能读到它。 |
+| M4 | ❌ 未关闭 | 生产时 `downstreamPlanPatches` 固定为空，冲突检测在真实生产路径上没有输入；用户审阅阶段补 patch 后不会重新执行该检查，apply 边界也没有等价校验。 |
+| M5 | ❌ 未关闭 | `ch{order}:{kind}:{index}` 只在单个信封内唯一；同章以后重新生成同 kind/index 的偏离会复用同一 key，仍会覆盖历史 resolution。 |
+
+### H1 残留：可执行不等于完成“接受偏离”语义
+
+生产 payload 现在可以被 applier 接受，这是实质修复。但生产者把
+`downstreamPlanPatches` 固定为空，直接接受只会记录 `accepted_divergence`，不会把下游
+计划改到与正文一致。测试中的下游 patch 是 fixture 手工补进去的，不来自任何现有生产
+服务。2C.7 若准备让用户补 patch，必须有明确 application/UI 契约；否则“接受偏离”会
+让旧计划继续误导后续章节。
+
+建议新增一条真正的组合回归：真实生产 proposal，真实 review（含用户确认后的 patch），
+真实 apply；然后断言父/子状态、stale 检查、卷规划与 resolution 一起正确。
+
+### H2 阻塞一：命令仍不可从生产代码调用
+
+仓库内 `ChapterDivergenceCorrectionService` 的唯一实例化位置是测试。构造器要求调用方
+提供 `repairPort`，没有报告所说的“默认实现接 chapterRepairRuntime”，也没有 application
+facade 或 HTTP 入口。把 HTTP 留到 2C.7 可以接受，但至少要先有可注入生产组合根与真实
+adapter；否则当前不是“入口未做”，而是整条命令仍只有测试装配。
+
+### H2 阻塞二：LLM 期间存在 TOCTOU 覆盖窗口
+
+service 在调用 repair 前校验 pending/stale，随后把 LLM/repair 放在事务外，这个边界本身
+正确；问题是 repair 返回后没有再次校验。当前事务内会：
+
+- 无条件覆盖章节正文；
+- 无条件把逐项写成 `rejected`；
+- 不检查父信封是否仍为 `pending_review`；
+- 不检查 item 是否仍无决定，也不检查正文哈希是否仍匹配。
+
+因此 repair 运行期间用户若编辑正文、接受提案或触发另一轮修复，旧结果可能覆盖新正文
+和新决定。正确做法不是把 LLM 放进事务，而是在保存事务中重新读取并做乐观条件更新；
+任一条件变化就拒绝提交、保持当前状态。失败路径的 `recordCorrectionDebt()` 也应基于最新
+`riskFlags` merge，不能用 repair 前读到的字符串覆盖并发写入。
+
+### M1：稳定 riskTag 不等于完整的显式债务
+
+当前唯一使用 `UNVERIFIED_DIVERGENCE_DEBT_CODE` 的生产位置是 Prompt recovery。它会随
+assessment 保存进 audit/runtime meta，这是比静默删除更好的降级；但没有 DirectorEvent，
+也没有独立的 chapter-level debt 记录。原计划 T8 明确要求“显式 quality debt + event”。
+若产品决定 riskTag 已足够，应先正式修订计划与可见性口径；否则补非阻塞事件并用测试
+断言真实持久化，而不是只断言 recovery 返回数组里出现字符串。
+
+### M2：读取仍不在调用方事务内
+
+`readVolumeWorkspaceWithinTransaction()` 不接收 `tx`：
+
+- `ensureVolumeWorkspaceDocument()` 内部调用默认全局客户端的 `listActiveVolumeRows()` /
+  `getActiveVersionRow()`；
+- `getLegacyVolumeSource()` 使用全局客户端；
+- `hydrateCanonicalChapterFields()` 直接使用全局 `prisma.chapter.findMany()`；
+- applier 在此之前还调用全局 `volumeService.getVolumes()`，该方法甚至可能持久化 hydrate
+  结果。
+
+本次只消除了 helper 内部第二次显式持久化，没有得到同一事务快照。应把 `DbClient/tx`
+贯穿读取、legacy source 与 hydrate，并让 applier 不再先走全局 `getVolumes()`。新增真实
+SQLite 用例必须从未 bootstrap / 未 hydrate 的状态开始，现有预热 fixture 仍覆盖不到风险。
+
+### M4：校验必须放在最终可执行 payload 边界
+
+生产者生成的每个 patch 数组都是空的，所以 `assertNoConflictingDownstreamWrites()` 在
+真实路径上永远看不到冲突。单测通过直接调用 TypeScript `private` 方法并手工塞 patch，
+只能证明算法本身，不证明链路。若 patch 在人工 review 时加入，冲突校验必须在 review
+保存边界或 apply 前针对所有已批准项再次运行；apply 边界更稳妥，因为它拿到最终 payload。
+
+### M5：ID 需要跨信封稳定且不碰撞
+
+`ch9:next_entry_state_changed:0` 会在该章下一次生成同类偏离时再次出现。建议 key 至少包含
+proposal/item identity，或包含正文哈希与 Expected/Actual 的稳定摘要；同一判断可幂等，
+不同判断不得覆盖。测试应创建两份同章同 kind 的先后提案并断言两条 resolution 都保留。
+
+### 二次复审后的顺序
+
+1. 先收 H2 的生产 adapter/组合根与事务内二次校验。
+2. 让 M2 的所有读真正使用调用方 `tx`，并补未预热 SQLite 回归。
+3. 把 M4 移到最终 payload 的 apply/review 边界。
+4. 补完 M1 DirectorEvent（或先正式修改验收口径）与 M5 跨信封 ID。
+5. 补 H1 的真实 producer → review → apply 组合测试。
+6. 上述通过后再写 T1；T1 仍未完成，2C 后端仍不能封板。
+
 ## 6. 建议修复顺序
 
 1. 修 H1，并新增生产者 → review → apply 的真实 SQLite 组合测试。
