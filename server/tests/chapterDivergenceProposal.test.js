@@ -132,20 +132,81 @@ test("每个 change 的展示值与可执行 payload 一致（沿用 2A 的 M3 �
   assert.equal(change.before, change.payload.expected);
 });
 
-test("two divergences targeting the same path are rejected at production time", async () => {
+test("M4 — two same-kind divergences are allowed; they have distinct ids and paths", async () => {
+  // 展示 path 含 index，同 kind 不再被误判为冲突（复审 M4）。
   const calls = [];
-  const service = buildService(calls);
+  const result = await buildService(calls).createForChapter(baseInput({
+    divergences: [
+      divergence({ kind: "next_entry_state_changed" }),
+      divergence({ kind: "next_entry_state_changed", summary: "同类第二条" }),
+    ],
+  }));
 
-  await assert.rejects(
-    () => service.createForChapter(baseInput({
-      divergences: [
-        divergence({ kind: "next_entry_state_changed" }),
-        divergence({ kind: "next_entry_state_changed", summary: "重复目标" }),
-      ],
-    })),
-    /would write .* twice/,
+  assert.notEqual(result.proposal, null);
+  const paths = calls[0].input.changes.map((change) => change.path);
+  assert.equal(new Set(paths).size, 2, "same-kind divergences must get distinct paths");
+  const ids = calls[0].input.changes.map((change) => change.payload.divergenceId);
+  assert.equal(new Set(ids).size, 2, "same-kind divergences must get distinct ids");
+});
+
+test("M4 — conflicting downstream write targets are rejected at production time", () => {
+  const {
+    ChapterDivergenceProposalService: Service,
+  } = require("../dist/services/novel/proposal/chapterExecution/application/ChapterDivergenceProposalService.js");
+  const service = new Service({ produce: async () => ({ proposal: {} }) });
+
+  // 直接驱动私有校验：两个已批准项若写同一下游目标，最终结果会依赖执行顺序。
+  assert.throws(
+    () => service.assertNoConflictingDownstreamWrites([
+      {
+        path: "Chapter.9.divergence.a.0.actual",
+        payload: { downstreamPlanPatches: [{ chapterOrder: 10, endingState: "A" }] },
+      },
+      {
+        path: "Chapter.9.divergence.b.1.actual",
+        payload: { downstreamPlanPatches: [{ chapterOrder: 10, endingState: "B" }] },
+      },
+    ]),
+    /downstream target 10:endingState/,
   );
-  assert.equal(calls.length, 0);
+});
+
+test("M4 — different downstream fields on the same chapter do not conflict", () => {
+  const {
+    ChapterDivergenceProposalService: Service,
+  } = require("../dist/services/novel/proposal/chapterExecution/application/ChapterDivergenceProposalService.js");
+  const service = new Service({ produce: async () => ({ proposal: {} }) });
+
+  assert.doesNotThrow(() => service.assertNoConflictingDownstreamWrites([
+    {
+      path: "Chapter.9.divergence.a.0.actual",
+      payload: { downstreamPlanPatches: [{ chapterOrder: 10, endingState: "A" }] },
+    },
+    {
+      path: "Chapter.9.divergence.b.1.actual",
+      payload: { downstreamPlanPatches: [{ chapterOrder: 10, purpose: "B" }] },
+    },
+  ]));
+});
+
+test("M3 — each change carries the chapter content hash for stale detection", async () => {
+  const calls = [];
+  await buildService(calls).createForChapter(baseInput({
+    chapterContentHash: "hash-abc",
+  }));
+
+  const refs = calls[0].input.changes[0].sourceRefs;
+  assert.equal(refs.length, 1);
+  assert.equal(refs[0].kind, "chapter");
+  assert.equal(refs[0].chapterId, "chapter-9");
+  assert.equal(refs[0].contentHash, "hash-abc");
+});
+
+test("M3 — a missing content hash yields no fabricated source ref", async () => {
+  const calls = [];
+  await buildService(calls).createForChapter(baseInput());
+
+  assert.deepEqual(calls[0].input.changes[0].sourceRefs, []);
 });
 
 test("chapter_execution_plan_update is a domain-state type with a real applier (2C.4)", () => {
@@ -226,6 +287,38 @@ test("T1 — a throwing divergence producer never escapes chapter finalization",
   assert.equal(warnings.length, 1, "failure must be surfaced as a warning, not thrown");
   assert.match(warnings[0].message, /failed to produce divergence proposal/);
   assert.equal(warnings[0].details.divergenceCount, 1);
+});
+
+test("M3 — the chapter finalization bypass actually supplies a content hash", async () => {
+  // 自查发现的接线缺口：M3 的字段实现了但生产路径不传，stale 检测在真实
+  // 链路上等于不生效。这条锁死「定稿链必须把哈希传下去」。
+  const calls = [];
+  const { service } = buildFinalizationService({
+    divergenceProposalService: {
+      createForChapter: async (value) => { calls.push(value); return {}; },
+    },
+  });
+
+  await service.produceChapterDivergenceProposal(
+    {
+      novelId: "novel-1",
+      chapterId: "chapter-9",
+      content: "第九章正文内容。",
+      request: {},
+      contextPackage: {
+        chapter: { order: 9 },
+        chapterReviewContext: {
+          obligationContract: OBLIGATION_CONTRACT,
+          chapterBoundary: BOUNDARY_CONTRACT,
+        },
+      },
+    },
+    { divergences: [divergence()] },
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(typeof calls[0].chapterContentHash, "string");
+  assert.ok(calls[0].chapterContentHash.length > 0);
 });
 
 test("T1 — no divergences means the bypass never calls the producer at all", async () => {

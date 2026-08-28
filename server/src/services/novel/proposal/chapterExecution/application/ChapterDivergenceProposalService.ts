@@ -24,6 +24,8 @@ export interface ChapterDivergenceProposalInput {
   repairability?: string | null;
   /** 章节失败分类码，`replan_required` 时不建偏离提案。 */
   failureClassificationCode?: string | null;
+  /** 本章正文内容哈希，用于审批前的 stale 检查（复审 M3）。 */
+  chapterContentHash?: string | null;
 }
 
 export interface ChapterDivergenceProposalResult {
@@ -41,11 +43,18 @@ function requiresReplan(input: ChapterDivergenceProposalInput): boolean {
     || input.repairability === "plan_misalignment";
 }
 
-function divergenceChangePath(chapterOrder: number, divergence: ChapterDivergence): string {
+function divergenceChangePath(
+  chapterOrder: number,
+  divergence: ChapterDivergence,
+  index: number,
+): string {
   // 末段必须是 payload 里真实存在的键：apply 边界会用
   // resolveProposedChangePayloadKey + assertProposedValueMatchesPayload
   // 校验「界面展示值」与「可执行值」一致（Phase 2A 的 M3 修复）。
-  return `Chapter.${chapterOrder}.divergence.${divergence.kind}.actual`;
+  //
+  // 含 index：同一章可能出现两条同 kind 的偏离，它们有各自的 divergenceId，
+  // 展示 path 也必须能区分，否则会被下面的重复检测误判为冲突。
+  return `Chapter.${chapterOrder}.divergence.${divergence.kind}.${index}.actual`;
 }
 
 /**
@@ -74,11 +83,12 @@ function toProposedChange(input: {
   index: number;
   obligationContract?: unknown;
   boundaryContract?: unknown;
+  chapterContentHash?: string | null;
 }): ProposedChangeInput {
   const { chapterId, chapterOrder, divergence, index } = input;
   return {
     proposalType: "chapter_execution_plan_update",
-    path: divergenceChangePath(chapterOrder, divergence),
+    path: divergenceChangePath(chapterOrder, divergence, index),
     operation: "replace",
     category: "plot",
     // 确定性下界会把非 relation_state_update 的变更抬到 major，这里给出的
@@ -106,7 +116,17 @@ function toProposedChange(input: {
       downstreamPlanPatches: [],
     },
     reason: divergence.summary,
-    sourceRefs: [],
+    // M3：记录本章内容哈希，让审批前的 stale 检查能发现正文已经变过。
+    // 没有它，用户在正文被改写后批准的是一份已经不成立的偏离判断。
+    sourceRefs: input.chapterContentHash
+      ? [{
+          kind: "chapter" as const,
+          chapterId,
+          chapterOrder,
+          contentHash: input.chapterContentHash,
+          label: `第 ${chapterOrder} 章正文`,
+        }]
+      : [],
     evidence: divergence.evidence ? [divergence.evidence] : [],
   };
 }
@@ -158,6 +178,7 @@ export class ChapterDivergenceProposalService {
       index,
       obligationContract: input.obligationContract,
       boundaryContract: input.boundaryContract,
+      chapterContentHash: input.chapterContentHash ?? null,
     }));
     this.assertNoConflictingDownstreamWrites(changes);
 
@@ -191,15 +212,31 @@ export class ChapterDivergenceProposalService {
    * 最终结果就会依赖执行顺序。生产期直接拒绝这种信封，而不是留到 apply 期。
    */
   private assertNoConflictingDownstreamWrites(changes: ProposedChangeInput[]): void {
-    const seen = new Set<string>();
+    // 展示 path 已含 index，天然唯一，按它去重只能防重复展示、防不住真实写冲突。
+    // 真正要防的是：部分审批下两个已批准项写同一个下游目标，最终结果依赖执行顺序。
+    // 因此按 `chapterOrder + 字段名` 检测（复审 M4）。
+    const seen = new Map<string, string>();
     for (const change of changes) {
-      if (seen.has(change.path)) {
-        throw new Error(
-          `Chapter divergence proposal would write ${change.path} twice; `
-          + "aggregate the divergences before creating the envelope.",
-        );
+      const patches = Array.isArray(change.payload.downstreamPlanPatches)
+        ? change.payload.downstreamPlanPatches as Array<Record<string, unknown>>
+        : [];
+      for (const patch of patches) {
+        const chapterOrder = patch.chapterOrder;
+        for (const field of Object.keys(patch)) {
+          if (field === "chapterOrder") {
+            continue;
+          }
+          const target = `${String(chapterOrder)}:${field}`;
+          const previous = seen.get(target);
+          if (previous) {
+            throw new Error(
+              `Chapter divergence proposal would write downstream target ${target} from both `
+              + `${previous} and ${change.path}; aggregate them before creating the envelope.`,
+            );
+          }
+          seen.set(target, change.path);
+        }
       }
-      seen.add(change.path);
     }
   }
 }

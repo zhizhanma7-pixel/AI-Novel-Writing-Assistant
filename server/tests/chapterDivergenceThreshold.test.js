@@ -178,6 +178,63 @@ test("acceptance postValidate rejects unverifiable divergences and recovery stri
   assert.deepEqual(recovered.divergences, [verified]);
 });
 
+test("M1 — recovery tags stripped divergences so they surface as quality debt", () => {
+  const promptInput = {
+    novelTitle: "测试",
+    chapterOrder: 12,
+    chapterTitle: "城内",
+    targetWordCount: null,
+    content: "正文",
+    obligationContract: OBLIGATION_CONTRACT,
+    boundaryContract: BOUNDARY_CONTRACT,
+  };
+  const rawOutput = {
+    ...chapterAcceptanceAssessmentPrompt.structuredOutputHint.example,
+    riskTags: ["ending_hook"],
+    divergences: [divergence(), divergence({ quotes: ["凭空捏造的合同条目"] })],
+  };
+
+  const recovered = chapterAcceptanceAssessmentPrompt.postValidateFailureRecovery({
+    promptInput,
+    context: {},
+    rawOutput,
+    validationError: "unverified",
+    semanticRetryAttempts: 1,
+  });
+
+  // 被剥离的偏离不能无声消失：稳定码进 riskTags，顺既有质量债通路暴露。
+  assert.equal(recovered.divergences.length, 1);
+  assert.ok(recovered.riskTags.includes("unverified_cross_chapter_divergence"));
+  assert.ok(recovered.riskTags.includes("ending_hook"), "既有 riskTags 必须保留");
+});
+
+test("M1 — recovery leaves output untouched when nothing was stripped", () => {
+  const promptInput = {
+    novelTitle: "测试",
+    chapterOrder: 12,
+    chapterTitle: "城内",
+    targetWordCount: null,
+    content: "正文",
+    obligationContract: OBLIGATION_CONTRACT,
+    boundaryContract: BOUNDARY_CONTRACT,
+  };
+  const rawOutput = {
+    ...chapterAcceptanceAssessmentPrompt.structuredOutputHint.example,
+    riskTags: ["ending_hook"],
+    divergences: [divergence()],
+  };
+
+  const recovered = chapterAcceptanceAssessmentPrompt.postValidateFailureRecovery({
+    promptInput,
+    context: {},
+    rawOutput,
+    validationError: "unrelated",
+    semanticRetryAttempts: 1,
+  });
+
+  assert.deepEqual(recovered.riskTags, ["ending_hook"]);
+});
+
 test("acceptance postValidate passes through when every divergence resolves", () => {
   const promptInput = {
     novelTitle: "测试",

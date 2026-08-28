@@ -117,7 +117,29 @@ applier 写入 `riskFlags.divergenceResolutions[payload.kind]`。同一章后续
 | M5 | ✅ 关闭 | resolution 改用稳定 `divergenceId` 作键。`5bf5527` |
 | H3 | ✅ 关闭（口径略有调整，见下） | 新增 `apply_failed` disposition；账本 summary 与 metadata 如实反映提案停在 `approved`。本次 |
 | H2 | ✅ 关闭（口径见下） | 新增 `ChapterDivergenceCorrectionService`，成功/失败/stale 三条路径均有真实 SQLite 覆盖。本次 |
-| M1 / M2 / M3 / M4 | ⭕ 开放 | 按 §6 顺序处理 |
+| M1 | ✅ 关闭 | `postValidateFailureRecovery` 剥离不可核验偏离时推入稳定 riskTag，顺既有 riskTags → 质量债通路暴露；不新建通路、不靠关键词重猜。本次 |
+| M2 | ✅ 关闭 | 新增 `readVolumeWorkspaceWithinTransaction`：复用同样的读取与归一化，但丢弃 `changed` 标志、不触发 `persistWorkspaceDocument`，因此不再在信封事务外产生写入或另开事务。本次 |
+| M3 | ✅ 关闭 | 每条 change 带 `chapter` 类型 sourceRef（含 `contentHash`），审批前的 stale 检查因此能发现正文已变。拿不到哈希时留空数组，不伪造引用。本次 |
+| M4 | ✅ 关闭 | 展示 path 加 index（同 kind 不再误判冲突）；冲突检测改按真实下游写目标 `chapterOrder:field`。本次 |
+
+### 自查发现的接线缺口（M3）
+
+M1–M4 写完后自查时发现：`chapterContentHash` 字段实现了，但
+`ChapterContentFinalizationService` 没有传，**生产路径永远拿不到哈希，
+stale 检查在真实链路上等于不生效**。这与复审 H2 指出的「mapper 有了但没有
+调用方」是同一类问题，只是这次出现在我自己刚写的代码里。
+
+已接线：定稿链用 `stableDirectorContentHash(input.content)` 传入——必须与
+`ChangeProposalStalenessService` 使用同一个函数，否则记录的引用永远比不中。
+新增用例 `M3 — the chapter finalization bypass actually supplies a content hash`
+锁死这条接线。
+
+### 展开 M1 时发现并修正的一处自伤
+
+H2 的修复里，我把「修复执行失败」也用了 `UNVERIFIED_DIVERGENCE_DEBT_CODE`。这是错的：
+「检测阶段引用核验不了」与「用户已确认要修、但修复没跑成」是两种完全不同的状况，
+共用一个稳定码会让驾驶舱与后续排查分不清。已拆出
+`DIVERGENCE_CORRECTION_FAILED_DEBT_CODE`，两处各用各的。
 
 ### H3 的口径调整
 

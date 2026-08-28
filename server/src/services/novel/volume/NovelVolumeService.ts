@@ -292,12 +292,34 @@ export class NovelVolumeService {
    * 一致写入，**不发事件、不同步伏笔账本**——两者都是提交后才应发生的副作用，
    * 由调用方在信封提交之后自行触发。
    */
+  /**
+   * 事务内读取当前工作区，**不持久化、不开第二个事务**（复审 M2）。
+   *
+   * `ensureVolumeWorkspace` 在 hydrate 发现差异时会调 `persistWorkspaceDocument`，
+   * 那会用 `runVolumeWorkspaceTransaction` 另开一个事务——从调用方的 tx 里触发
+   * 就会产生「事务外写入 + 读到不同快照 + SQLite 锁竞争」。因此这里复用同样的
+   * 读取与归一化，但丢弃 `changed` 标志：hydrate 结果只用于本次合并，
+   * 回写留给外层事务的正式写入。
+   */
+  private async readVolumeWorkspaceWithinTransaction(
+    novelId: string,
+  ): Promise<VolumePlanDocument> {
+    const document = await ensureVolumeWorkspaceDocument({
+      novelId,
+      getLegacySource: () => getLegacyVolumeSource(novelId),
+    });
+    const hydrated = await this.hydrateCanonicalChapterFields(novelId, document);
+    return document.source === "legacy"
+      ? { ...hydrated.document, source: "legacy" }
+      : hydrated.document;
+  }
+
   async applyWorkspaceDocumentWithinTransaction(
     tx: Prisma.TransactionClient,
     novelId: string,
     input: unknown,
   ): Promise<VolumePlanDocument> {
-    const currentDocument = await this.ensureVolumeWorkspace(novelId);
+    const currentDocument = await this.readVolumeWorkspaceWithinTransaction(novelId);
     const mergedDocument = mergeVolumeWorkspaceInput(novelId, currentDocument, input);
     const { versionId } = await this.ensureActiveVersionRecord(tx, novelId, mergedDocument);
     const nextDocument = {

@@ -229,9 +229,11 @@ test("H2 — correcting a divergence repairs the chapter and only then records t
   assert.equal(result.failContentUnchanged, true);
   assert.equal(result.failReviewDecision, null, "修复失败时逐项必须保持可审阅");
   assert.equal(result.failRiskFlags.divergenceDebt.length, 1);
+  // 与「检测阶段核验不了」是两种状况，必须用不同的稳定码，否则驾驶舱和
+  // 后续排查分不清（复审 M1 展开时发现并拆开）。
   assert.equal(
     result.failRiskFlags.divergenceDebt[0].code,
-    "unverified_cross_chapter_divergence",
+    "divergence_correction_failed",
   );
   assert.match(result.failRiskFlags.divergenceDebt[0].reason, /repair model unavailable/);
   assert.equal(

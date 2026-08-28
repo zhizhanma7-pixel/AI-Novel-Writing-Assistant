@@ -1,5 +1,5 @@
 import type { ChapterDivergence } from "@ai-novel/shared/types/chapterDivergence";
-import { UNVERIFIED_DIVERGENCE_DEBT_CODE } from "@ai-novel/shared/types/chapterDivergence";
+import { DIVERGENCE_CORRECTION_FAILED_DEBT_CODE } from "@ai-novel/shared/types/chapterDivergence";
 import type { ChapterExecutionMissingObligation } from "@ai-novel/shared/types/chapterRuntime";
 import { prisma } from "../../../../../db/prisma";
 import { ChangeProposalError } from "../../domain/ChangeProposalError";
@@ -242,7 +242,7 @@ export class ChapterDivergenceCorrectionService {
           divergenceDebt: [
             ...existingDebt,
             {
-              code: UNVERIFIED_DIVERGENCE_DEBT_CODE,
+              code: DIVERGENCE_CORRECTION_FAILED_DEBT_CODE,
               divergenceId,
               reason,
               recordedAt: new Date().toISOString(),

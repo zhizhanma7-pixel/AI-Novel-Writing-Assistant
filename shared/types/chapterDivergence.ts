@@ -58,8 +58,19 @@ export const chapterDivergenceResolutionSchema = z.enum([
   "corrected_to_expected",
 ]);
 
-/** 语义校验失败且重试后仍无法核验时写入的稳定质量债码。 */
+/**
+ * AI 报了偏离但引用无法回查、且一次语义重试后仍不可核验——该条被剥离，
+ * 以此稳定码记入质量提醒，让用户知道「检测到但没能核验」而不是无声消失。
+ */
 export const UNVERIFIED_DIVERGENCE_DEBT_CODE = "unverified_cross_chapter_divergence";
+
+/**
+ * 「按计划修正」执行失败的稳定码。
+ *
+ * 与 `UNVERIFIED_DIVERGENCE_DEBT_CODE` 是**两种不同状况**：前者是检测阶段核验不了，
+ * 后者是用户已确认要修、但修复没跑成。用同一个码会让驾驶舱和后续排查分不清。
+ */
+export const DIVERGENCE_CORRECTION_FAILED_DEBT_CODE = "divergence_correction_failed";
 
 export type ChapterDivergenceKind = z.infer<typeof chapterDivergenceKindSchema>;
 export type ChapterDivergenceReference = z.infer<typeof chapterDivergenceReferenceSchema>;

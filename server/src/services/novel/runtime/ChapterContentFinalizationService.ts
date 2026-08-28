@@ -4,6 +4,7 @@ import { prisma } from "../../../db/prisma";
 import { novelEventBus } from "../../../events";
 import { openConflictService } from "../../state/OpenConflictService";
 import { directorAutomationLedgerEventService } from "../director/runtime/DirectorAutomationLedgerEventService";
+import { stableDirectorContentHash } from "../director/runtime/DirectorArtifactLedger";
 import { filterAcceptedFactItems, type FactLedgerExcludedItem } from "../fact/factLedgerFilter";
 import { novelFactService } from "../fact/NovelFactService";
 import { chapterDivergenceProposalService } from "../proposal/chapterExecution/application/ChapterDivergenceProposalService";
@@ -102,6 +103,8 @@ export class ChapterContentFinalizationService {
         obligationContract: expectedSource?.obligationContract ?? null,
         boundaryContract: expectedSource?.chapterBoundary ?? null,
         repairability: assessment.repairability ?? null,
+        // M3：用与 stale 检查同一套哈希算法，否则记录的引用永远比不中。
+        chapterContentHash: stableDirectorContentHash(input.content),
       });
     } catch (error) {
       this.warn("[chapter-divergence] failed to produce divergence proposal.", {

@@ -3,6 +3,7 @@ import {
   chapterDivergenceSchema,
   collectChapterDivergenceContractEntries,
   isVerifiableChapterDivergence,
+  UNVERIFIED_DIVERGENCE_DEBT_CODE,
 } from "@ai-novel/shared/types/chapterDivergence";
 import type {
   ChapterBoundaryContract,
@@ -429,8 +430,18 @@ export const chapterAcceptanceAssessmentPrompt: PromptAsset<
   },
   postValidateFailureRecovery: ({ rawOutput, promptInput }) => {
     const unverified = new Set(collectUnverifiedDivergences(rawOutput, promptInput));
+    if (unverified.size === 0) {
+      return rawOutput;
+    }
+    // 复审 M1：被剥离的偏离不能无声消失。推一个稳定 riskTag，让它顺着既有的
+    // riskTags → 质量债通路暴露出来，用户能看到「AI 检测到但没能核验」。
+    // 不新建通路，也不靠关键词重新猜测偏离。
+    const riskTags = rawOutput.riskTags.includes(UNVERIFIED_DIVERGENCE_DEBT_CODE)
+      ? rawOutput.riskTags
+      : [...rawOutput.riskTags, UNVERIFIED_DIVERGENCE_DEBT_CODE];
     return {
       ...rawOutput,
+      riskTags,
       divergences: rawOutput.divergences.filter((item) => !unverified.has(item)),
     };
   },
