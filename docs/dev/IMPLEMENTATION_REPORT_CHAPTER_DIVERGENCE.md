@@ -3,7 +3,7 @@
 > 分支：`codex/chapter-divergence`（从 `beta@2c5614f` 拉出，未合入、未推送）
 > 计划：`docs/dev/IMPLEMENTATION_PLAN_CHAPTER_DIVERGENCE.md`
 > 架构分析：`docs/dev/ARCH_ANALYSIS_CHAPTER_DIVERGENCE.md`
-> 当前状态：**Phase 2C 后端完成；2C.7 前端与 T1 端到端整书回归未做**
+> 当前状态：**Phase 2C 后端链路关闭（H1 组合回归与 T1 整书回归均已真实通过）；2C.7 前端未做**
 
 ## Scope
 
@@ -18,9 +18,14 @@
 | 2C.5 修正分支 mapper + 2C.6 G4 锁定 | `ae02c5d` | ✅ |
 | 复审 H1 / M5 修复 | `5bf5527` | ✅ |
 | 复审 H3 修复 | `ed14501` | ✅ |
-| 复审 H2：修正分支 application command | 本次 | ✅ |
+| 复审 H2：修正分支 application command | `168ab58` + `d6eeed5` | ✅ 含 repair adapter 接线与 TOCTOU 关闭 |
+| 复审 M1–M4 第一轮 | `1f1f0b5` | ✅ |
+| 复审 M2：读取贯穿调用方事务 | `afb06d4` | ✅ |
+| 复审 M1 / M4 / M5 | `4065d2b` | ✅ |
+| 复审 H1：真实 producer → review → apply 组合测试 | `7c07c5a` | ✅ |
+| 模块循环加载修复（顶层 eager 单例） | `7088f77` | ✅ 由 T1 与 H1 的真实构建暴露 |
+| T1 端到端整书回归 | `9389cf5` | ✅ |
 | 2C.7 前端 | — | ⏳ 未开始 |
-| T1 端到端整书回归 | — | ⏳ 未开始 |
 
 **分工变更：** `846295b` 与 `e7ae664` 由 Codex 实现；Codex 额度耗尽后，`b52551a`
 起改由 Claude Code 承担实现，Codex 转为评审。Claude Code 确认本机可用的
@@ -120,6 +125,37 @@ before storyboard and video tasks` 单独跑通过、进全套件才失败——
 同法确认 `chapterAcceptanceAssessmentService.test.js::normalizeAssessment routes
 missing obligations to repairable draft obligation gaps` 也是既有失败，非本轮引入。
 
+### T1 与 H1 之后的整套 integration 复核（2026-08-29）
+
+H1 的组合测试（`7c07c5a`）与 T1 整书回归写完后，第一次以**干净重建**跑完整
+integration，结果是 `132 通过 / 2 跳过 / 2 失败`。两条失败不是断言不符，而是模块在
+加载阶段就崩：
+
+| 崩溃点 | 报错 |
+|---|---|
+| `ChapterExecutionPlanApplier` 顶层 `new NovelVolumeService()` | `NovelVolumeService is not a constructor` |
+| `ChangeProposalPolicyGateService` 顶层单例的构造器默认参数 `new DirectorRuntimeService()` | `DirectorRuntimeService is not a constructor` |
+
+两处都在 require 环里，模块初始化期就去读还没导出完的构造器。**此前几次「局部绿灯」
+是旧 `dist` 造成的假象**——增量构建没有覆盖到出问题的加载顺序，不能作为证据。修复
+（`7088f77`）把两处默认依赖改成首次使用时创建，保留构造器注入，`DirectorPolicyEngine`
+一并延迟，因为它此前只是靠加载顺序侥幸存活。
+
+修复后的证据：
+
+| 对象 | tests | pass | skip | fail |
+|---|---:|---:|---:|---:|
+| integration（全量，干净重建） | 143 | 141 | 2 | **0** |
+| fast（改动后） | 1352 | 1301 | 12 | 39 |
+| fast（`git stash` 退回 `7c07c5a` 对照复跑） | 1352 | 1301 | 12 | 39 |
+
+fast 的两次失败集合**双向差集为空**，39 条与既有基线一致。按 5d 那条更正，差集为空
+只是必要条件；本轮没有出现非空差集，因此未触发单文件复跑的追查流程。
+
+T1 的断言范围：两章都真正写出正文、第 1 章的偏离提案停在 `pending_review`、
+提案不改全局任务状态也不装审批检查点、最终 `succeeded / workflow_completed`、
+全程没有 `failed` 或 `requeued` 迁移。
+
 ## Known Risks
 
 | 编号 | 风险 | 处置 |
@@ -127,15 +163,26 @@ missing obligations to repairable draft obligation gaps` 也是既有失败，�
 | K1 | AI 留空 `references` 导致偏离漏报 | 一次语义重试后仍不可核验则保守降级为质量债。方向是少建提案而非多写状态，不构成安全问题，但会漏报 |
 | K5 | 接受偏离的卷规划写入**不发** `volume_updated` 事件、**不同步**伏笔账本 | 事务感知写入刻意剥离了提交后副作用。若下游依赖这两者，需在 apply 服务提交后补 post-commit 钩子；**不得**改成在事务内触发 |
 | K6 | shared `chapterRuntime` 含 7 处无扩展名相对导入，纯 ESM 下 `ERR_MODULE_NOT_FOUND` | 既有问题。本阶段用宽松 schema 绕开（`originalExpected` 是 applier 从不解读的审计证据）。后续若有模块必须 value-import 它，需先统一补 `.js` |
-| K7 | T1 端到端整书回归未写 | **在它跑通前不得声称 2C 满足自动导演硬规则。** 当前只锁定了旁路隔离：生产者抛错不逃出定稿、无偏离不调用生产者 |
+| K7 | ~~T1 端到端整书回归未写~~ | ✅ 已关闭（`9389cf5`）。整书跑通，偏离提案不中断自动导演。此前的旁路隔离（生产者抛错不逃出定稿、无偏离不调用生产者）仍然成立 |
+| K8 | 「接受偏离」目前无法真正改下游计划 | 生产者把 `downstreamPlanPatches` 固定为空，测试里的 patch 是 fixture 手工塞的。applier 侧能力齐备但**没有任何生产服务或界面能产出这些 patch**，直接接受只会记录 `accepted_divergence`，旧计划会继续误导后续章节。属 2C.7 范围，见下 |
 
 ## Next
 
-1. **T1 端到端整书回归**（优先于前端）：整书自动执行途中产生偏离提案、全书跑完不中断。
-   2C.4 落地后已具备编写条件。
-2. **2C.7 前端**：偏离在既有 Change Proposal Drawer 里的「接受 / 修正」呈现。
-   有用户可见能力，提交前须走 `readme-release-updater`。
+后端链路到此关闭：契约、非阻塞投递、生产者、接受与修正两条出口、策略门禁、
+真实 SQLite 的组合回归（H1）与整书回归（T1）都已具备并通过。剩下的是 2C.7。
+
+1. **2C.7 前端**，其中有一项不是纯 UI 工作，不能只当渲染任务做：
+   - **用户补丁的生成与编辑契约（K8，仍未完成）**。「接受偏离」要真正生效，必须有
+     地方产出 `downstreamPlanPatches`。当前生产者固定给空数组，applier 那侧的执行
+     能力是靠 fixture 验证的。需要先定清楚：patch 由 AI 建议、由用户手编，还是两者
+     结合；编辑边界是什么（只能改文档自有字段这条既有约束要在 UI 层同样成立）；
+     提交格式与 `chapterExecutionPlanUpdatePayloadSchema` 如何对齐。**这个契约定下来
+     之前，前端不应先做「接受」按钮**——那会让用户以为下游计划已经跟着改了。
+   - 偏离在既有 Change Proposal Drawer 里的「接受 / 修正」呈现。
+   - 对外 HTTP 入口（此前有意留到 2C.7，避免先造没有调用方的路由）。
+2. 2C.7 有用户可见能力，提交前须走 `readme-release-updater`。
 3. 合入路径保持 `codex/chapter-divergence → beta → main`，本分支不直接进 `main`。
+4. 本分支仍**未合入 beta、未推送**。
 
 ## Wiki And Release Notes
 
