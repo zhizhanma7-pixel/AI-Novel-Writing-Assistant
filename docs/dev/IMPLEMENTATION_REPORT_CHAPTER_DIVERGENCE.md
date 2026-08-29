@@ -29,6 +29,7 @@
 | 2C.7 AI 下游调整建议（只读，不写状态） | `abd52cf` | ✅ |
 | 2C.7 前端：偏离呈现 + 结构化调整 + 两个接受出口 | `986862e` | ✅ 含发布说明 |
 | U7：仅记录不改计划的空补丁回归 | `5387eae` | ✅ |
+| 2C.7 复审两项阻塞修复 + 护栏回归 | `585bc8d` | ✅ |
 
 **分工变更：** `846295b` 与 `e7ae664` 由 Codex 实现；Codex 额度耗尽后，`b52551a`
 起改由 Claude Code 承担实现，Codex 转为评审。Claude Code 确认本机可用的
@@ -182,14 +183,18 @@ L0–L3 映射一律未动。这条性质由全表快照回归（U5）守着。
 
 1. **本分支仍未合入 beta、未推送。** 合入路径保持
    `codex/chapter-divergence → beta → main`，不直接进 `main`。
-2. **待评审**：2C.7 是一次较大的新增（新 prompt asset、新只读端点、新前端目录），
-   按分工应交 Codex 复审。两处我自己拿不准、想请评审判断的：
-   - 建议类 prompt 是否应额外声明 `management.productPrompt`（当前与
-     `planner.replan.window_decision` 一致，未声明）；
-   - 手动新增一条下游调整时用的是章节序号数字输入而非下拉。可选章节列表只有在
-     请求过 AI 建议后才拿得到，为它单开一个端点或扩契约都不划算，因此保留数字输入
-     并靠编辑期校验兜底。
-3. 视觉验收由用户完成；代码侧只做了 typecheck、组件逻辑测试与 client 套件回归。
+2. **复审已完成**，两项阻塞已修（`585bc8d`），详见
+   `IMPLEMENTATION_PLAN_CHAPTER_DIVERGENCE_UI.md` 的复审回填节：
+   - 已修正的条目会被后续「全部批准」翻回接受，导致「正文已修正、下游计划却按
+     偏离更新」的矛盾状态；
+   - 手动章节输入只有形状校验，当前章 / 历史章 / 不存在章节 / 重复章节都能进去，
+     其中重复项会被 applier 的 `Map` 静默覆盖。
+   我此前那句「靠编辑期校验兜底」在修复前**不成立**，现在成立。
+3. 两处待判断也有了结论：建议 prompt 声明
+   `management: { productPrompt: true, editModes: ["readonly"] }`；数字输入保留为
+   次要入口，不新增端点。
+4. **下一步：最终视觉验收，然后走 `codex/chapter-divergence → beta`。**
+   代码侧只做了 typecheck、组件逻辑测试与三套套件回归，界面观感仍需用户确认。
 
 ## Wiki And Release Notes
 
