@@ -236,7 +236,119 @@ async function main() {
       .volumes[0].chapters.find((c) => c.chapterOrder === 2);
     const recordOnlyCh1 = await prisma.chapter.findUnique({ where: { id: recordCh1.id } });
 
+    // --- G4 直达 applier：绕过编辑服务，把非法补丁直接送到最终写入层。
+    // 编辑期的校验挡不住从别的路径进来的载荷，这一层必须自己站得住，
+    // 而且不能只是报错——数据一个字节都不能动。
+    const guard = await prisma.novel.create({ data: { title: "Applier guard" } });
+    const guardChapters = {};
+    for (const order of [3, 5, 6, 7]) {
+      guardChapters[order] = await prisma.chapter.create({
+        data: {
+          novelId: guard.id,
+          order,
+          title: "第" + order + "章",
+          content: order <= 5 ? "已经写好的正文。" : "",
+          expectation: "第" + order + "章的预期",
+        },
+      });
+    }
+    await volumeService.updateVolumesWithOptions(guard.id, {
+      volumes: [{
+        sortOrder: 1,
+        title: "第一卷",
+        chapters: [
+          { chapterOrder: 3, title: "第3章", summary: "第3章的预期", purpose: "旧章目的" },
+          { chapterOrder: 5, title: "第5章", summary: "第5章的预期", purpose: "偏离章目的" },
+          { chapterOrder: 6, title: "第6章", summary: "第6章的预期", purpose: "下游甲目的" },
+          { chapterOrder: 7, title: "第7章", summary: "第7章的预期", purpose: "下游乙目的" },
+        ],
+      }],
+    }, { emitEvent: false, syncPayoffLedger: false });
+
+    const guardPlanSnapshot = async () => {
+      const doc = await volumeService.getVolumes(guard.id);
+      return doc.volumes[0].chapters.map((chapter) => [
+        chapter.chapterOrder,
+        chapter.purpose ?? null,
+      ]);
+    };
+    const guardRiskFlags = async () => {
+      const row = await prisma.chapter.findUnique({
+        where: { id: guardChapters[5].id },
+        select: { riskFlags: true },
+      });
+      return row.riskFlags ?? null;
+    };
+
+    const guardProposal = (patches) => ({
+      id: "state-proposal-guard",
+      novelId: guard.id,
+      chapterId: guardChapters[5].id,
+      sourceType: "chapter_execution",
+      sourceStage: "chapter_execution",
+      proposalType: "chapter_execution_plan_update",
+      riskLevel: "high",
+      status: "committed",
+      summary: "越界的下游补丁。",
+      payload: {
+        chapterId: guardChapters[5].id,
+        chapterOrder: 5,
+        divergenceId: "guard:next_entry_state_changed:0",
+        kind: "next_entry_state_changed",
+        expected: "第5章的原计划",
+        actual: "第5章的实际写法",
+        downstreamPlanPatches: patches,
+      },
+      evidence: [],
+      validationNotes: [],
+    });
+
+    const guardCases = [
+      ["current_chapter", [{ chapterOrder: 5, purpose: "回头改本章" }]],
+      ["historical_chapter", [{ chapterOrder: 3, purpose: "改已经写完的章" }]],
+      ["unknown_chapter", [{ chapterOrder: 44, purpose: "编出来的章" }]],
+      ["duplicate_chapter", [
+        { chapterOrder: 6, purpose: "第一条" },
+        { chapterOrder: 6, purpose: "第二条" },
+      ]],
+    ];
+    const guardResults = [];
+    for (const [label, patches] of guardCases) {
+      const planBefore = await guardPlanSnapshot();
+      const riskBefore = await guardRiskFlags();
+      let rejected = false;
+      let reason = null;
+      try {
+        await prisma.$transaction(async (tx) => {
+          await applyChapterExecutionPlanUpdate(tx, guardProposal(patches));
+        });
+      } catch (error) {
+        rejected = true;
+        reason = error && error.reason ? error.reason : (error ? error.name : null);
+      }
+      const planAfter = await guardPlanSnapshot();
+      const riskAfter = await guardRiskFlags();
+      guardResults.push({
+        label,
+        rejected,
+        reason,
+        planUnchanged: JSON.stringify(planBefore) === JSON.stringify(planAfter),
+        riskFlagsUnchanged: riskBefore === riskAfter,
+      });
+    }
+
+    // 对照：合法补丁必须仍然写得进去，否则上面四条「没变」可能只是
+    // 因为 applier 在这个 fixture 上根本写不动任何东西。
+    const guardLegalBefore = await guardPlanSnapshot();
+    await prisma.$transaction(async (tx) => {
+      await applyChapterExecutionPlanUpdate(tx, guardProposal([
+        { chapterOrder: 6, purpose: "合法改动" },
+      ]));
+    });
+    const guardLegalAfter = await guardPlanSnapshot();
+
     console.log(JSON.stringify({
+      coldReadVolumes: coldDocVolumes,
       coldReadVolumes: coldDocVolumes,
       coldPersistedDuringRead: coldVersionsAfter !== coldVersionsBefore,
       coldChapterId: coldCh.id,
@@ -266,6 +378,9 @@ async function main() {
       },
       recordOnlyChapterContent: recordOnlyCh1.content,
       recordOnlyRiskFlags: JSON.parse(recordOnlyCh1.riskFlags || "{}"),
+      guardResults,
+      guardLegalChanged: JSON.stringify(guardLegalBefore) !== JSON.stringify(guardLegalAfter),
+      guardLegalAfter,
     }));
   } finally {
     await prisma.$disconnect();
@@ -388,4 +503,25 @@ test("U7 — recording a divergence without plan changes leaves the downstream p
   const recorded = Object.values(resolutions);
   assert.equal(recorded.length, 1, "the divergence must still be recorded as resolved");
   assert.equal(recorded[0].resolution, "accepted_divergence");
+});
+
+test("G4 — the applier itself refuses out-of-bounds patches and writes nothing", () => {
+  const result = scenarioResult();
+
+  // 对照先行：合法补丁写得进去，才能说明下面四条「数据没变」是校验挡住的，
+  // 而不是这个 fixture 本来就写不动。
+  assert.equal(result.guardLegalChanged, true, "a legal patch must still be applied");
+  assert.deepEqual(
+    result.guardLegalAfter.find((entry) => entry[0] === 6),
+    [6, "合法改动"],
+  );
+
+  const byLabel = new Map(result.guardResults.map((entry) => [entry.label, entry]));
+  for (const label of ["current_chapter", "historical_chapter", "unknown_chapter", "duplicate_chapter"]) {
+    const outcome = byLabel.get(label);
+    assert.equal(outcome.rejected, true, `${label} must be refused at the applier`);
+    assert.equal(outcome.reason, "invalid_payload", `${label} must be refused as an invalid payload`);
+    assert.equal(outcome.planUnchanged, true, `${label} must not change any downstream plan`);
+    assert.equal(outcome.riskFlagsUnchanged, true, `${label} must not record a resolution`);
+  }
 });
