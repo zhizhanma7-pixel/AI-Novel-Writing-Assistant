@@ -175,6 +175,67 @@ async function main() {
     });
     const coldVersionsAfter = await prisma.volumePlanVersion.count({ where: { novelId: cold.id } });
 
+    // --- U7「仅记录这次变化」：作者保留正文但明确不动后续计划。
+    // 界面上这是一个独立按钮，落到这里就是空的 downstreamPlanPatches。
+    const recordOnly = await prisma.novel.create({ data: { title: "Record only" } });
+    const recordCh1 = await prisma.chapter.create({
+      data: {
+        novelId: recordOnly.id, order: 1, title: "起", content: "主角提前动身。",
+        expectation: "主角按原计划留守",
+      },
+    });
+    await prisma.chapter.create({
+      data: { novelId: recordOnly.id, order: 2, title: "承", content: "", expectation: "在原地会合" },
+    });
+    await volumeService.updateVolumesWithOptions(recordOnly.id, {
+      volumes: [{
+        sortOrder: 1,
+        title: "第一卷",
+        chapters: [
+          { chapterOrder: 1, title: "起", summary: "主角按原计划留守" },
+          {
+            chapterOrder: 2,
+            title: "承",
+            summary: "在原地会合",
+            purpose: "原地会合并交接情报",
+            nextChapterEntryState: "主角仍在原地",
+          },
+        ],
+      }],
+    }, { emitEvent: false, syncPayoffLedger: false });
+
+    const recordOnlyBefore = (await volumeService.getVolumes(recordOnly.id))
+      .volumes[0].chapters.find((c) => c.chapterOrder === 2);
+
+    await prisma.$transaction(async (tx) => {
+      await applyChapterExecutionPlanUpdate(tx, {
+        id: "state-proposal-record-only",
+        novelId: recordOnly.id,
+        chapterId: recordCh1.id,
+        sourceType: "chapter_execution",
+        sourceStage: "chapter_execution",
+        proposalType: "chapter_execution_plan_update",
+        riskLevel: "high",
+        status: "committed",
+        summary: "只记录这次变化，不动后续计划。",
+        payload: {
+          chapterId: recordCh1.id,
+          chapterOrder: 1,
+          divergenceId: "record-only:next_entry_state_changed:0",
+          kind: "next_entry_state_changed",
+          expected: "主角按原计划留守",
+          actual: "主角提前动身。",
+          downstreamPlanPatches: [],
+        },
+        evidence: [],
+        validationNotes: [],
+      });
+    });
+
+    const recordOnlyAfter = (await volumeService.getVolumes(recordOnly.id))
+      .volumes[0].chapters.find((c) => c.chapterOrder === 2);
+    const recordOnlyCh1 = await prisma.chapter.findUnique({ where: { id: recordCh1.id } });
+
     console.log(JSON.stringify({
       coldReadVolumes: coldDocVolumes,
       coldPersistedDuringRead: coldVersionsAfter !== coldVersionsBefore,
@@ -195,6 +256,16 @@ async function main() {
       chapter10Content: ch10Row.content,
       riskFlags: JSON.parse(ch9Row.riskFlags || "{}"),
       activeVersionPresent: Boolean(afterDoc.activeVersionId),
+      recordOnlyDownstreamBefore: {
+        purpose: recordOnlyBefore.purpose ?? null,
+        nextChapterEntryState: recordOnlyBefore.nextChapterEntryState ?? null,
+      },
+      recordOnlyDownstreamAfter: {
+        purpose: recordOnlyAfter.purpose ?? null,
+        nextChapterEntryState: recordOnlyAfter.nextChapterEntryState ?? null,
+      },
+      recordOnlyChapterContent: recordOnlyCh1.content,
+      recordOnlyRiskFlags: JSON.parse(recordOnlyCh1.riskFlags || "{}"),
     }));
   } finally {
     await prisma.$disconnect();
@@ -236,8 +307,16 @@ function runScenario() {
   }
 }
 
+// 建库 + prisma push 很贵，两组断言共用同一次场景。
+let cachedResult = null;
+
+function scenarioResult() {
+  cachedResult ??= runScenario();
+  return cachedResult;
+}
+
 test("T10/T11 — accepting a divergence updates downstream plans and preserves the original Expected", () => {
-  const result = runScenario();
+  const result = scenarioResult();
 
   // M2 回归：冷启动（未 bootstrap / 未 hydrate）下事务内读取可用，
   // 且读取过程本身不在信封事务外持久化。
@@ -284,4 +363,29 @@ test("T10/T11 — accepting a divergence updates downstream plans and preserves 
     result.riskFlags.divergenceResolutions[result.producedDivergenceId].expected,
     "章末主角留在城内等待接头",
   );
+});
+
+test("U7 — recording a divergence without plan changes leaves the downstream plan untouched", () => {
+  const result = scenarioResult();
+
+  // 先确认下游本来就有内容可被改坏，否则「前后一致」只是在比较两个空值。
+  assert.equal(result.recordOnlyDownstreamBefore.purpose, "原地会合并交接情报");
+  assert.equal(result.recordOnlyDownstreamBefore.nextChapterEntryState, "主角仍在原地");
+
+  // 这条出口在界面上是一个独立按钮，此前没有任何用例走过空补丁路径。
+  assert.deepEqual(
+    result.recordOnlyDownstreamAfter,
+    result.recordOnlyDownstreamBefore,
+    "an empty patch list must not rewrite the downstream plan",
+  );
+  assert.equal(
+    result.recordOnlyChapterContent,
+    "主角提前动身。",
+    "recording a divergence must not touch the prose",
+  );
+
+  const resolutions = result.recordOnlyRiskFlags.divergenceResolutions ?? {};
+  const recorded = Object.values(resolutions);
+  assert.equal(recorded.length, 1, "the divergence must still be recorded as resolved");
+  assert.equal(recorded[0].resolution, "accepted_divergence");
 });
