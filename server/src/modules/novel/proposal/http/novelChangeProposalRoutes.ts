@@ -23,6 +23,7 @@ import { DirectorCommandService } from "../../../../services/novel/director/comm
 import { outlineImportRequestSchema } from "@ai-novel/shared/types/outlineWorkflow";
 import { outlineImportProposalService } from "../../../../services/novel/proposal/outline/application/OutlineImportProposalService";
 import { ChapterDivergenceCorrectionService } from "../../../../services/novel/proposal/chapterExecution/application/ChapterDivergenceCorrectionService";
+import { ChapterDivergencePlanSuggestionService } from "../../../../services/novel/proposal/chapterExecution/application/ChapterDivergencePlanSuggestionService";
 
 const proposalParamsSchema = z.object({
   id: z.string().trim().min(1),
@@ -56,6 +57,13 @@ let chapterDivergenceCorrectionServiceInstance: ChapterDivergenceCorrectionServi
 function getChapterDivergenceCorrectionService(): ChapterDivergenceCorrectionService {
   chapterDivergenceCorrectionServiceInstance ??= new ChapterDivergenceCorrectionService();
   return chapterDivergenceCorrectionServiceInstance;
+}
+
+let chapterDivergencePlanSuggestionServiceInstance: ChapterDivergencePlanSuggestionService | null = null;
+
+function getChapterDivergencePlanSuggestionService(): ChapterDivergencePlanSuggestionService {
+  chapterDivergencePlanSuggestionServiceInstance ??= new ChapterDivergencePlanSuggestionService();
+  return chapterDivergencePlanSuggestionServiceInstance;
 }
 
 async function enqueueTaskBoundReview(
@@ -401,6 +409,31 @@ export function registerNovelChangeProposalRoutes(router: Router): void {
             ? "正文已改回原计划。"
             : "这次没能改回原计划，条目仍可审阅。",
         } satisfies ApiResponse<typeof result>);
+      } catch (error) {
+        forwardProposalError(error, next);
+      }
+    },
+  );
+
+  router.post(
+    "/:id/change-proposals/:proposalId/items/:itemId/plan-suggestions",
+    validate({ params: proposedChangeParamsSchema }),
+    async (req, res, next) => {
+      try {
+        const { id, proposalId, itemId } = proposedChangeParamsSchema.parse(req.params);
+        // 只读：生成建议不落库，作者采纳后才经既有编辑接口写入。
+        const data = await getChapterDivergencePlanSuggestionService().suggest({
+          novelId: id,
+          proposalId,
+          changeId: itemId,
+        });
+        res.status(200).json({
+          success: true,
+          data,
+          message: data.suggestions.length > 0
+            ? "以下是后续章节的调整建议，采纳前可以逐条修改。"
+            : "后续章节的安排看起来不受影响，可以不改。",
+        } satisfies ApiResponse<typeof data>);
       } catch (error) {
         forwardProposalError(error, next);
       }

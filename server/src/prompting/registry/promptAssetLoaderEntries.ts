@@ -230,6 +230,10 @@ export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
     load: () => require("../prompts/planner/replanWindowDecision.prompts").replanWindowDecisionPrompt as UnknownPromptAsset,
   },
   {
+    key: "chapter_execution.divergence.plan_suggestion@v1",
+    load: () => require("../prompts/chapterExecution/divergencePlanSuggestion.prompts").divergencePlanSuggestionPrompt as UnknownPromptAsset,
+  },
+  {
     key: "rag.contextual_chunk.prefix@v1",
     load: () => require("../prompts/rag/contextualChunk.prompts").ragContextualChunkPrompt as UnknownPromptAsset,
   },
