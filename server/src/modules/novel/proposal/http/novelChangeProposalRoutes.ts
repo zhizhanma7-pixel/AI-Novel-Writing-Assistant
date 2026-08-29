@@ -22,6 +22,7 @@ import {
 import { DirectorCommandService } from "../../../../services/novel/director/commands/DirectorCommandService";
 import { outlineImportRequestSchema } from "@ai-novel/shared/types/outlineWorkflow";
 import { outlineImportProposalService } from "../../../../services/novel/proposal/outline/application/OutlineImportProposalService";
+import { ChapterDivergenceCorrectionService } from "../../../../services/novel/proposal/chapterExecution/application/ChapterDivergenceCorrectionService";
 
 const proposalParamsSchema = z.object({
   id: z.string().trim().min(1),
@@ -47,6 +48,15 @@ const partialApprovalSchema = reviewChangeProposalInputSchema.extend({
 });
 
 const directorCommandService = new DirectorCommandService();
+
+// 修正命令会在构造时接生产 repair adapter，延迟到首次调用再建，
+// 避免又一处模块加载期的 eager 构造（见 `7088f77`）。
+let chapterDivergenceCorrectionServiceInstance: ChapterDivergenceCorrectionService | null = null;
+
+function getChapterDivergenceCorrectionService(): ChapterDivergenceCorrectionService {
+  chapterDivergenceCorrectionServiceInstance ??= new ChapterDivergenceCorrectionService();
+  return chapterDivergenceCorrectionServiceInstance;
+}
 
 async function enqueueTaskBoundReview(
   novelId: string,
@@ -361,6 +371,36 @@ export function registerNovelChangeProposalRoutes(router: Router): void {
           data,
           message: "批准项进入正式状态。",
         } satisfies ApiResponse<typeof data>);
+      } catch (error) {
+        forwardProposalError(error, next);
+      }
+    },
+  );
+
+  router.post(
+    "/:id/change-proposals/:proposalId/items/:itemId/correct",
+    validate({ params: proposedChangeParamsSchema }),
+    async (req, res, next) => {
+      try {
+        const { id, proposalId, itemId } = proposedChangeParamsSchema.parse(req.params);
+        const result = await getChapterDivergenceCorrectionService().correct({
+          novelId: id,
+          proposalId,
+          changeId: itemId,
+        });
+        if (result.status === "conflict") {
+          // 修复期间正文/逐项决定/信封状态被改过，旧结果不能覆盖新状态。
+          throw new ChangeProposalError("version_conflict", result.reason);
+        }
+        // `repair_failed` 是业务结果而不是服务故障：逐项仍可审阅，质量债已落，
+        // 因此走 200 让前端如实呈现，而不是 5xx。
+        res.status(200).json({
+          success: true,
+          data: result,
+          message: result.status === "corrected"
+            ? "正文已改回原计划。"
+            : "这次没能改回原计划，条目仍可审阅。",
+        } satisfies ApiResponse<typeof result>);
       } catch (error) {
         forwardProposalError(error, next);
       }

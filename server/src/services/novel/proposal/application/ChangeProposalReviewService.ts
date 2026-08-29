@@ -13,6 +13,7 @@ import { stateChangeProposalTypeSchema } from "@ai-novel/shared/types/canonicalS
 import { prisma } from "../../../../db/prisma";
 import { directorAutomationLedgerEventService } from "../../director/runtime/DirectorAutomationLedgerEventService";
 import { ChangeProposalError } from "../domain/ChangeProposalError";
+import { assertEditablePayloadShape } from "../domain/ProposedChangePayloadValidation";
 import {
   applyEditedValueToPayload,
   resolveEditedValueFromPayload,
@@ -123,16 +124,19 @@ export class ChangeProposalReviewService {
     }
     const basePayload = input.payload
       ?? parseJsonRecord(item.userEditedPayloadJson ?? item.payloadJson);
+    const proposalType = stateChangeProposalTypeSchema.parse(item.proposalType);
     const editedPayload = input.after !== undefined
       ? applyEditedValueToPayload({
-          proposalType: stateChangeProposalTypeSchema.parse(item.proposalType),
+          proposalType,
           path: item.changePath ?? "",
           payload: basePayload,
           editedValue: input.after,
         })
       : basePayload;
+    // 编辑期就校验最终可执行形状。放到 apply 才校验的话，作者是在点了
+    // 「批准」之后才知道自己填错了。
+    assertEditablePayloadShape(proposalType, editedPayload);
     const userEditedPayloadJson = JSON.stringify(editedPayload);
-    const proposalType = stateChangeProposalTypeSchema.parse(item.proposalType);
     const effectiveAfter = input.after !== undefined
       ? { mapped: true as const, value: input.after }
       : resolveEditedValueFromPayload({

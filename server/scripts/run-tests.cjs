@@ -11,6 +11,7 @@ const integrationTests = new Set([
   "chapterDivergenceAutoDirectorRealSqlite.test.js",
   "chapterDivergenceCorrectionRealSqlite.test.js",
   "chapterDivergenceProposalApplyRealSqlite.test.js",
+  "chapterDivergenceReviewApiRealSqlite.test.js",
   "chapterExecutionPlanApplierRealSqlite.test.js",
   "directorTaskFactInspection.test.js",
   "directorWorkflowStepModules.test.js",
