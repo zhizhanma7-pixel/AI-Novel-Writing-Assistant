@@ -8,7 +8,14 @@ import type { Prisma } from "@prisma/client";
 import { StateProposalDomainError } from "../../../state/StateProposalDomainError";
 import { NovelVolumeService } from "../../../volume/NovelVolumeService";
 
-const volumeService = new NovelVolumeService();
+// 顶层 eager 实例化会在模块循环加载中拿到尚未完成导出的构造器，
+// 改为首次使用时再建。
+let volumeServiceInstance: NovelVolumeService | null = null;
+
+function getVolumeService(): NovelVolumeService {
+  volumeServiceInstance ??= new NovelVolumeService();
+  return volumeServiceInstance;
+}
 
 function parseRiskFlags(
   value: string | null | undefined,
@@ -110,7 +117,7 @@ export async function applyChapterExecutionPlanUpdate(
   if (payload.downstreamPlanPatches.length > 0) {
     // 必须用事务内读取：此前这里先走一次全局 `getVolumes()`，那不仅读的是
     // 信封事务之外的快照，还可能在 hydrate 有差异时自行持久化（复审 M2）。
-    const document = await volumeService.readWorkspaceWithinTransaction(tx, proposal.novelId);
+    const document = await getVolumeService().readWorkspaceWithinTransaction(tx, proposal.novelId);
     const { volumes, appliedOrders } = applyPatchToDocument(
       document,
       payload.downstreamPlanPatches,
@@ -125,7 +132,7 @@ export async function applyChapterExecutionPlanUpdate(
       });
     }
     // 传回完整 volumes，避免 merge 语义把未列出的条目当成删除。
-    await volumeService.applyWorkspaceDocumentWithinTransaction(tx, proposal.novelId, {
+    await getVolumeService().applyWorkspaceDocumentWithinTransaction(tx, proposal.novelId, {
       ...document,
       volumes,
     });
