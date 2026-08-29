@@ -29,6 +29,13 @@ export const divergencePlanSuggestionPrompt: PromptAsset<
     preferredGroups: ["chapter_goal", "canonical_state"],
     dropOrder: ["protected_secrets"],
   },
+  // 建议的理由文本会直接呈现给作者、供其决定要不要采纳，所以这是产品级
+  // prompt，而不是纯内部决策器——「能在目录里检索到」不等于完成纳管声明。
+  // 输出必须过确定性 sanitizer，槽位编辑会让边界失控，因此只开 readonly。
+  management: {
+    productPrompt: true,
+    editModes: ["readonly"],
+  },
   outputSchema: aiChapterDivergencePlanSuggestionResultSchema,
   render: (input) => [
     new SystemMessage([

@@ -16,6 +16,7 @@ import { resolveChangeProposalError } from "../changeProposalCopy";
 import DownstreamPlanPatchForm from "./DownstreamPlanPatchForm";
 import {
   CORRECTION_RESULT_COPY,
+  isCorrectedBackToPlan,
   PLAN_PATCH_FIELDS,
   readDivergencePayload,
   withDownstreamPatches,
@@ -61,6 +62,7 @@ export default function DivergenceChangeCard(props: {
   }, [suggestions]);
 
   const effectiveDecision = props.decision ?? props.change.reviewDecision ?? undefined;
+  const correctedBackToPlan = isCorrectedBackToPlan(props.change);
   const savedPatchCount = view.downstreamPlanPatches.length;
   const minChapterOrder = view.chapterOrder ?? 0;
 
@@ -198,7 +200,7 @@ export default function DivergenceChangeCard(props: {
         <div className="text-xs leading-5 text-destructive">{message}</div>
       ) : null}
 
-      {editing ? (
+      {editing && !correctedBackToPlan ? (
         <div className="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
           <div>
             <div className="text-sm font-medium text-foreground">后续章节要怎么改</div>
@@ -297,7 +299,13 @@ export default function DivergenceChangeCard(props: {
         </div>
       ) : null}
 
-      {props.reviewEnabled && !editing ? (
+      {correctedBackToPlan ? (
+        <div className="rounded-xl border border-border/70 bg-muted/10 px-3 py-2 text-sm leading-6 text-muted-foreground">
+          正文已改回原计划，这一条不需要再处理。后面章节的安排保持不变。
+        </div>
+      ) : null}
+
+      {props.reviewEnabled && !editing && !correctedBackToPlan ? (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" disabled={busy} onClick={() => setEditing(true)}>

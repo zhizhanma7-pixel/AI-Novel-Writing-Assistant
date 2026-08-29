@@ -4,6 +4,7 @@ import { chapterExecutionPlanPatchSchema } from "@ai-novel/shared/types/chapterE
 import {
   PLAN_PATCH_FIELDS,
   isChapterDivergenceChange,
+  isCorrectedBackToPlan,
   readDivergencePayload,
   withDownstreamPatches,
 } from "./divergenceCopy.ts";
@@ -11,6 +12,7 @@ import {
 function buildChange(overrides = {}) {
   return {
     id: "item-1",
+    status: "pending_review",
     proposalType: "chapter_execution_plan_update",
     path: "chapters.9.divergence.0",
     severity: "major",
@@ -112,4 +114,22 @@ test("clearing the patches keeps the item recordable without plan changes", () =
   });
 
   assert.deepEqual(withDownstreamPatches(change, []).downstreamPlanPatches, []);
+});
+
+test("an item corrected back to plan stops offering the conflicting actions", () => {
+  // 修正成功后后端把这一条锁成拒绝，并拒绝再把它批准成接受。界面必须跟着
+  // 收掉操作，否则作者会以为自己还能把它改成「接受并更新后续计划」。
+  assert.equal(isCorrectedBackToPlan(buildChange()), false);
+  assert.equal(
+    isCorrectedBackToPlan(buildChange({ status: "rejected", reviewDecision: "rejected" })),
+    true,
+  );
+});
+
+test("a failed correction leaves the item open for another decision", () => {
+  // 修复失败时后端刻意不写 reviewDecision，条目要保持可审阅。
+  assert.equal(
+    isCorrectedBackToPlan(buildChange({ status: "pending_review", reviewDecision: null })),
+    false,
+  );
 });

@@ -1,6 +1,8 @@
 import { stateChangeProposalTypeSchema } from "@ai-novel/shared/types/canonicalState";
 import { chapterExecutionPlanUpdatePayloadSchema } from "@ai-novel/shared/types/chapterExecutionPlan";
 import type { z, ZodType } from "zod";
+import { prisma } from "../../../../db/prisma";
+import { findDownstreamPatchViolations } from "../chapterExecution/domain/ChapterExecutionPatchBoundary";
 import { ChangeProposalError } from "./ChangeProposalError";
 
 /**
@@ -41,4 +43,44 @@ export function assertEditablePayloadShape(
     `Edited value cannot be executed as ${proposalType}. ${issues.join("; ")}`,
     { proposalType, issues },
   );
+}
+
+/**
+ * 编辑期的边界校验。
+ *
+ * 形状对不代表边界对：`chapterExecutionPlanPatchSchema` 拦不住「改第 1 章」
+ * 或同一份载荷里两条补丁指向同一章。规则本身在
+ * `ChapterExecutionPatchBoundary`，这里只负责取出这本书真实存在的章节序号
+ * 并把违规包成审阅错误。
+ */
+export async function assertEditablePayloadBoundaries(
+  proposalType: StateChangeProposalType,
+  payload: unknown,
+  context: { novelId: string; db: Pick<typeof prisma, "chapter"> },
+): Promise<void> {
+  if (proposalType !== "chapter_execution_plan_update") {
+    return;
+  }
+  const parsed = chapterExecutionPlanUpdatePayloadSchema.safeParse(payload);
+  if (!parsed.success || parsed.data.downstreamPlanPatches.length === 0) {
+    // 形状问题已由 `assertEditablePayloadShape` 报过，这里不重复报。
+    return;
+  }
+
+  const chapters = await context.db.chapter.findMany({
+    where: { novelId: context.novelId },
+    select: { order: true },
+  });
+  const violations = findDownstreamPatchViolations({
+    currentChapterOrder: parsed.data.chapterOrder,
+    patches: parsed.data.downstreamPlanPatches,
+    existingChapterOrders: chapters.map((chapter) => chapter.order),
+  });
+  if (violations.length > 0) {
+    throw new ChangeProposalError(
+      "invalid_review",
+      violations.map((violation) => violation.message).join(" "),
+      { violations },
+    );
+  }
 }

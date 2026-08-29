@@ -21,6 +21,16 @@ export function isChapterDivergenceChange(change: ProposedChange): boolean {
   return change.proposalType === "chapter_execution_plan_update";
 }
 
+/**
+ * 「按计划修正」完成后这一条就定了：正文已改回原计划，逐项被锁成拒绝。
+ *
+ * 后端不再允许审批把它翻成接受（否则会出现「正文已修正、下游计划却按偏离
+ * 更新」的矛盾状态），界面因此也不能继续给出会矛盾的操作。
+ */
+export function isCorrectedBackToPlan(change: ProposedChange): boolean {
+  return change.status === "rejected" && change.reviewDecision === "rejected";
+}
+
 interface DivergencePayloadView {
   chapterOrder: number | null;
   expected: string;

@@ -13,7 +13,10 @@ import { stateChangeProposalTypeSchema } from "@ai-novel/shared/types/canonicalS
 import { prisma } from "../../../../db/prisma";
 import { directorAutomationLedgerEventService } from "../../director/runtime/DirectorAutomationLedgerEventService";
 import { ChangeProposalError } from "../domain/ChangeProposalError";
-import { assertEditablePayloadShape } from "../domain/ProposedChangePayloadValidation";
+import {
+  assertEditablePayloadBoundaries,
+  assertEditablePayloadShape,
+} from "../domain/ProposedChangePayloadValidation";
 import {
   applyEditedValueToPayload,
   resolveEditedValueFromPayload,
@@ -133,9 +136,10 @@ export class ChangeProposalReviewService {
           editedValue: input.after,
         })
       : basePayload;
-    // 编辑期就校验最终可执行形状。放到 apply 才校验的话，作者是在点了
-    // 「批准」之后才知道自己填错了。
+    // 编辑期就校验最终可执行形状与边界。放到 apply 才校验的话，作者是在
+    // 点了「批准」之后才知道自己填错了。
     assertEditablePayloadShape(proposalType, editedPayload);
+    await assertEditablePayloadBoundaries(proposalType, editedPayload, { novelId, db: prisma });
     const userEditedPayloadJson = JSON.stringify(editedPayload);
     const effectiveAfter = input.after !== undefined
       ? { mapped: true as const, value: input.after }
@@ -228,6 +232,25 @@ export class ChangeProposalReviewService {
 
     const resolved = row.changes.map((change) => {
       const explicit = byId?.get(change.id);
+      // 「按计划修正」已经改回了正文，并把这一条锁成 rejected。审批不得把它
+      // 翻回 accepted：那会让正文已修正、下游计划却按偏离更新，两边直接矛盾。
+      // 锁定发生在信封仍待审时，所以只有 correction 这类提前落决定的路径会命中。
+      if (change.reviewDecision === "rejected" && change.status === "rejected") {
+        if (explicit && explicit.decision !== "rejected") {
+          throw new ChangeProposalError(
+            "invalid_review",
+            `Proposed change ${change.id} was already corrected back to the plan; `
+            + "it cannot be approved in this review.",
+          );
+        }
+        return {
+          change,
+          decision: "rejected" as const,
+          editedPayloadJson: null,
+          editedAfterJson: null,
+          locked: true,
+        };
+      }
       const hasExplicitEdit = explicit?.editedPayload !== undefined
         || explicit?.editedValue !== undefined;
       if (
@@ -289,6 +312,7 @@ export class ChangeProposalReviewService {
         editedAfterJson: decision === "modified" && effectiveAfter.mapped
           ? JSON.stringify(effectiveAfter.value)
           : null,
+        locked: false,
       };
     });
     const approvedCount = resolved.filter((item) => item.decision !== "rejected").length;
@@ -320,6 +344,10 @@ export class ChangeProposalReviewService {
         throw new ChangeProposalError("version_conflict", "Change proposal changed during review.");
       }
       for (const item of resolved) {
+        if (item.locked) {
+          // 已修正的条目原样保留，连同它的修正记录一起，不被这次审批覆写。
+          continue;
+        }
         await tx.stateChangeProposal.update({
           where: { id: item.change.id },
           data: {
