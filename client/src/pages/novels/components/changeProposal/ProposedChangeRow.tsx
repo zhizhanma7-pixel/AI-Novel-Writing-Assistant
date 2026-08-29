@@ -4,6 +4,8 @@ import type {
   ProposedChange,
   ProposedChangeReviewDecision,
 } from "@ai-novel/shared/types/changeProposal";
+import type { ChapterDivergenceCorrectionResult } from "@ai-novel/shared/types/chapterDivergence";
+import type { ChapterDivergencePlanSuggestionResult } from "@ai-novel/shared/types/chapterDivergencePlanSuggestion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +14,8 @@ import {
   isLedgerOnlyProposedChange,
 } from "./changeProposalCopy";
 import ProposedChangeEditor from "./ProposedChangeEditor";
+import DivergenceChangeCard from "./divergence/DivergenceChangeCard";
+import { isChapterDivergenceChange } from "./divergence/divergenceCopy";
 
 const DECISION_COPY: Record<ProposedChangeReviewDecision, string> = {
   accepted: "接受原建议",
@@ -26,8 +30,28 @@ export default function ProposedChangeRow(props: {
   isSaving: boolean;
   onDecision: (decision: ProposedChangeReviewDecision) => void;
   onEdit: (input: EditProposedChangeInput) => Promise<unknown>;
+  onSuggest: () => Promise<ChapterDivergencePlanSuggestionResult>;
+  onCorrect: () => Promise<ChapterDivergenceCorrectionResult>;
 }) {
   const [editing, setEditing] = useState(false);
+
+  // 偏离项有自己的一套呈现和出口（接受并改后续 / 仅记录 / 改回原计划），
+  // 通用的 path + before/after + JSON 编辑框在这里帮不上作者。
+  if (isChapterDivergenceChange(props.change)) {
+    return (
+      <DivergenceChangeCard
+        change={props.change}
+        decision={props.decision}
+        reviewEnabled={props.reviewEnabled}
+        isSaving={props.isSaving}
+        onDecision={props.onDecision}
+        onEdit={props.onEdit}
+        onSuggest={props.onSuggest}
+        onCorrect={props.onCorrect}
+      />
+    );
+  }
+
   const isLedgerOnly = isLedgerOnlyProposedChange(props.change);
   const hasStoredEdit = props.change.userEditedPayload !== null;
   const displayedAfter = hasStoredEdit && props.change.after == null

@@ -156,3 +156,15 @@ export function isVerifiableChapterDivergence(
   const verifiable = new Set([...entries.obligationEntries, ...entries.boundaryEntries]);
   return divergence.references.contractQuotes.some((quote) => verifiable.has(quote.trim()));
 }
+
+/**
+ * 「按计划修正」的结果（Phase 2C.7）。
+ *
+ * 放在 shared 是因为它是 HTTP 契约的一部分：界面要按这三态给出不同反馈，
+ * 而 `repair_failed` **不是**服务故障——逐项仍可审阅，质量债已记下，
+ * 所以它走 200 而不是 5xx。
+ */
+export type ChapterDivergenceCorrectionResult =
+  | { status: "corrected"; chapterId: string; divergenceId: string }
+  | { status: "repair_failed"; chapterId: string; divergenceId: string; reason: string }
+  | { status: "conflict"; chapterId: string; divergenceId: string; reason: string };

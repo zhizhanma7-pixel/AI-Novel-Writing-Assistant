@@ -1,5 +1,6 @@
 import type { ChapterDivergence } from "@ai-novel/shared/types/chapterDivergence";
 import { DIVERGENCE_CORRECTION_FAILED_DEBT_CODE } from "@ai-novel/shared/types/chapterDivergence";
+import type { ChapterDivergenceCorrectionResult } from "@ai-novel/shared/types/chapterDivergence";
 import type { ChapterExecutionMissingObligation } from "@ai-novel/shared/types/chapterRuntime";
 import { prisma } from "../../../../../db/prisma";
 import { ChangeProposalError } from "../../domain/ChangeProposalError";
@@ -33,14 +34,12 @@ export interface CorrectChapterDivergenceInput {
   changeId: string;
 }
 
-export type ChapterDivergenceCorrectionResult =
-  | { status: "corrected"; chapterId: string; divergenceId: string }
-  | { status: "repair_failed"; chapterId: string; divergenceId: string; reason: string }
-  /**
-   * 修复跑完准备落库时，正文 / 逐项决定 / 信封状态之一已被并发改动。
-   * 拒绝提交，保持当前状态——旧的修复结果不能覆盖新正文或新决定。
-   */
-  | { status: "conflict"; chapterId: string; divergenceId: string; reason: string };
+/**
+ * 结果类型定义在 shared：它是 HTTP 契约的一部分，界面要按三态给不同反馈。
+ * `conflict` 表示修复跑完准备落库时，正文 / 逐项决定 / 信封状态之一已被并发
+ * 改动——拒绝提交，保持当前状态，旧的修复结果不能覆盖新正文或新决定。
+ */
+export type { ChapterDivergenceCorrectionResult };
 
 interface CorrectionDeps {
   /** 省略时使用接既有 `chapterRepairRuntime` 的生产 adapter。 */

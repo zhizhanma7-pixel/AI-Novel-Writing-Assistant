@@ -69,6 +69,8 @@ export default function ChangeProposalReviewDrawer(props: {
               ? controller.editMutation.variables?.itemId
               : undefined}
             onEdit={(itemId, input) => controller.editMutation.mutateAsync({ itemId, input })}
+            onSuggestPlanChanges={controller.suggestPlanChanges}
+            onCorrectDivergence={controller.correctDivergence}
             onSubmit={() => controller.actionMutation.mutate({ type: "submit" })}
             onApprove={() => controller.actionMutation.mutate({ type: "approve" })}
             onPartialApprove={(itemDecisions, unlistedDecision) => controller.actionMutation.mutate({
