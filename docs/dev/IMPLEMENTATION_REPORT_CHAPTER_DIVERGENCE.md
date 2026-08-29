@@ -3,7 +3,7 @@
 > 分支：`codex/chapter-divergence`（从 `beta@2c5614f` 拉出，未合入、未推送）
 > 计划：`docs/dev/IMPLEMENTATION_PLAN_CHAPTER_DIVERGENCE.md`
 > 架构分析：`docs/dev/ARCH_ANALYSIS_CHAPTER_DIVERGENCE.md`
-> 当前状态：**Phase 2C 后端链路关闭（H1 组合回归与 T1 整书回归均已真实通过）；2C.7 前端未做**
+> 当前状态：**Phase 2C 全部完成**（后端链路 + 2C.7 界面与下游调整）
 
 ## Scope
 
@@ -25,7 +25,10 @@
 | 复审 H1：真实 producer → review → apply 组合测试 | `7c07c5a` | ✅ |
 | 模块循环加载修复（顶层 eager 单例） | `7088f77` | ✅ 由 T1 与 H1 的真实构建暴露 |
 | T1 端到端整书回归 | `9389cf5` | ✅ |
-| 2C.7 前端 | — | ⏳ 未开始 |
+| 2C.7 后端补课：修正入口 + 编辑期校验 | `225a19c` | ✅ |
+| 2C.7 AI 下游调整建议（只读，不写状态） | `abd52cf` | ✅ |
+| 2C.7 前端：偏离呈现 + 结构化调整 + 两个接受出口 | `986862e` | ✅ 含发布说明 |
+| U7：仅记录不改计划的空补丁回归 | `5387eae` | ✅ |
 
 **分工变更：** `846295b` 与 `e7ae664` 由 Codex 实现；Codex 额度耗尽后，`b52551a`
 起改由 Claude Code 承担实现，Codex 转为评审。Claude Code 确认本机可用的
@@ -164,25 +167,29 @@ T1 的断言范围：两章都真正写出正文、第 1 章的偏离提案停�
 | K5 | 接受偏离的卷规划写入**不发** `volume_updated` 事件、**不同步**伏笔账本 | 事务感知写入刻意剥离了提交后副作用。若下游依赖这两者，需在 apply 服务提交后补 post-commit 钩子；**不得**改成在事务内触发 |
 | K6 | shared `chapterRuntime` 含 7 处无扩展名相对导入，纯 ESM 下 `ERR_MODULE_NOT_FOUND` | 既有问题。本阶段用宽松 schema 绕开（`originalExpected` 是 applier 从不解读的审计证据）。后续若有模块必须 value-import 它，需先统一补 `.js` |
 | K7 | ~~T1 端到端整书回归未写~~ | ✅ 已关闭（`9389cf5`）。整书跑通，偏离提案不中断自动导演。此前的旁路隔离（生产者抛错不逃出定稿、无偏离不调用生产者）仍然成立 |
-| K8 | 「接受偏离」目前无法真正改下游计划 | 生产者把 `downstreamPlanPatches` 固定为空，测试里的 patch 是 fixture 手工塞的。applier 侧能力齐备但**没有任何生产服务或界面能产出这些 patch**，直接接受只会记录 `accepted_divergence`，旧计划会继续误导后续章节。属 2C.7 范围，见下 |
+| K8 | ~~「接受偏离」无法真正改下游计划~~ | ✅ 已关闭（`abd52cf` + `986862e`）。作者可在界面里结构化填写下游调整，也可让 AI 给建议后逐条采纳；落库仍走既有用户编辑通路。**此前对这条的判断偏重过**：编辑通路本来就存在，缺的是一个不需要手写 JSON 的入口 |
+| K9–K11 | 2C.7 引入的新风险（AI 建议被一路点确认、建议基于读取时快照、多一次 LLM 调用） | 见 `IMPLEMENTATION_PLAN_CHAPTER_DIVERGENCE_UI.md` 的风险表；建议默认不采纳、落库有 `expectedVersion` 乐观锁、建议失败不影响两条既有出口 |
 
 ## Next
 
-后端链路到此关闭：契约、非阻塞投递、生产者、接受与修正两条出口、策略门禁、
-真实 SQLite 的组合回归（H1）与整书回归（T1）都已具备并通过。剩下的是 2C.7。
+**Phase 2C 到此完成。** 契约、非阻塞投递、生产者、接受与修正两条出口、策略门禁、
+真实 SQLite 的组合回归（H1）与整书回归（T1）、以及 2C.7 的界面与下游调整都已落地。
 
-1. **2C.7 前端**，其中有一项不是纯 UI 工作，不能只当渲染任务做：
-   - **用户补丁的生成与编辑契约（K8，仍未完成）**。「接受偏离」要真正生效，必须有
-     地方产出 `downstreamPlanPatches`。当前生产者固定给空数组，applier 那侧的执行
-     能力是靠 fixture 验证的。需要先定清楚：patch 由 AI 建议、由用户手编，还是两者
-     结合；编辑边界是什么（只能改文档自有字段这条既有约束要在 UI 层同样成立）；
-     提交格式与 `chapterExecutionPlanUpdatePayloadSchema` 如何对齐。**这个契约定下来
-     之前，前端不应先做「接受」按钮**——那会让用户以为下游计划已经跟着改了。
-   - 偏离在既有 Change Proposal Drawer 里的「接受 / 修正」呈现。
-   - 对外 HTTP 入口（此前有意留到 2C.7，避免先造没有调用方的路由）。
-2. 2C.7 有用户可见能力，提交前须走 `readme-release-updater`。
-3. 合入路径保持 `codex/chapter-divergence → beta → main`，本分支不直接进 `main`。
-4. 本分支仍**未合入 beta、未推送**。
+2C.7 的实施计划与设计决策见 `IMPLEMENTATION_PLAN_CHAPTER_DIVERGENCE_UI.md`。
+其中最关键的一条：**AI 建议不写库**——只读上下文、清洗后返回界面，作者采纳并保存
+后落库走既有用户编辑通路，因此没有新增自治写入点，`DirectorPolicyEngine` 门禁与
+L0–L3 映射一律未动。这条性质由全表快照回归（U5）守着。
+
+1. **本分支仍未合入 beta、未推送。** 合入路径保持
+   `codex/chapter-divergence → beta → main`，不直接进 `main`。
+2. **待评审**：2C.7 是一次较大的新增（新 prompt asset、新只读端点、新前端目录），
+   按分工应交 Codex 复审。两处我自己拿不准、想请评审判断的：
+   - 建议类 prompt 是否应额外声明 `management.productPrompt`（当前与
+     `planner.replan.window_decision` 一致，未声明）；
+   - 手动新增一条下游调整时用的是章节序号数字输入而非下拉。可选章节列表只有在
+     请求过 AI 建议后才拿得到，为它单开一个端点或扩契约都不划算，因此保留数字输入
+     并靠编辑期校验兜底。
+3. 视觉验收由用户完成；代码侧只做了 typecheck、组件逻辑测试与 client 套件回归。
 
 ## Wiki And Release Notes
 
