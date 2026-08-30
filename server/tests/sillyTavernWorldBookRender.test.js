@@ -111,3 +111,51 @@ test("an embedded book from a character card renders the same way", () => {
 test("a card without an embedded book yields nothing rather than an empty document", () => {
   assert.equal(service.previewFromCardBook(null), null);
 });
+
+test("a native world info export renders with its keywords and honours disable", () => {
+  // 端到端的真实后果：原生字段没被认出时，被关掉的条目会进入检索正文。
+  const preview = service.preview({
+    name: "北境设定",
+    entries: {
+      "0": {
+        uid: 0,
+        key: ["影卫", "影卫营"],
+        keysecondary: ["夜巡"],
+        comment: "北境影卫",
+        content: "影卫直属城主，不受旧律约束。",
+        order: 100,
+        disable: false,
+      },
+      "1": {
+        uid: 1,
+        key: ["废弃设定"],
+        content: "作者已经关掉这条。",
+        order: 200,
+        disable: true,
+      },
+    },
+  });
+
+  assert.equal(preview.includedCount, 1);
+  assert.equal(preview.excludedCount, 1);
+  assert.ok(preview.content.includes("## 北境影卫"), "条目名取自 comment");
+  assert.ok(preview.content.includes("关键词：影卫、影卫营、夜巡"));
+  assert.equal(
+    preview.content.includes("作者已经关掉这条"),
+    false,
+    "disable: true 的条目不能进入检索正文",
+  );
+});
+
+test("native entries are ordered by their order field", () => {
+  const preview = service.preview({
+    entries: {
+      "0": { key: ["c"], content: "第三", order: 300 },
+      "1": { key: ["a"], content: "第一", order: 100 },
+      "2": { key: ["b"], content: "第二", order: 200 },
+    },
+  });
+
+  const positions = ["第一", "第二", "第三"].map((text) => preview.content.indexOf(text));
+  assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
+});

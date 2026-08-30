@@ -99,6 +99,41 @@ function normalizeEntries(value: unknown, warnings: SillyTavernParseWarning[]): 
   return [];
 }
 
+/**
+ * 世界书条目的字段名有两套，来源不同：
+ *
+ * - **独立导出的 World Info 文件**（最常见的导入场景）：
+ *   `key` / `keysecondary` / `disable` / `order` / `comment`
+ * - **角色卡内嵌的 `character_book`**（Character Card V2/V3 spec）：
+ *   `keys` / `secondary_keys` / `enabled` / `insertion_order` / `name`
+ *
+ * 两套都要认，否则最常见的那类文件会被静默读错——尤其 `disable` 是**反义**的：
+ * 认不出它就会把作者主动关掉的条目当成启用，导进检索里去影响写作。
+ */
+function normalizeEntryFields(raw: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...raw };
+
+  if (normalized.keys === undefined && Array.isArray(raw.key)) {
+    normalized.keys = raw.key;
+  }
+  if (normalized.secondary_keys === undefined && Array.isArray(raw.keysecondary)) {
+    normalized.secondary_keys = raw.keysecondary;
+  }
+  // `disable: true` 等于 `enabled: false`，方向相反，最容易写错的一处。
+  if (normalized.enabled === undefined && typeof raw.disable === "boolean") {
+    normalized.enabled = !raw.disable;
+  }
+  if (normalized.insertion_order === undefined && typeof raw.order === "number") {
+    normalized.insertion_order = raw.order;
+  }
+  // 原生格式没有 name，条目名就写在 comment 里。
+  if (normalized.name === undefined && typeof raw.comment === "string" && raw.comment.trim()) {
+    normalized.name = raw.comment;
+  }
+
+  return normalized;
+}
+
 function parseBook(value: unknown, warnings: SillyTavernParseWarning[]): SillyTavernBook | null {
   if (!isRecord(value)) {
     return null;
@@ -106,7 +141,9 @@ function parseBook(value: unknown, warnings: SillyTavernParseWarning[]): SillyTa
   const rawEntries = normalizeEntries(value.entries, warnings);
   const entries = [];
   for (const [index, raw] of rawEntries.entries()) {
-    const parsed = sillyTavernBookEntrySchema.safeParse(raw);
+    const parsed = sillyTavernBookEntrySchema.safeParse(
+      isRecord(raw) ? normalizeEntryFields(raw) : raw,
+    );
     if (parsed.success) {
       entries.push(parsed.data);
       continue;

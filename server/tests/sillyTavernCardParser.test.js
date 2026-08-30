@@ -252,3 +252,101 @@ test("P2 — a chunk that is not base64 JSON is reported as broken metadata", ()
     (error) => error instanceof SillyTavernParseError && error.code === "broken_png_metadata",
   );
 });
+
+// --- SillyTavern 原生 World Info 导出的字段名 ---
+//
+// 独立导出的世界书用 key / keysecondary / disable / order / comment，
+// 与角色卡内嵌 character_book 的 keys / secondary_keys / enabled /
+// insertion_order 是两套。之前只认后一套，导致最常见的一类文件被静默读错。
+
+test("a native world info export is read with its own field names", () => {
+  const parsed = parseSillyTavernBook({
+    entries: {
+      "0": {
+        uid: 0,
+        key: ["影卫", "影卫营"],
+        keysecondary: ["夜巡"],
+        comment: "北境影卫",
+        content: "影卫直属城主，不受旧律约束。",
+        constant: true,
+        selective: true,
+        order: 250,
+        disable: false,
+      },
+    },
+  });
+
+  const entry = parsed.book.entries[0];
+  assert.deepEqual(entry.keys, ["影卫", "影卫营"]);
+  assert.deepEqual(entry.secondary_keys, ["夜巡"]);
+  assert.equal(entry.insertion_order, 250);
+  assert.equal(entry.constant, true);
+  assert.equal(entry.name, "北境影卫", "原生格式的条目名写在 comment 里");
+});
+
+test("disable true means the entry is off — the inverted flag that must not be missed", () => {
+  // 认不出 disable 的后果不是少读一个字段，而是把作者主动关掉的设定
+  // 当成启用导进检索里，反过来影响写作。
+  const parsed = parseSillyTavernBook({
+    entries: { "0": { key: ["废弃"], content: "作者已经关掉这条。", disable: true } },
+  });
+
+  assert.equal(parsed.book.entries[0].enabled, false);
+});
+
+test("an entry with neither enabled nor disable defaults to on", () => {
+  const parsed = parseSillyTavernBook({
+    entries: { "0": { key: ["影卫"], content: "没有开关字段。" } },
+  });
+
+  assert.equal(parsed.book.entries[0].enabled, true);
+});
+
+test("the character card book format still works after normalisation", () => {
+  // 归一化不能破坏原本就支持的那一套。
+  const parsed = parseSillyTavernBook({
+    entries: [{
+      keys: ["影卫"],
+      secondary_keys: ["夜巡"],
+      content: "内嵌格式",
+      enabled: false,
+      insertion_order: 7,
+      name: "卡片条目",
+    }],
+  });
+
+  const entry = parsed.book.entries[0];
+  assert.deepEqual(entry.keys, ["影卫"]);
+  assert.equal(entry.enabled, false);
+  assert.equal(entry.insertion_order, 7);
+  assert.equal(entry.name, "卡片条目");
+});
+
+test("when both spellings are present the card-book field wins", () => {
+  const parsed = parseSillyTavernBook({
+    entries: [{
+      keys: ["规范名"],
+      key: ["原生名"],
+      enabled: true,
+      disable: true,
+      insertion_order: 1,
+      order: 999,
+      content: "两套字段并存",
+    }],
+  });
+
+  const entry = parsed.book.entries[0];
+  assert.deepEqual(entry.keys, ["规范名"]);
+  assert.equal(entry.enabled, true);
+  assert.equal(entry.insertion_order, 1);
+});
+
+test("native fields that are not part of the contract are still preserved", () => {
+  const parsed = parseSillyTavernBook({
+    entries: { "0": { key: ["影卫"], content: "内容", uid: 42, probability: 100 } },
+  });
+
+  // passthrough 保留原始字段，导入后仍能回溯。
+  assert.equal(parsed.book.entries[0].uid, 42);
+  assert.equal(parsed.book.entries[0].probability, 100);
+});
