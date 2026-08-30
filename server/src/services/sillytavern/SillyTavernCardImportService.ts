@@ -112,6 +112,8 @@ export class SillyTavernCardImportService {
     if (characterSegments.length > 0 && input.novelId) {
       const character = await this.characterService.createCharacter(input.novelId, {
         name: input.characterName?.trim() || cardName,
+        // 默认「配角」而不是「主角」：正文与统计链路用 `role === "主角"` 和
+        // /主角|反派/ 判定身份，导入一张卡不该让它自动成为这本书的主角。
         role: input.characterRole?.trim() || "配角",
         personality: this.joinByField(characterSegments, "personality") || undefined,
         background: this.joinByField(characterSegments, "description", "scenario") || undefined,
