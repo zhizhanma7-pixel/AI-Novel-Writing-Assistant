@@ -128,6 +128,42 @@ async function main() {
       ],
     }));
 
+    // PNG 入口：提取出的卡片必须能走同一条分流链路，而不是只能预览。
+    const {
+      extractSillyTavernCardFromPng,
+    } = require(path.join(repoRoot, "server", "dist", "services", "sillytavern", "sillyTavernPngCard.js"));
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const buildChunk = (type, data) => {
+      const length = Buffer.alloc(4);
+      length.writeUInt32BE(data.length, 0);
+      return Buffer.concat([length, Buffer.from(type, "ascii"), data, Buffer.alloc(4)]);
+    };
+    const cardBase64 = Buffer.from(JSON.stringify(CARD), "utf8").toString("base64");
+    const png = Buffer.concat([
+      pngSignature,
+      buildChunk("tEXt", Buffer.concat([
+        Buffer.from("chara", "latin1"),
+        Buffer.from([0]),
+        Buffer.from(cardBase64, "latin1"),
+      ])),
+      buildChunk("IEND", Buffer.alloc(0)),
+    ]);
+    const fromPng = extractSillyTavernCardFromPng(png);
+    const pngPlan = service.plan(fromPng.json);
+    const pngApplied = await service.apply({
+      rawJson: fromPng.json,
+      decisions: [
+        { segmentId: "description:0", destination: "world" },
+        { segmentId: "description:1", destination: "skip" },
+        { segmentId: "scenario:0", destination: "skip" },
+        // personality 的建议值是「这个角色」；这一趟不导角色，必须显式跳过，
+        // 否则会因为没给 novelId 而被拒——这正是那条规则在起作用。
+        { segmentId: "personality:0", destination: "skip" },
+      ],
+      knowledgeTitle: "PNG 来源的世界设定",
+      styleProfileName: "PNG 来源的文风",
+    });
+
     const beforeApply = await snapshotDatabase(prisma);
     const applied = await service.apply({
       rawJson: CARD,
@@ -161,6 +197,11 @@ async function main() {
       undecided,
       unknownSegment,
       missingNovel,
+      pngPlanSegmentIds: pngPlan.segments.map((item) => item.id),
+      pngAppliedCounts: pngApplied.appliedCounts,
+      pngKnowledgeDocumentId: pngApplied.knowledgeDocumentId,
+      pngStyleProfileId: pngApplied.styleProfileId,
+      pngCharacterId: pngApplied.characterId,
       applyChangedTables: diffSnapshots(beforeApply, afterApply),
       applied,
       knowledgeContent: knowledge ? knowledge.activeVersion.content : null,
@@ -319,4 +360,21 @@ test("applying touches only the three destination tables", () => {
   assert.ok(result.applyChangedTables.includes("KnowledgeDocument"));
   assert.ok(result.applyChangedTables.includes("StyleProfile"));
   assert.ok(result.applyChangedTables.includes("Character"));
+});
+
+test("a card extracted from a PNG goes through the same split pipeline", () => {
+  const result = scenarioResult();
+
+  // 从图片读出的卡片不该只能预览——它和 JSON 卡片是同一份内容。
+  assert.deepEqual(
+    result.pngPlanSegmentIds,
+    result.planSegmentIds,
+    "PNG 与 JSON 读出的应当是同一张卡",
+  );
+  assert.equal(result.pngAppliedCounts.world, 1);
+  assert.equal(result.pngAppliedCounts.style, 2);
+  assert.ok(result.pngKnowledgeDocumentId, "世界设定应当落地");
+  assert.ok(result.pngStyleProfileId, "文风应当落地");
+  // 这次没有段落分给角色，也就没给 novelId，因此不该创建角色。
+  assert.equal(result.pngCharacterId, null);
 });

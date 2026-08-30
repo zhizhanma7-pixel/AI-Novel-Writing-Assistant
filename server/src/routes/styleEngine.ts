@@ -230,7 +230,13 @@ const sillyTavernPresetSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
 });
 
-const sillyTavernPresetImportService = new SillyTavernPresetImportService();
+// 同上：延迟到首次调用，别把导入链路拖进模块加载期。
+let sillyTavernPresetImportServiceInstance: SillyTavernPresetImportService | null = null;
+
+function getSillyTavernPresetImportService(): SillyTavernPresetImportService {
+  sillyTavernPresetImportServiceInstance ??= new SillyTavernPresetImportService();
+  return sillyTavernPresetImportServiceInstance;
+}
 
 function forwardSillyTavernError(error: unknown, next: (error?: unknown) => void): void {
   if (error instanceof SillyTavernParseError) {
@@ -247,7 +253,7 @@ router.post(
   async (req, res, next) => {
     try {
       const body = req.body as z.infer<typeof sillyTavernPresetSchema>;
-      const data = sillyTavernPresetImportService.preview(body.preset);
+      const data = getSillyTavernPresetImportService().preview(body.preset);
       res.status(200).json({
         success: true,
         data,
@@ -267,7 +273,7 @@ router.post(
   async (req, res, next) => {
     try {
       const body = req.body as z.infer<typeof sillyTavernPresetSchema>;
-      const data = await sillyTavernPresetImportService.importPreset({
+      const data = await getSillyTavernPresetImportService().importPreset({
         rawJson: body.preset,
         name: body.name,
       });

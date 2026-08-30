@@ -12,7 +12,13 @@ import { SillyTavernParseError } from "../services/sillytavern/sillyTavernCardPa
 
 const router = Router();
 const knowledgeService = new KnowledgeService();
-const sillyTavernWorldBookImportService = new SillyTavernWorldBookImportService();
+// 同上：延迟到首次调用，别把导入链路拖进模块加载期。
+let sillyTavernWorldBookImportServiceInstance: SillyTavernWorldBookImportService | null = null;
+
+function getSillyTavernWorldBookImportService(): SillyTavernWorldBookImportService {
+  sillyTavernWorldBookImportServiceInstance ??= new SillyTavernWorldBookImportService();
+  return sillyTavernWorldBookImportServiceInstance;
+}
 const documentChapterService = new DocumentChapterService();
 
 const documentStatusSchema = z.enum(["enabled", "disabled", "archived"]);
@@ -90,7 +96,7 @@ router.post(
   async (req, res, next) => {
     try {
       const body = req.body as z.infer<typeof sillyTavernWorldBookSchema>;
-      const data = sillyTavernWorldBookImportService.preview(body.book);
+      const data = getSillyTavernWorldBookImportService().preview(body.book);
       res.status(200).json({
         success: true,
         data,
@@ -110,7 +116,7 @@ router.post(
   async (req, res, next) => {
     try {
       const body = req.body as z.infer<typeof sillyTavernWorldBookSchema>;
-      const data = await sillyTavernWorldBookImportService.importBook({
+      const data = await getSillyTavernWorldBookImportService().importBook({
         rawJson: body.book,
         title: body.title,
       });
