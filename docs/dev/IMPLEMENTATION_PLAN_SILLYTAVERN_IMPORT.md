@@ -52,7 +52,15 @@
 novel / chapter / task，改成支持 agent 要动枚举、迁移和所有消费方。
 
 **Preset 的核心价值（文风）通过 novel 级绑定就能拿到**，per-agent 是精细化，不是
-入场券。本阶段绑到 novel，per-agent 登记为后续项。
+入场券。
+
+**口径更正（复审指出前后矛盾）：** 本阶段的导入**一律不自动创建绑定**，S2/S3/S4
+都只产出资产，绑定由用户在既有的写法绑定 / 知识绑定界面完成。此处原先写的
+「本阶段绑到 novel」与交付切分表冲突，以「不自动绑定」为准。
+
+**per-agent 仍未做，而 Roadmap 的 Phase 3 Preset 验收里列了它**——这构成一个
+未满足的验收条件，不是可以静默延期的实现细节。是否把它纳入 Phase 3、还是
+显式改写验收口径，需要在封板前定，见本文末尾的待决口径。
 
 ### D2 — 生成参数导入但不接管模型路由
 
@@ -168,6 +176,38 @@ P8 是 D3 的守门用例，形态直接照搬 `chapterDivergencePlanSuggestionR
 - S2–S5 有用户可见能力，提交前走 `readme-release-updater`。
 - 跑 integration 前干净重建（`rm -rf server/dist`），旧 `dist` 会掩盖加载期问题。
 
+## 5b. 待决的验收口径（复审提出，封板前必须定）
+
+两条 Roadmap 验收条件与当前实现不一致，都不是纯实现问题，需要先定口径：
+
+### 口径一 — Character Import Proposal
+
+`02_SILLYTAVERN_COMPAT.md` 第 3 节明确写着「**导入不要直接写正式角色库**」，
+流程是 `Import Proposal → User Review → Commit`；Roadmap 的 Character Card
+验收里也列了 `import proposal`。
+
+当前实现是：服务端给出分流方案 → 用户在页面上逐段确认 → **直接写三个子系统**。
+用户审阅确实发生了，但它只存在于前端会话里：没有持久化的提案记录，不进
+`DirectorEvent` 账本，中断后无法续做，事后也无法追溯谁把哪一段导到了哪。
+
+不能简单套用既有 `ChangeProposal`：那套信封绑 `novelId` 且面向小说状态，
+而世界设定与写法资产是**全局**的，角色才是小说范围的。三路里只有一路适配。
+
+可选口径：
+1. 只把**角色**那一路走 `ChangeProposal`，世界/文风保持直接写入（语义最正，
+   但一次导入会分成"立即生效"和"待审"两种结果，体验割裂）；
+2. 为导入单开一份轻量提案记录（满足可追溯与可续做，但等于新增一套平行审批）；
+3. 明确改写 Phase 3 的验收口径，承认"页面内逐段确认"即为 review，放弃提案账本。
+
+### 口径二 — per-agent preset assignment
+
+Roadmap 的 Preset 验收列了 `per-agent assignment`（Planner / Writer / Reviewer
+各自选 preset）。现有 `StyleBindingTargetType` 只有 `novel` / `chapter` / `task`，
+支持它要改枚举、迁移并触及全部消费方。
+
+当前是延期。要么纳入 Phase 3，要么明确改写验收口径——不能只在实施计划里写
+"后续项"就当作满足了。
+
 ## 6. 风险
 
 | 编号 | 风险 | 处置 |
@@ -176,3 +216,5 @@ P8 是 D3 的守门用例，形态直接照搬 `chapterDivergencePlanSuggestionR
 | R2 | ST 格式版本演进，解析器落后 | 版本探测显式化，未知版本降级并告警，不假装解析成功 |
 | R3 | 导入的 preset 与用户既有 StyleProfile 冲突 | 导入产生新 profile 而非覆盖；绑定由用户显式启用 |
 | R4 | worldbook 条目量大冲击 RAG 索引 | 走既有索引队列与状态机，不新建索引路径 |
+| R5 | 角色卡三路写入不是原子的：跨知识库 / 写法 / 角色三个子系统，无法放进一个事务 | 能提前发现的校验全部前置（角色缺 novelId、未知段落、未表态段落）。仍可能出现世界设定写成功而角色写失败，此时没有回滚。与口径一相关：走提案账本能顺带解决可追溯与续做 |
+| R6 | 世界设定文档按标题幂等，同名不同卡会互相覆盖成版本 | 分流产出的标题是 `{卡名} · 世界设定`；两张角色重名的卡第二次导入会变成第一份的新版本。未解决 |
