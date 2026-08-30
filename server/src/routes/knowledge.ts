@@ -6,8 +6,13 @@ import { validate } from "../middleware/validate";
 import { DocumentChapterService } from "../services/knowledge/DocumentChapterService";
 import { KnowledgeService } from "../services/knowledge/KnowledgeService";
 
+import { AppError } from "../middleware/errorHandler";
+import { SillyTavernWorldBookImportService } from "../services/sillytavern/SillyTavernWorldBookImportService";
+import { SillyTavernParseError } from "../services/sillytavern/sillyTavernCardParser";
+
 const router = Router();
 const knowledgeService = new KnowledgeService();
+const sillyTavernWorldBookImportService = new SillyTavernWorldBookImportService();
 const documentChapterService = new DocumentChapterService();
 
 const documentStatusSchema = z.enum(["enabled", "disabled", "archived"]);
@@ -64,6 +69,63 @@ const patchDocumentSchema = z.object({
 });
 
 router.use(authMiddleware);
+
+const sillyTavernWorldBookSchema = z.object({
+  book: z.unknown(),
+  title: z.string().trim().min(1).max(200).optional(),
+});
+
+function forwardSillyTavernError(error: unknown, next: (error?: unknown) => void): void {
+  if (error instanceof SillyTavernParseError) {
+    next(new AppError(error.code, 400, error.message));
+    return;
+  }
+  next(error);
+}
+
+// 预览是纯读：解析并渲染成将要入库的正文，不写任何库。
+router.post(
+  "/sillytavern/world-book/preview",
+  validate({ body: sillyTavernWorldBookSchema }),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof sillyTavernWorldBookSchema>;
+      const data = sillyTavernWorldBookImportService.preview(body.book);
+      res.status(200).json({
+        success: true,
+        data,
+        message: data.excludedCount > 0
+          ? `将导入 ${data.includedCount} 条，另有 ${data.excludedCount} 条在原文件里已关闭、不会参与检索。`
+          : `将导入 ${data.includedCount} 条世界设定。`,
+      } satisfies ApiResponse<typeof data>);
+    } catch (error) {
+      forwardSillyTavernError(error, next);
+    }
+  },
+);
+
+router.post(
+  "/sillytavern/world-book",
+  validate({ body: sillyTavernWorldBookSchema }),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof sillyTavernWorldBookSchema>;
+      const data = await sillyTavernWorldBookImportService.importBook({
+        rawJson: body.book,
+        title: body.title,
+      });
+      res.status(data.unchanged ? 200 : 201).json({
+        success: true,
+        data,
+        message: data.unchanged
+          ? "这本世界书的内容与现有版本一致，未重复创建。"
+          : "已导入知识库，可在知识绑定里指定它作用于哪本书或哪个世界。",
+      } satisfies ApiResponse<typeof data>);
+    } catch (error) {
+      forwardSillyTavernError(error, next);
+    }
+  },
+);
 
 router.get("/documents", validate({ query: listDocumentsQuerySchema }), async (req, res, next) => {
   try {

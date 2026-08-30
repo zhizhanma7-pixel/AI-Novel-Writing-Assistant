@@ -29,6 +29,7 @@ const integrationTests = new Set([
   "ragCompatibilityBootstrap.test.js",
   "runtimeMigrations.test.js",
   "sillyTavernPresetImportRealSqlite.test.js",
+  "sillyTavernWorldBookImportRealSqlite.test.js",
   "stateCommitApplyFailureFilterRealSqlite.test.js",
 ]);
 
