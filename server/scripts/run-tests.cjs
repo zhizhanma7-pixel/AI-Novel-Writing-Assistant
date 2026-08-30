@@ -28,6 +28,7 @@ const integrationTests = new Set([
   "promptWorkbench.test.js",
   "ragCompatibilityBootstrap.test.js",
   "runtimeMigrations.test.js",
+  "sillyTavernCardImportRealSqlite.test.js",
   "sillyTavernPresetImportRealSqlite.test.js",
   "sillyTavernWorldBookImportRealSqlite.test.js",
   "stateCommitApplyFailureFilterRealSqlite.test.js",

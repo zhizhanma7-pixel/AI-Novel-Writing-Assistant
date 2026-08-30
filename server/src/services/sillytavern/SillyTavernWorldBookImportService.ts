@@ -110,27 +110,42 @@ export class SillyTavernWorldBookImportService {
     }
 
     const title = input.title?.trim() || preview.bookName || "SillyTavern 世界书";
+    const stored = await this.importRenderedContent({ title, content: preview.content });
+    return { ...stored, preview };
+  }
 
-    // 重复导入同一本是常见操作。内容没变就不该产生新版本，也不该重新排队索引。
+  /**
+   * 把已经渲染好的世界设定正文入库。
+   *
+   * 抽出来是给角色卡分流复用的：那条路径的世界设定来自卡片段落而不是世界书文件，
+   * 但「重复导入不该产生新版本」这条规则两边必须一致，不能各写一份。
+   */
+  async importRenderedContent(input: { title: string; content: string }): Promise<{
+    documentId: string;
+    title: string;
+    versionNumber: number;
+    unchanged: boolean;
+  }> {
+    const title = input.title.trim();
+    // 内容没变就不该产生新版本，也不该重新排队索引。
     const existing = await prisma.knowledgeDocument.findFirst({
       where: { title, kind: "user_upload", status: { not: "archived" } },
       orderBy: { updatedAt: "desc" },
       include: { activeVersion: true },
     });
-    if (existing?.activeVersion && existing.activeVersion.content === preview.content) {
+    if (existing?.activeVersion && existing.activeVersion.content === input.content) {
       return {
         documentId: existing.id,
         title: existing.title,
         versionNumber: existing.activeVersionNumber,
         unchanged: true,
-        preview,
       };
     }
 
     const document = await this.knowledgeService.createDocument({
       title,
       fileName: `${title}.sillytavern.md`,
-      content: preview.content,
+      content: input.content,
       kind: "user_upload",
     });
 
@@ -139,7 +154,6 @@ export class SillyTavernWorldBookImportService {
       title: document.title,
       versionNumber: document.activeVersionNumber,
       unchanged: false,
-      preview,
     };
   }
 }
