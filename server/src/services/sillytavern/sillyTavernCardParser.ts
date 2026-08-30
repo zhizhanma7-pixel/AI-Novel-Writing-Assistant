@@ -134,6 +134,32 @@ function normalizeEntryFields(raw: Record<string, unknown>): Record<string, unkn
   return normalized;
 }
 
+/**
+ * 条目里已知的字段名，含两套拼写。其余都算「解析器还不认识」。
+ *
+ * 条目是 `.passthrough()` 的，所以未知字段确实被保留在对象里——但**留在
+ * 对象里不等于用户知道它存在**。真实的世界书条目常带 `uid`、`probability`、
+ * `depth` 之类，只收集顶层未知字段会漏掉它们。
+ */
+const KNOWN_BOOK_ENTRY_FIELDS = new Set([
+  "keys", "secondary_keys", "content", "enabled", "insertion_order",
+  "constant", "selective", "name", "comment", "priority",
+  // 原生拼写
+  "key", "keysecondary", "disable", "order",
+]);
+
+export function collectUnknownBookEntryFields(book: SillyTavernBook): string[] {
+  const unknown = new Set<string>();
+  for (const entry of book.entries) {
+    for (const key of Object.keys(entry)) {
+      if (!KNOWN_BOOK_ENTRY_FIELDS.has(key)) {
+        unknown.add(key);
+      }
+    }
+  }
+  return [...unknown].sort();
+}
+
 function parseBook(value: unknown, warnings: SillyTavernParseWarning[]): SillyTavernBook | null {
   if (!isRecord(value)) {
     return null;

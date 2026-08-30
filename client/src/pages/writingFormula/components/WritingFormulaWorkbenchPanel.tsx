@@ -113,16 +113,23 @@ export default function WritingFormulaWorkbenchPanel(props: WritingFormulaWorkbe
               </SelectControl>
             </label>
 
-            <label className="space-y-2">
-              <div className="text-sm font-medium text-slate-900">所属小说</div>
-              <SelectControl
-                className="w-full rounded-md border p-2 text-sm"
-                value={bindingForm.novelId}
-                onChange={(event) => onBindingFormChange({ novelId: event.target.value, chapterId: "" })}
-              >
-                {novelOptions.map((novel) => <option key={novel.id} value={novel.id}>{novel.title}</option>)}
-              </SelectControl>
-            </label>
+            {/*
+              环节绑定是**全局**的：库里只存环节名，不带小说范围。
+              仍然显示「所属小说」会让人以为是给这本书的某个环节绑写法，
+              而实际会影响所有作品——选的值还会被直接忽略。
+            */}
+            {bindingForm.targetType !== "agent" ? (
+              <label className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">所属小说</div>
+                <SelectControl
+                  className="w-full rounded-md border p-2 text-sm"
+                  value={bindingForm.novelId}
+                  onChange={(event) => onBindingFormChange({ novelId: event.target.value, chapterId: "" })}
+                >
+                  {novelOptions.map((novel) => <option key={novel.id} value={novel.id}>{novel.title}</option>)}
+                </SelectControl>
+              </label>
+            ) : null}
 
             {bindingForm.targetType === "chapter" ? (
               <label className="space-y-2">
@@ -155,7 +162,8 @@ export default function WritingFormulaWorkbenchPanel(props: WritingFormulaWorkbe
                   ))}
                 </SelectControl>
                 <div className="text-xs leading-5 text-slate-500">
-                  这套写法只在该环节生效。环节比整本书具体、比单章通用，最终顺序由优先级决定。
+                  <strong>对所有作品生效</strong>：环节绑定不区分小说，所有书的这个环节都会用上这套写法。
+                  需要只作用于某一本书时，请改用「整本书」层级。
                 </div>
               </label>
             ) : null}

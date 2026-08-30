@@ -86,8 +86,9 @@ export default function CardSplitPanel(props: {
             这张卡里有本项目还不认识的内容
           </div>
           <div className="mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-200/80">
-            {props.plan.unknownFields.join("、")} —— 它们会随导入记录原样保存，
-            将来支持了还能找回来，但现在不会进入任何一个去处。
+            {props.plan.unknownFields.join("、")} —— 现在不会进入任何一个去处。
+            只要这次导入产生了角色或文风资产，原始文件就会随之留存，将来支持了还能找回；
+            若这次只导入世界设定，原文不会被保存，建议自己留一份原文件。
           </div>
         </section>
       ) : null}

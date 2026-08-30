@@ -5,7 +5,11 @@ import type {
 } from "@ai-novel/shared/types/sillytavernWorldBookImport";
 import { prisma } from "../../db/prisma";
 import { KnowledgeService } from "../knowledge/KnowledgeService";
-import { parseSillyTavernBook, SillyTavernParseError } from "./sillyTavernCardParser";
+import {
+  collectUnknownBookEntryFields,
+  parseSillyTavernBook,
+  SillyTavernParseError,
+} from "./sillyTavernCardParser";
 
 /**
  * 把 SillyTavern 世界书导入既有知识库。
@@ -72,6 +76,29 @@ function buildPreview(
     sections.push(renderEntry(entry, index));
   }
 
+  if (unknownFields.length > 0) {
+    // 未识别的内容也要能被找回来。知识文档没有存放原始文件的位置，
+    // 但把这些字段原样附在末尾、明确标注，比让它们永久消失强——
+    // 只在确实存在时才附加，绝大多数文件不会多出这一段。
+    const unknownPayload = book.entries
+      .map((entry, index) => {
+        const extras = Object.fromEntries(
+          Object.entries(entry).filter(([key]) => unknownFields.includes(key)),
+        );
+        return Object.keys(extras).length > 0
+          ? `- 第 ${index + 1} 条：${JSON.stringify(extras)}`
+          : null;
+      })
+      .filter((line): line is string => line !== null);
+    sections.push([
+      "## 原始文件中未被识别的内容",
+      "",
+      "以下内容本项目当前不解读，原样保留以便日后回溯：",
+      "",
+      ...(unknownPayload.length > 0 ? unknownPayload : [`- 字段：${unknownFields.join("、")}`]),
+    ].join("\n"));
+  }
+
   const content = sections.join("\n\n").trim();
   return {
     bookName: book.name?.trim() || null,
@@ -95,13 +122,17 @@ export class SillyTavernWorldBookImportService {
     return buildPreview(
       parsed.book,
       parsed.warnings,
-      Object.keys(parsed.rawImportedMetadata),
+      // 顶层未知字段与条目内部的未知字段都要算上。
+      [...new Set([
+        ...Object.keys(parsed.rawImportedMetadata),
+        ...collectUnknownBookEntryFields(parsed.book),
+      ])].sort(),
     );
   }
 
   /** 从一张角色卡里取出内嵌世界书的预览；卡片没带世界书时返回 null。 */
   previewFromCardBook(book: SillyTavernBook | null): SillyTavernWorldBookPreview | null {
-    return book ? buildPreview(book, []) : null;
+    return book ? buildPreview(book, [], collectUnknownBookEntryFields(book)) : null;
   }
 
   async importBook(input: {

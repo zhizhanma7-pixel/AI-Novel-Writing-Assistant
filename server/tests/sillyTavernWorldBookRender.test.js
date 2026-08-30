@@ -181,3 +181,39 @@ test("a plain world book reports no unknown fields", () => {
 
   assert.deepEqual(preview.unknownFields, []);
 });
+
+test("unknown fields inside entries are collected too, not just top-level ones", () => {
+  // 真实世界书条目常带 uid / probability / depth 之类。只收集顶层未知字段
+  // 会漏掉它们，用户以为全都导进来了。
+  const preview = service.preview({
+    entries: {
+      "0": { key: ["影卫"], content: "内容", uid: 42, probability: 100 },
+      "1": { key: ["宵禁"], content: "内容二", depth: 4 },
+    },
+  });
+
+  assert.deepEqual([...preview.unknownFields].sort(), ["depth", "probability", "uid"]);
+});
+
+test("unrecognised content is kept in the document instead of vanishing", () => {
+  const preview = service.preview({
+    name: "北境设定",
+    entries: { "0": { key: ["影卫"], content: "影卫直属城主。", uid: 42, probability: 100 } },
+  });
+
+  // 知识文档没有存放原始文件的位置，但让这些内容彻底消失更糟：
+  // 附在末尾并明确标注，至少还能回溯。
+  assert.ok(preview.content.includes("原始文件中未被识别的内容"));
+  assert.ok(preview.content.includes("42"));
+  assert.ok(preview.content.includes("100"));
+});
+
+test("a book with nothing unrecognised gets no extra section", () => {
+  const preview = service.preview(book([
+    { keys: ["影卫"], content: "内容", enabled: true, insertion_order: 0 },
+  ]));
+
+  // 绝大多数文件不该因此多出一段内容去污染检索。
+  assert.equal(preview.content.includes("原始文件中未被识别的内容"), false);
+  assert.deepEqual(preview.unknownFields, []);
+});
