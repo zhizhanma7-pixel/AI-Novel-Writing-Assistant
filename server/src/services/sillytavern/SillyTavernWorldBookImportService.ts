@@ -51,7 +51,11 @@ function renderEntry(entry: SillyTavernBookEntry, index: number): string {
   return lines.join("\n");
 }
 
-function buildPreview(book: SillyTavernBook, warnings: SillyTavernWorldBookPreview["warnings"]): SillyTavernWorldBookPreview {
+function buildPreview(
+  book: SillyTavernBook,
+  warnings: SillyTavernWorldBookPreview["warnings"],
+  unknownFields: string[] = [],
+): SillyTavernWorldBookPreview {
   const included = book.entries.filter((entry) => entry.enabled && entry.content.trim());
   const excluded = book.entries.filter((entry) => !entry.enabled);
 
@@ -77,6 +81,7 @@ function buildPreview(book: SillyTavernBook, warnings: SillyTavernWorldBookPrevi
     constantCount: included.filter((entry) => entry.constant).length,
     content,
     charCount: content.length,
+    unknownFields,
     warnings,
   };
 }
@@ -87,7 +92,11 @@ export class SillyTavernWorldBookImportService {
   /** 纯解析与渲染，不写任何库。 */
   preview(rawJson: unknown): SillyTavernWorldBookPreview {
     const parsed = parseSillyTavernBook(rawJson);
-    return buildPreview(parsed.book, parsed.warnings);
+    return buildPreview(
+      parsed.book,
+      parsed.warnings,
+      Object.keys(parsed.rawImportedMetadata),
+    );
   }
 
   /** 从一张角色卡里取出内嵌世界书的预览；卡片没带世界书时返回 null。 */

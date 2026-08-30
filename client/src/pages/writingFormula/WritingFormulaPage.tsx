@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   StyleBinding,
+  StyleBindingAgent,
   StyleProfile,
   StyleProfileFeature,
 } from "@ai-novel/shared/types/styleEngine";
@@ -81,6 +82,7 @@ export default function WritingFormulaPage() {
     novelId: "",
     chapterId: "",
     taskTargetId: "",
+    agent: "writer" as StyleBindingAgent,
     priority: 1,
     weight: 1,
   });
@@ -394,11 +396,15 @@ export default function WritingFormulaPage() {
         return;
       }
 
+      // 每种层级各取各的目标 id。少一个分支就会静默落到 novelId——
+      // 按环节绑定时那等于把小说 id 当成环节名存进去，绑定永远不会命中。
       const targetId = bindingForm.targetType === "chapter"
         ? bindingForm.chapterId
         : bindingForm.targetType === "task"
           ? bindingForm.taskTargetId
-          : bindingForm.novelId;
+          : bindingForm.targetType === "agent"
+            ? bindingForm.agent
+            : bindingForm.novelId;
 
       await createStyleBinding({
         styleProfileId: selectedProfileId,

@@ -1,4 +1,4 @@
-import type { AntiAiRule, ResolvedStyleContext, StyleBinding, StyleProfile } from "@ai-novel/shared/types/styleEngine";
+import type { AntiAiRule, ResolvedStyleContext, StyleBinding, StyleBindingAgent, StyleProfile } from "@ai-novel/shared/types/styleEngine";
 import { AntiAiPolicyResolver } from "./AntiAiPolicyResolver";
 import { StyleBindingService } from "./StyleBindingService";
 import { StyleCompiler } from "./StyleCompiler";
@@ -31,6 +31,8 @@ export class StyleRuntimeResolver {
     novelId?: string;
     chapterId?: string;
     taskStyleProfileId?: string;
+    /** 当前环节；传了才会把该环节的绑定纳入解析。 */
+    agent?: StyleBindingAgent;
   }): Promise<{ context: ResolvedStyleContext; antiAiRules: AntiAiRule[]; primaryProfile: StyleProfile | null }> {
     if (input.styleProfileId) {
       const profile = await this.profileService.getProfileById(input.styleProfileId);
@@ -108,6 +110,7 @@ export class StyleRuntimeResolver {
       novelId: input.novelId,
       chapterId: input.chapterId,
       taskStyleProfileId: input.taskStyleProfileId,
+      agent: input.agent,
     });
     const primaryProfile = context.matchedBindings[0]?.styleProfile ?? null;
     const antiAiPolicy = await this.antiAiPolicyResolver.resolveFromBindings({

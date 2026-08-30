@@ -159,3 +159,25 @@ test("native entries are ordered by their order field", () => {
   const positions = ["第一", "第二", "第三"].map((text) => preview.content.indexOf(text));
   assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
 });
+
+test("unknown top-level fields in a world book reach the preview", () => {
+  const preview = service.preview({
+    name: "北境设定",
+    entries: { "0": { key: ["影卫"], content: "影卫直属城主。" } },
+    future_book_field: "世界书层面的未来字段",
+    another_unknown: 42,
+  });
+
+  assert.deepEqual(
+    [...preview.unknownFields].sort(),
+    ["another_unknown", "future_book_field"],
+  );
+});
+
+test("a plain world book reports no unknown fields", () => {
+  const preview = service.preview(book([
+    { keys: ["影卫"], content: "内容", enabled: true, insertion_order: 0 },
+  ]));
+
+  assert.deepEqual(preview.unknownFields, []);
+});

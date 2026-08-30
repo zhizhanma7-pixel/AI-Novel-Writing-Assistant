@@ -101,12 +101,32 @@ character_book 那套为准；不认识的原生字段一律 passthrough 保留�
 ## 按环节绑定写法（per-agent）
 
 `StyleBindingTargetType` 的 `agent` 表示按**环节**绑定，`targetId` 存环节名。
-已接线的环节是正文生成（`writer`）与规划（`planner`）；`STYLE_BINDING_AGENTS`
-是那份清单，**加新环节要同时接进对应的解析调用**，否则绑定建得出来却不生效。
+已接线的环节：正文生成（`writer`）、规划（`planner`）、审校修正（`reviewer`）。
+`STYLE_BINDING_AGENTS` 是那份清单，**加新环节要同时接进对应的解析调用**，
+否则绑定建得出来却永远不生效——有一条扫源码的用例守着这件事。
+
+服务端会校验按环节绑定时的 `targetId` 必须是清单里的值：放任意字符串通过，
+拼错一个字母就是一条静默失效的配置，用户无从察觉。
 
 优先级排在 novel 与 chapter 之间：环节比「整本书」具体，比「这一章」通用。
 不做隐式层级覆盖，最终顺序由 `priority` 决定。
 
-新增绑定目标时要同步的地方：双 Prisma schema 的枚举、`styleEngine.ts` 的类型、
-运行时契约 `chapterRuntime/styleSchemas`、优先级表（两处）、编译器标签表、
-路由校验、前端标签表。漏掉运行时契约会让绑定在组装上下文时被类型挡住。
+新增绑定目标时要同步的地方：双 Prisma schema 的枚举、**PostgreSQL 迁移**、
+`styleEngine.ts` 的类型、运行时契约 `chapterRuntime/styleSchemas`、
+优先级表（两处）、编译器标签表、路由校验、前端表单与标签表。
+
+其中**迁移最容易漏**：SQLite 走 `prisma db push` 会自动跟上枚举变化，所以
+只跑 SQLite 测试全绿并不代表 PostgreSQL 也认得——已部署的库执行
+`migrate deploy` 后仍是旧枚举，第一次创建该类绑定就会被数据库拒绝。
+漏掉运行时契约则会让合法绑定在组装上下文时被类型挡住。
+
+## 未识别字段与原文留存
+
+外部格式会继续演进，所以解析器不认识的字段一律保留，并且要走得出解析器：
+
+- **预览显示**未识别字段（`unknownFields`），让用户知道有内容没被处理。
+  这与 `ignoredFields` 不同：后者是我们认识但有意不导入的卡片元信息。
+- **原文随导入结果留存**：写法资产存在 `StyleProfile.sourceContent`，
+  角色存在提案载荷的 `sourceRaw` 里。批准之后仍然找得回来。
+- 世界书目前只在预览里告知未识别字段，**不随知识文档留存原文**——
+  知识文档没有存放原始文件的位置，写进正文会污染检索。这是已知边界。

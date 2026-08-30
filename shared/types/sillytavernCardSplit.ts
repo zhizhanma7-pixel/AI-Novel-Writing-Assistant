@@ -63,6 +63,14 @@ export const sillyTavernCardSplitPlanSchema = z.object({
     label: z.string(),
     reason: z.string(),
   })).default([]),
+  /**
+   * 解析器**不认识**的字段名。
+   *
+   * 与 `ignoredFields` 不同：那些是我们认识但有意不导入的元信息，这些是
+   * 格式演进出来的、代码还不知道的东西。设计文档要求预览把它们显示出来，
+   * 原始内容随提案载荷一起留存。
+   */
+  unknownFields: z.array(z.string()).default([]),
   warnings: z.array(sillyTavernParseWarningSchema).default([]),
 });
 export type SillyTavernCardSplitPlan = z.infer<typeof sillyTavernCardSplitPlanSchema>;

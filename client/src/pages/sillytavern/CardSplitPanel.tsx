@@ -80,6 +80,18 @@ export default function CardSplitPanel(props: {
         </p>
       </section>
 
+      {props.plan.unknownFields.length > 0 ? (
+        <section className="rounded-xl border border-amber-300/70 bg-amber-50/60 p-3 dark:border-amber-700/60 dark:bg-amber-950/20">
+          <div className="text-sm font-medium text-amber-900 dark:text-amber-200">
+            这张卡里有本项目还不认识的内容
+          </div>
+          <div className="mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-200/80">
+            {props.plan.unknownFields.join("、")} —— 它们会随导入记录原样保存，
+            将来支持了还能找回来，但现在不会进入任何一个去处。
+          </div>
+        </section>
+      ) : null}
+
       {props.plan.ignoredFields.length > 0 ? (
         <section className="rounded-xl border border-border/70 bg-muted/10 p-3">
           <div className="text-sm font-medium text-foreground">这些内容不会被导入</div>

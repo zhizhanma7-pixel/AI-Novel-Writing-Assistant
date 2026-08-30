@@ -245,6 +245,12 @@ export default function SillyTavernImportPage() {
               <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border bg-muted/15 p-3 font-sans text-xs leading-5 text-foreground">
                 {inspected.worldBookPreview.content}
               </pre>
+              {inspected.worldBookPreview.unknownFields.length > 0 ? (
+                <div className="text-xs leading-5 text-muted-foreground">
+                  这份文件里有本项目还不认识的内容：
+                  {inspected.worldBookPreview.unknownFields.join("、")}。它们不会被导入。
+                </div>
+              ) : null}
               <Button
                 type="button"
                 disabled={importMutation.isPending}

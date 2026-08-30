@@ -63,6 +63,7 @@ const CARD = {
     description: "北境十三城的旧律仍由影卫执行。\\n\\n沈砚十七岁入影卫，左手有旧伤。",
     personality: "沉默，护短",
     scenario: "城内宵禁的第三夜。",
+    extensions: { depth_prompt: { prompt: "保持冷淡", depth: 4 } },
     system_prompt: "用冷硬的短句写，不要抒情。",
     first_mes: "「你不该来。」",
     character_book: {
@@ -228,6 +229,10 @@ async function main() {
       styleSourceType: style ? style.sourceType : null,
       characterProposalStatus: characterProposal ? characterProposal.status : null,
       characterProposalType: characterProposal ? characterProposal.changes[0].proposalType : null,
+      characterProposalPayload: characterProposal
+        ? JSON.parse(characterProposal.changes[0].payloadJson)
+        : null,
+      planUnknownFields: plan.unknownFields,
       charactersBeforeReview,
       characterName: committedCharacter ? committedCharacter.name : null,
       characterPersonality: committedCharacter ? committedCharacter.personality : null,
@@ -419,4 +424,20 @@ test("a card extracted from a PNG goes through the same split pipeline", () => {
   assert.ok(result.pngStyleProfileId, "文风应当落地");
   // 这次没有段落分给角色，也就没给 novelId，因此不该产生角色提案。
   assert.equal(result.pngCharacterProposalId, null);
+});
+
+test("the original file survives in the proposal so unknown fields stay recoverable", () => {
+  const result = scenarioResult();
+
+  // 预览要告诉用户有没被识别的内容。
+  assert.deepEqual(result.planUnknownFields, ["extensions"]);
+
+  // 而且原文要随提案留存——批准之后仍然找得回来，否则那是不可逆的损失。
+  const raw = result.characterProposalPayload.sourceRaw;
+  assert.ok(raw, "提案载荷必须带上原始文件");
+  assert.deepEqual(
+    raw.data.extensions,
+    { depth_prompt: { prompt: "保持冷淡", depth: 4 } },
+    "没被识别的字段要能从提案里原样取回",
+  );
 });

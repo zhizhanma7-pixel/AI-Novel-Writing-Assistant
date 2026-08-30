@@ -55,6 +55,8 @@ export class SillyTavernCardImportService {
       embeddedBook: this.worldBookImportService.previewFromCardBook(parsed.data.character_book),
       needsReviewCount: segments.filter((item) => item.origin === "needs_review").length,
       ignoredFields: listIgnoredCardFields(parsed),
+      // 解析器不认识的字段：设计文档要求预览把它们显示出来。
+      unknownFields: Object.keys(parsed.rawImportedMetadata),
       warnings: parsed.warnings,
     };
   }
@@ -123,6 +125,8 @@ export class SillyTavernCardImportService {
         personality: this.joinByField(characterSegments, "personality") || null,
         background: this.joinByField(characterSegments, "description", "scenario") || null,
         sourceLabel: `SillyTavern 角色卡 · ${cardName}`,
+        // 原文随提案留存：批准之后这张卡里没被识别的字段仍要找得回来。
+        sourceRaw: input.rawJson,
       };
       const proposal = await this.proposalService.createProposal(input.novelId, {
         proposalType: "asset_import",

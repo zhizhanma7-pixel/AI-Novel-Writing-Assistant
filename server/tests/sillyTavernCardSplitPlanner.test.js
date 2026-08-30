@@ -186,3 +186,42 @@ test("every text-bearing card field is either routed or explicitly ignored", () 
     "tags",
   ], "有字段既没被分流也没被声明为不导入");
 });
+
+// --- 真正的未知字段 ---
+//
+// 与 ignoredFields 不同：那些是代码认识但有意不导入的元信息。这里说的是
+// 格式演进出来、代码还不知道的字段。它们必须能一路走到预览与提案载荷，
+// 只停在解析器内存里等于没留存。
+
+test("fields the parser does not recognise reach the plan, not just the parser", () => {
+  const plan = service.plan(card({
+    description: "描述",
+    extensions: { depth_prompt: { prompt: "保持冷淡", depth: 4 } },
+    some_future_field: { nested: "将来才有的东西" },
+  }));
+
+  assert.deepEqual(
+    [...plan.unknownFields].sort(),
+    ["extensions", "some_future_field"],
+    "预览必须显示未识别字段，否则用户不知道有内容没被处理",
+  );
+});
+
+test("a card with nothing unfamiliar reports no unknown fields", () => {
+  const plan = service.plan(card({ description: "描述", personality: "性格" }));
+
+  assert.deepEqual(plan.unknownFields, []);
+});
+
+test("unknown fields are separate from the metadata we deliberately skip", () => {
+  const plan = service.plan(card({
+    description: "描述",
+    creator_notes: "作者备注",
+    some_future_field: "未来字段",
+  }));
+
+  // 两者含义不同，不能混在一个列表里：一个是"认识但不导入"，
+  // 另一个是"还不认识"。
+  assert.deepEqual(plan.ignoredFields.map((entry) => entry.field), ["creator_notes"]);
+  assert.deepEqual(plan.unknownFields, ["some_future_field"]);
+});

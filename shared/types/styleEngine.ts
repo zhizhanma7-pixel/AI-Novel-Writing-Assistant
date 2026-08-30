@@ -26,9 +26,23 @@ export type StyleProfileStatus = "active" | "archived";
  */
 export type StyleBindingTargetType = "novel" | "chapter" | "task" | "agent";
 
-/** 目前接了写法解析的环节。加新环节要同时把它接进对应的解析调用。 */
-export const STYLE_BINDING_AGENTS = ["writer", "planner"] as const;
+/**
+ * 已接入写法解析的环节。
+ *
+ * **这份清单就是「哪些环节真的生效」的唯一事实**：加一个值而不接进对应的
+ * 解析调用，绑定会存得下来却永远不起作用。服务端按它校验 `targetId`，
+ * 界面也按它出选项。
+ */
+export const STYLE_BINDING_AGENTS = ["writer", "planner", "reviewer"] as const;
+
 export type StyleBindingAgent = typeof STYLE_BINDING_AGENTS[number];
+
+export const STYLE_BINDING_AGENT_LABELS: Record<StyleBindingAgent, string> = {
+  writer: "写正文",
+  planner: "做规划",
+  reviewer: "审校修正",
+};
+
 export type AntiAiRuleType = "forbidden" | "risk" | "encourage";
 export type StyleDetectionRuleType = "style" | "character" | AntiAiRuleType;
 export type AntiAiSeverity = "low" | "medium" | "high";

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { ApiResponse } from "@ai-novel/shared/types/api";
 import { z } from "zod";
+import { STYLE_BINDING_AGENTS } from "@ai-novel/shared/types/styleEngine";
 import { llmProviderSchema } from "../llm/providerSchema";
 import { authMiddleware } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -133,7 +134,16 @@ const bindingSchema = z.object({
   priority: z.number().int().min(0).default(1),
   weight: z.number().min(0.3).max(1).default(1),
   enabled: z.boolean().default(true),
-});
+}).refine(
+  // 环节绑定的 targetId 必须是已接线的环节名。放任意字符串通过，绑定会存下来
+  // 却永远不生效——拼错一个字母就是一条静默失效的配置，用户无从察觉。
+  (value) => value.targetType !== "agent"
+    || (STYLE_BINDING_AGENTS as readonly string[]).includes(value.targetId),
+  {
+    path: ["targetId"],
+    message: `按环节绑定时，目标必须是 ${STYLE_BINDING_AGENTS.join(" / ")} 之一。`,
+  },
+);
 
 const bindingQuerySchema = z.object({
   targetType: z.enum(["novel", "chapter", "task", "agent"]).optional(),

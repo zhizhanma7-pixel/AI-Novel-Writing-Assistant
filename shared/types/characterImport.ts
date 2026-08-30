@@ -21,6 +21,15 @@ export const characterImportPayloadSchema = z.object({
   background: z.string().trim().min(1).nullable().optional(),
   /** 来源留证，便于事后回溯这个角色是从哪张卡导进来的。 */
   sourceLabel: z.string().trim().min(1).nullable().optional(),
+  /**
+   * 原始文件内容，原样留存。
+   *
+   * 写法资产那一路存在 `StyleProfile.sourceContent` 里；角色走提案，
+   * 就存在提案载荷里。**不存的话，批准之后这张卡里没被识别的字段就再也
+   * 找不回来了**——外部格式会继续演进，那是不可逆的数据损失。
+   * applier 只读不写它。
+   */
+  sourceRaw: z.unknown().optional(),
 }).strict();
 
 export type CharacterImportPayload = z.infer<typeof characterImportPayloadSchema>;

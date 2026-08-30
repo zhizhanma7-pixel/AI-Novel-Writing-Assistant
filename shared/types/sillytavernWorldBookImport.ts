@@ -20,6 +20,8 @@ export const sillyTavernWorldBookPreviewSchema = z.object({
   constantCount: z.number().int().nonnegative(),
   content: z.string(),
   charCount: z.number().int().nonnegative(),
+  /** 解析器不认识的顶层字段名，预览里如实告知。 */
+  unknownFields: z.array(z.string()).default([]),
   warnings: z.array(sillyTavernParseWarningSchema).default([]),
 });
 export type SillyTavernWorldBookPreview = z.infer<typeof sillyTavernWorldBookPreviewSchema>;
