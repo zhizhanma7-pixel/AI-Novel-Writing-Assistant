@@ -14,6 +14,10 @@ import { styleRecommendationService } from "../services/styleEngine/StyleRecomme
 import { StyleRewriteService } from "../services/styleEngine/StyleRewriteService";
 
 const router = Router();
+import { AppError } from "../middleware/errorHandler";
+import { SillyTavernPresetImportService } from "../services/sillytavern/SillyTavernPresetImportService";
+import { SillyTavernParseError } from "../services/sillytavern/sillyTavernCardParser";
+
 const styleProfileService = new StyleProfileService();
 const antiAiRuleService = new AntiAiRuleService();
 const antiAiPolicyResolver = new AntiAiPolicyResolver();
@@ -220,6 +224,65 @@ router.post("/style-profiles", validate({ body: manualProfileSchema }), async (r
     next(error);
   }
 });
+
+const sillyTavernPresetSchema = z.object({
+  preset: z.unknown(),
+  name: z.string().trim().min(1).max(120).optional(),
+});
+
+const sillyTavernPresetImportService = new SillyTavernPresetImportService();
+
+function forwardSillyTavernError(error: unknown, next: (error?: unknown) => void): void {
+  if (error instanceof SillyTavernParseError) {
+    next(new AppError(error.code, 400, error.message));
+    return;
+  }
+  next(error);
+}
+
+// 预览是纯读：解析并展示会生效的内容，不写任何库。
+router.post(
+  "/style-profiles/sillytavern/preview",
+  validate({ body: sillyTavernPresetSchema }),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof sillyTavernPresetSchema>;
+      const data = sillyTavernPresetImportService.preview(body.preset);
+      res.status(200).json({
+        success: true,
+        data,
+        message: data.enabledCount > 0
+          ? "已读出这份预设的写作指令，确认后可导入为写法资产。"
+          : "这份预设里没有会生效的写作指令。",
+      } satisfies ApiResponse<typeof data>);
+    } catch (error) {
+      forwardSillyTavernError(error, next);
+    }
+  },
+);
+
+router.post(
+  "/style-profiles/from-sillytavern",
+  validate({ body: sillyTavernPresetSchema }),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof sillyTavernPresetSchema>;
+      const data = await sillyTavernPresetImportService.importPreset({
+        rawJson: body.preset,
+        name: body.name,
+      });
+      res.status(201).json({
+        success: true,
+        data,
+        message: data.longInstructions
+          ? "已导入为写法资产。这份预设的指令较长，建议在写法编辑里精简后再绑定使用。"
+          : "已导入为写法资产，可在写法绑定里指定它作用于哪本书。",
+      } satisfies ApiResponse<typeof data>);
+    } catch (error) {
+      forwardSillyTavernError(error, next);
+    }
+  },
+);
 
 router.post("/style-profiles/from-book-analysis", validate({ body: fromBookAnalysisSchema }), async (req, res, next) => {
   try {

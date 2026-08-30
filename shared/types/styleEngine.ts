@@ -5,7 +5,9 @@ export type StyleSourceType =
   | "from_text"
   | "from_book_analysis"
   | "from_knowledge_document"
-  | "from_current_work";
+  | "from_current_work"
+  /** 由 SillyTavern preset 导入。原始 JSON 保留在 `sourceContent` 里可回溯。 */
+  | "from_sillytavern_preset";
 export type StyleExtractionSourceProcessingMode = "full_text" | "representative_sample";
 export type StyleProfileStatus = "active" | "archived";
 export type StyleBindingTargetType = "novel" | "chapter" | "task";
