@@ -63,17 +63,54 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 `CODE_REVIEW_PROPOSAL_CORE.md` 早期把这条记为「Phase 2C 待接线缺口」，其前提是
 「提案要能拦住正文」；该前提在 2026-08-27 的 D2 定稿后不再成立。
 
-## 章节执行偏离的两条出口
+## 章节执行偏离的三条出口
 
-- **接受偏离**（`accepted_divergence`）：承认正文，只更新**下游**卷规划条目，
-  本章原始 Expected 合同原样保留作审计证据，随提案 payload 留存。
-  下游 patch 只能改卷规划文档自有字段（`purpose` / `endingState` /
-  `nextChapterEntryState` / `exclusiveEvent`）；`title` / `summary` / `taskSheet` 等
-  由 `Chapter` 数据列权威拥有，`hydrateCanonicalChapterFields` 每次读工作区都会用
-  Chapter 行覆盖文档侧的值，改文档侧会在下一次 hydrate 时被无声还原。
+- **接受并更新后续计划**（`accepted_divergence` + 非空下游补丁）：承认正文，
+  同时更新**下游**卷规划条目。本章原始 Expected 合同原样保留作审计证据，
+  随提案 payload 留存。
+- **仅记录这次变化**（`accepted_divergence` + 空下游补丁）：承认正文，明确不动
+  后续计划。**这是与上一条并列的独立出口，不是"忘了填补丁"**——界面必须让作者
+  选出意图，不能靠默认值替他决定。切到这一条时要清空此前存过的补丁，否则作者
+  以为不改计划、执行时却把旧补丁写了进去。
 - **按计划修正**（`corrected_to_expected`）：不新建修复链路，把偏离翻译成既有的
   `ChapterExecutionMissingObligation` 交给现有修复通路，从而复用既有修复预算与
   `maxAutoRepairAttempts`。
+
+### 下游补丁的边界（两处强制，规则单一来源）
+
+补丁只能改卷规划文档自有字段（`purpose` / `endingState` / `nextChapterEntryState` /
+`exclusiveEvent`）；`title` / `summary` / `taskSheet` 等由 `Chapter` 数据列权威拥有，
+`hydrateCanonicalChapterFields` 每次读工作区都会用 Chapter 行覆盖文档侧的值，
+改文档侧会在下一次 hydrate 时被无声还原。
+
+除字段形状外，目标章节还必须满足：**在偏离章之后、真实存在、同一份载荷内不重复**。
+重复目标尤其不能只靠 schema——applier 用 `Map` 建索引，不挡住的话后一条会静默
+覆盖前一条，而"目标章节缺失"检查看不见它（两个 order 都命中章节）。
+
+规则实现在 `ChapterExecutionPatchBoundary`，**编辑期与 applier 两处都要调**：
+编辑期让作者当场知道，applier 是最终可执行载荷的边界，可以被别的路径抵达。
+
+### 已修正的条目不可被后续审批翻回接受
+
+「按计划修正」成功后，该逐项在信封仍待审时就被锁为 `rejected`。**后续审批必须
+原样保留这个决定**：显式给出相反决定要报 `invalid_review`，未列出时也不得按
+`unlistedDecision` 或默认值推导成 accepted。
+
+不挡住会产生自相矛盾的状态：**正文已经改回原计划，下游计划却按偏离更新**。
+stale 检查不能替代这条——修正会改正文、通常会触发 stale，但那是巧合，多章提案里
+被修正的章节未必在 `sourceRefs` 里。界面同样要收掉该条的操作。
+
+### AI 下游调整建议不写状态
+
+「接受偏离」时可以让 AI 起草下游补丁。**该路径只读**：读提案与卷规划工作区
+（只读事务、`skipSelfHeal`，因为 `getVolumes` 会把 rehydrate 结果持久化），
+调一次模型，经确定性 sanitizer 清洗后返回界面，**不落任何库**。
+
+作者逐条采纳后的保存仍走既有用户编辑通路（`userEditedPayloadJson` +
+`reviewDecision: modified`）。因此这里不构成新的 AI 自治写入点，
+`DirectorPolicyEngine` 门禁与 L0–L3 映射一律不参与。**不得把建议改成直接落库**，
+那会让它变成一条绕过人工审批的写状态路径。sanitizer 会丢弃指向偏离章及更早章节、
+不存在章节、重复目标与越界字段的建议；空建议是合法结果。
 
 ## Policy、任务与审计复用
 
@@ -97,7 +134,7 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 - `character_state_update`、`character_resource_update` 和 `relation_state_update` 有正式状态 applier。
 - 关系阶段写入保留逐项记录的真实 `sourceType`。章节增量和 Proposal 使用同一正式写入 helper；同一角色对的当前阶段由最后一次成功写入决定，历史阶段不会删除。
 - 其他旧 `StateChangeProposal` 类型继续保持 ledger-only 兼容，供既有章节状态账本使用；Change Proposal 若批准了这些类型，执行接口会明确返回“不支持正式写入”，不会把信封标成 executed。
-- 章节执行 Proposal 的 AI 生产者、`Expected vs Actual` 对比和自动导演正文前置暂停属于 Phase 2C（Chapter Execution Divergence），当前只有后端创建与审阅入口。通用的 AI 提案生产者接线本身属于其前置的 Phase 2A。
+- 章节执行 Proposal 的 AI 生产者、`Expected vs Actual` 对比和自动导演正文前置暂停属于 Phase 2C（Chapter Execution Divergence），后端与审阅界面均已落地。通用的 AI 提案生产者接线本身属于其前置的 Phase 2A。
 
 ## 审阅界面入口与错误恢复
 
@@ -106,6 +143,7 @@ legacy 隔离只按 `StateProposalDomainError` 类型与稳定 reason 码判定�
 - 列表和详情、所有查询与变更集中在 Change Proposal 自有 hook；小说总编辑页只负责挂载和 URL 透传，避免继续扩张超长页面文件。
 - 逐项审阅支持接受、修改和拒绝。path 到 payload 字段的映射以及状态类型的正式写入模式由 shared 契约统一提供给服务端与客户端；可映射的字符串、数字和布尔值可直接修改，其他结构切换到完整 payload 编辑。输入初值和类型以最终 payload 字段为准，避免 `after` 缺失时把数字误写成字符串。
 - 已保存人工编辑的项必须按 `modified` 提交；全部批准由服务端自动区分原值和人工修改值。部分批准始终要求显式选择未列项处理方式。
+- 章节执行偏离项走专属呈现，不用通用的 path + `before`/`after` + JSON 编辑器：对照展示「原计划要求」与「正文实际写成」，下游调整是按可执行契约生成的表单，**字段与 `chapterExecutionPlanPatchSchema` 双向锁死**——多给一个字段作者就会填一个写下去会被静默还原的值。AI 建议默认不采纳，必须逐条确认。
 - 详情中的 `isStale` 是进入审阅时的前置门禁：立即展示原因、禁用批准与执行，并把重新生成作为主操作。
 - `not_found`、`version_conflict`、`stale_proposal`、`invalid_transition`、`unsupported_change` 和 `invalid_review` 使用稳定错误码映射为中文恢复指引。HTTP `error` 是稳定机器码，`message` 是英文诊断细节，客户端必须本地翻译，不能直接展示 `message`。审阅写操作不自动重试；版本冲突和状态冲突先刷新详情，再由用户重新决定。
 - 带 `taskId` 的批准、部分批准、拒绝、再生和执行返回 202 Director Command；客户端用可辨识联合与同步 Proposal 响应分开，显示排队状态并同时轮询命令与提案详情，禁止把 command 当作 proposal 渲染。命令进入 failed / cancelled / stale 时立即停止；等待超过 60 秒也停止自动刷新并保留中文失败提示，避免抽屉永久停在等待状态。
@@ -126,6 +164,12 @@ POST   /api/novels/:id/change-proposals/:proposalId/partial-approve
 POST   /api/novels/:id/change-proposals/:proposalId/reject
 POST   /api/novels/:id/change-proposals/:proposalId/regenerate
 POST   /api/novels/:id/change-proposals/:proposalId/execute
+POST   /api/novels/:id/change-proposals/:proposalId/items/:itemId/plan-suggestions
+POST   /api/novels/:id/change-proposals/:proposalId/items/:itemId/correct
 ```
+
+后两个是章节执行偏离专用。`plan-suggestions` 只读，不写任何库。
+`correct` 的三态里只有并发冲突走 409；**修复失败返回 200 并带 `repair_failed`**
+——逐项仍可审阅、质量债已记，那是业务结果而不是服务故障，不得映射成 5xx。
 
 审阅 UI 复用 Web / Electron 的 React 工作台和现有响应式布局；没有新增 Android 专用业务逻辑或外部运行时。
