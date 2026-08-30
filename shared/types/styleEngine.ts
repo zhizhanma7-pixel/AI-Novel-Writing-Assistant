@@ -7,7 +7,14 @@ export type StyleSourceType =
   | "from_knowledge_document"
   | "from_current_work"
   /** 由 SillyTavern preset 导入。原始 JSON 保留在 `sourceContent` 里可回溯。 */
-  | "from_sillytavern_preset";
+  | "from_sillytavern_preset"
+  /**
+   * 由 SillyTavern 角色卡分流出的文风部分。
+   *
+   * 与 preset 分开是因为来源追踪要能说清这份写法是从哪来的：卡片里的文风是
+   * 从 `system_prompt` / 语气样本分流出来的，和一份独立预设不是一回事。
+   */
+  | "from_sillytavern_card";
 export type StyleExtractionSourceProcessingMode = "full_text" | "representative_sample";
 export type StyleProfileStatus = "active" | "archived";
 export type StyleBindingTargetType = "novel" | "chapter" | "task";

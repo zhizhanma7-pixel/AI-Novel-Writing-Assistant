@@ -96,7 +96,8 @@ export class SillyTavernCardImportService {
       const profile = await this.styleProfileService.createManualProfile({
         name: input.styleProfileName?.trim() || `${cardName} · 文风`,
         description: `从 SillyTavern 角色卡分流出的文风约束，共 ${styleSegments.length} 段。`,
-        sourceType: "from_sillytavern_preset",
+        // 与 preset 导入区分开：来源追踪要能说清这份写法是从卡片分流来的。
+        sourceType: "from_sillytavern_card",
         // 原文无损留存，导入后仍能回溯这些指令来自卡片的哪个字段。
         sourceContent: JSON.stringify(input.rawJson),
         analysisMarkdown: this.renderStyleMarkdown(cardName, styleSegments),

@@ -275,7 +275,8 @@ test("one card splits three ways according to the decisions", () => {
   );
 
   // 文风：写作指令与开场白。
-  assert.equal(result.styleSourceType, "from_sillytavern_preset");
+  // 来源要能区分「来自卡片分流」和「来自一份独立预设」。
+  assert.equal(result.styleSourceType, "from_sillytavern_card");
   assert.ok(result.styleSummary.includes("用冷硬的短句写"));
   assert.ok(result.styleSummary.includes("你不该来"));
 
