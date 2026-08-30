@@ -80,6 +80,17 @@ export default function CardSplitPanel(props: {
         </p>
       </section>
 
+      {props.plan.ignoredFields.length > 0 ? (
+        <section className="rounded-xl border border-border/70 bg-muted/10 p-3">
+          <div className="text-sm font-medium text-foreground">这些内容不会被导入</div>
+          <ul className="mt-1 space-y-1 text-xs leading-5 text-muted-foreground">
+            {props.plan.ignoredFields.map((entry) => (
+              <li key={entry.field}>{entry.label} — {entry.reason}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {props.plan.embeddedBook ? (
         <section className="rounded-xl border border-primary/20 bg-primary/5 p-3">
           <div className="text-sm font-medium text-foreground">这张卡自带世界书</div>

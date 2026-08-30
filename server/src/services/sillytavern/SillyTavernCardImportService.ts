@@ -9,7 +9,7 @@ import type {
 import { NovelCoreCharacterService } from "../novel/novelCoreCharacterService";
 import { StyleProfileService } from "../styleEngine/StyleProfileService";
 import { parseSillyTavernCard, SillyTavernParseError } from "./sillyTavernCardParser";
-import { planSillyTavernCardSplit } from "./sillyTavernCardSplitPlanner";
+import { listIgnoredCardFields, planSillyTavernCardSplit } from "./sillyTavernCardSplitPlanner";
 import { SillyTavernWorldBookImportService } from "./SillyTavernWorldBookImportService";
 
 /**
@@ -54,6 +54,7 @@ export class SillyTavernCardImportService {
       segments,
       embeddedBook: this.worldBookImportService.previewFromCardBook(parsed.data.character_book),
       needsReviewCount: segments.filter((item) => item.origin === "needs_review").length,
+      ignoredFields: listIgnoredCardFields(parsed),
       warnings: parsed.warnings,
     };
   }

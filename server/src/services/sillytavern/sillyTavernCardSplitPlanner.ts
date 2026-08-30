@@ -67,6 +67,16 @@ const FIELD_RULES: FieldRule[] = [
     splitParagraphs: false,
   },
   {
+    // 备选开场白与 first_mes 同类，都是语气样本。漏掉它会让一部分文风素材
+    // 被静默丢弃——卡片作者往往在这里放不同情境下的口吻。
+    field: "alternate_greetings",
+    label: "备选开场白",
+    destination: "style",
+    origin: "deterministic",
+    reason: "备选开场白同样反映语气，作为文风参考。",
+    splitParagraphs: false,
+  },
+  {
     field: "personality",
     label: "性格",
     destination: "character",
@@ -105,11 +115,17 @@ export function planSillyTavernCardSplit(parsed: ParsedSillyTavernCard): SillyTa
 
   for (const rule of FIELD_RULES) {
     const raw = data[rule.field];
-    if (typeof raw !== "string" || !raw.trim()) {
+    // 多数字段是字符串，`alternate_greetings` 是字符串数组——每条各成一段。
+    const values = Array.isArray(raw)
+      ? raw.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+      : (typeof raw === "string" && raw.trim() ? [raw] : []);
+    if (values.length === 0) {
       continue;
     }
 
-    const parts = rule.splitParagraphs ? splitIntoParagraphs(raw) : [raw.trim()];
+    const parts = values.flatMap((value) => (
+      rule.splitParagraphs ? splitIntoParagraphs(value) : [value.trim()]
+    ));
     for (const [index, text] of parts.entries()) {
       segments.push({
         id: `${rule.field}:${index}`,
@@ -124,4 +140,32 @@ export function planSillyTavernCardSplit(parsed: ParsedSillyTavernCard): SillyTa
   }
 
   return segments;
+}
+
+/**
+ * 有内容但**不参与分流**的字段。
+ *
+ * 它们是关于这张卡本身的元信息，不是可导入的素材。显式列出来是为了让界面能
+ * 告诉用户「这些没被导入」——静默丢弃会让人以为内容进去了。
+ */
+const NON_ROUTED_FIELDS: { field: string; label: string; reason: string }[] = [
+  { field: "creator_notes", label: "作者备注", reason: "是给使用者看的说明，不是作品内容。" },
+  { field: "creator", label: "卡片作者", reason: "卡片元信息。" },
+  { field: "character_version", label: "卡片版本", reason: "卡片元信息。" },
+  { field: "tags", label: "标签", reason: "卡片元信息，与作品的题材标签不通用。" },
+];
+
+export function listIgnoredCardFields(parsed: ParsedSillyTavernCard): {
+  field: string;
+  label: string;
+  reason: string;
+}[] {
+  const data = parsed.data as unknown as Record<string, unknown>;
+  return NON_ROUTED_FIELDS.filter((entry) => {
+    const value = data[entry.field];
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+    return typeof value === "string" && Boolean(value.trim());
+  });
 }

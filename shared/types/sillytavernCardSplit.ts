@@ -53,6 +53,16 @@ export const sillyTavernCardSplitPlanSchema = z.object({
   embeddedBook: sillyTavernWorldBookPreviewSchema.nullable(),
   /** 需要用户逐段判断的数量——这类段落是这张卡最容易被导错的部分。 */
   needsReviewCount: z.number().int().nonnegative(),
+  /**
+   * 有内容但不参与分流的字段（卡片元信息）。
+   *
+   * 列出来是为了让界面能说明「这些没被导入」；静默丢弃会让人以为进去了。
+   */
+  ignoredFields: z.array(z.object({
+    field: z.string(),
+    label: z.string(),
+    reason: z.string(),
+  })).default([]),
   warnings: z.array(sillyTavernParseWarningSchema).default([]),
 });
 export type SillyTavernCardSplitPlan = z.infer<typeof sillyTavernCardSplitPlanSchema>;
