@@ -5,6 +5,8 @@ import type {
   ProposedChangeItemDecision,
   ProposedChangeReviewDecision,
 } from "@ai-novel/shared/types/changeProposal";
+import type { ChapterDivergenceCorrectionResult } from "@ai-novel/shared/types/chapterDivergence";
+import type { ChapterDivergencePlanSuggestionResult } from "@ai-novel/shared/types/chapterDivergencePlanSuggestion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +45,8 @@ export default function ChangeProposalDetailPanel(props: {
   actionPending: boolean;
   savingItemId?: string;
   onEdit: (itemId: string, input: EditProposedChangeInput) => Promise<unknown>;
+  onSuggestPlanChanges: (itemId: string) => Promise<ChapterDivergencePlanSuggestionResult>;
+  onCorrectDivergence: (itemId: string) => Promise<ChapterDivergenceCorrectionResult>;
   onSubmit: () => void;
   onApprove: () => void;
   onPartialApprove: (
@@ -171,6 +175,8 @@ export default function ChangeProposalDetailPanel(props: {
               isSaving={props.savingItemId === change.id}
               onDecision={(decision) => setDecisions((current) => ({ ...current, [change.id]: decision }))}
               onEdit={(input) => props.onEdit(change.id, input)}
+              onSuggest={() => props.onSuggestPlanChanges(change.id)}
+              onCorrect={() => props.onCorrectDivergence(change.id)}
             />
           ))}
         </section>

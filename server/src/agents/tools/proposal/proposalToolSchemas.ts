@@ -12,7 +12,7 @@ export const proposeNovelChangeInputSchema = aiChangeProposalInputSchema
 
 export const proposeNovelChangeOutputSchema = z.object({
   proposal: changeProposalSchema,
-  disposition: z.enum(["pending_review", "executed"]),
+  disposition: z.enum(["pending_review", "executed", "apply_failed"]),
   autonomyLevel: proposalAutonomyLevelSchema,
   directorPolicyMode: z.enum([
     "suggest_only",

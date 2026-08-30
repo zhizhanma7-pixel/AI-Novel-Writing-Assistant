@@ -10,6 +10,7 @@ import type {
 } from "@ai-novel/shared/types/changeProposal";
 import {
   approveChangeProposal,
+  correctChapterDivergence,
   editChangeProposalItem,
   executeChangeProposal,
   getChangeProposal,
@@ -18,6 +19,7 @@ import {
   regenerateChangeProposal,
   rejectChangeProposal,
   submitChangeProposal,
+  suggestDivergencePlanChanges,
   type ChangeProposalActionResult,
 } from "@/api/novel/changeProposals";
 import { getDirectorCommandResult } from "@/api/novelDirector";
@@ -344,6 +346,25 @@ export function useChangeProposals(input: {
     onError: handleActionError,
   });
 
+  const suggestPlanChanges = async (itemId: string) => {
+    const proposal = proposalQuery.data;
+    if (!proposal) {
+      throw new Error("请先选择一份提案。");
+    }
+    return suggestDivergencePlanChanges(input.novelId, proposal.id, itemId);
+  };
+
+  const correctDivergence = async (itemId: string) => {
+    const proposal = proposalQuery.data;
+    if (!proposal) {
+      throw new Error("请先选择一份提案。");
+    }
+    const result = await correctChapterDivergence(input.novelId, proposal.id, itemId);
+    // 改写会动正文和逐项状态，卡片必须看到最新的一份，否则作者会对着旧内容继续操作。
+    await Promise.all([proposalQuery.refetch(), refreshList()]);
+    return result;
+  };
+
   return {
     proposals: orderedProposals,
     proposal: proposalQuery.data ?? null,
@@ -363,6 +384,8 @@ export function useChangeProposals(input: {
       : null,
     actionMutation,
     editMutation,
+    suggestPlanChanges,
+    correctDivergence,
     refresh: async () => {
       await Promise.all([
         selectedProposalId ? proposalQuery.refetch() : Promise.resolve(),

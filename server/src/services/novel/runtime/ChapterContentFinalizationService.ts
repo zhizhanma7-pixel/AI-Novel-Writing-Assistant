@@ -4,8 +4,11 @@ import { prisma } from "../../../db/prisma";
 import { novelEventBus } from "../../../events";
 import { openConflictService } from "../../state/OpenConflictService";
 import { directorAutomationLedgerEventService } from "../director/runtime/DirectorAutomationLedgerEventService";
+import { stableDirectorContentHash } from "../director/runtime/DirectorArtifactLedger";
+import { UNVERIFIED_DIVERGENCE_DEBT_CODE } from "@ai-novel/shared/types/chapterDivergence";
 import { filterAcceptedFactItems, type FactLedgerExcludedItem } from "../fact/factLedgerFilter";
 import { novelFactService } from "../fact/NovelFactService";
+import { chapterDivergenceProposalService } from "../proposal/chapterExecution/application/ChapterDivergenceProposalService";
 import { ChapterArtifactSyncService } from "./ChapterArtifactSyncService";
 import type { ChapterRuntimeRequestInput } from "./chapterRuntimeSchema";
 import type { StyleReviewResult } from "./PostGenerationStyleReviewRunner";
@@ -28,6 +31,12 @@ export interface ChapterContentFinalizationServiceDeps {
   artifactSyncService: Pick<ChapterArtifactSyncService, "syncChapterArtifacts">;
   plannerService: ChapterRuntimePlannerPort;
   agentRuntime: ChapterContentFinalizationAgentRuntime;
+  divergenceProposalService?: Pick<
+    typeof chapterDivergenceProposalService,
+    "createForChapter"
+  >;
+  ledgerEventService?: Pick<typeof directorAutomationLedgerEventService, "recordEvent">;
+  warn?: (message: string, details?: Record<string, unknown>) => void;
 }
 
 export interface FinalizeChapterContentInput {
@@ -54,12 +63,92 @@ export class ChapterContentFinalizationService {
   private readonly artifactSyncService: Pick<ChapterArtifactSyncService, "syncChapterArtifacts">;
   private readonly plannerService: ChapterRuntimePlannerPort;
   private readonly agentRuntime: ChapterContentFinalizationAgentRuntime;
+  private readonly divergenceProposalService: Pick<
+    typeof chapterDivergenceProposalService,
+    "createForChapter"
+  >;
+  private readonly ledgerEventService: Pick<typeof directorAutomationLedgerEventService, "recordEvent">;
+  private readonly warn: (message: string, details?: Record<string, unknown>) => void;
 
   constructor(deps: ChapterContentFinalizationServiceDeps) {
     this.qualityGateService = deps.qualityGateService;
     this.artifactSyncService = deps.artifactSyncService;
     this.plannerService = deps.plannerService;
     this.agentRuntime = deps.agentRuntime;
+    this.divergenceProposalService = deps.divergenceProposalService ?? chapterDivergenceProposalService;
+    this.ledgerEventService = deps.ledgerEventService ?? directorAutomationLedgerEventService;
+    this.warn = deps.warn ?? console.warn;
+  }
+
+  /**
+   * 偏离提案是**旁路**：无论成功、失败还是抛错，都不改变本章的推进决定。
+   * 全书自动执行途中出现偏离必须继续跑完，这由 T1 整书回归锁定。
+   */
+  private async produceChapterDivergenceProposal(
+    input: FinalizeChapterContentInput,
+    assessment: { divergences?: unknown; repairability?: string; riskTags?: unknown },
+  ): Promise<void> {
+    // M1：不可核验的偏离被 Prompt recovery 剥离后会留下稳定 riskTag。
+    // 除了顺 riskTags 进质量债，还要写一条非阻塞账本事件，让它在驾驶舱可见、
+    // 可跟进——这是实施计划 T8 的原始要求。每章一条，不按偏离条数刷屏。
+    const riskTags = Array.isArray(assessment.riskTags) ? assessment.riskTags : [];
+    if (riskTags.includes(UNVERIFIED_DIVERGENCE_DEBT_CODE)) {
+      await this.ledgerEventService.recordEvent({
+        type: "quality_issue_found",
+        idempotencyKey: [
+          input.request.workflowTaskId ?? "book",
+          input.novelId,
+          input.chapterId,
+          UNVERIFIED_DIVERGENCE_DEBT_CODE,
+        ].join(":"),
+        taskId: input.request.workflowTaskId ?? null,
+        novelId: input.novelId,
+        nodeKey: "chapter.divergence.unverified",
+        summary: `第 ${input.contextPackage.chapter.order} 章检测到与计划不一致的地方，`
+          + "但依据无法核验，已记为待跟进提醒，不影响继续写作。",
+        affectedScope: `chapter:${input.chapterId}`,
+        severity: "medium",
+        metadata: { code: UNVERIFIED_DIVERGENCE_DEBT_CODE, chapterId: input.chapterId },
+      }).catch((error: unknown) => {
+        // 账本写入失败不停链，降级为日志。
+        this.warn("[chapter-divergence] failed to record unverified divergence event.", {
+          novelId: input.novelId,
+          chapterId: input.chapterId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+
+    const divergences = Array.isArray(assessment.divergences) ? assessment.divergences : [];
+    if (divergences.length === 0) {
+      return;
+    }
+    const expectedSource = input.contextPackage.chapterReviewContext
+      ?? input.contextPackage.chapterWriteContext
+      ?? null;
+    try {
+      await this.divergenceProposalService.createForChapter({
+        novelId: input.novelId,
+        chapterId: input.chapterId,
+        chapterOrder: input.contextPackage.chapter.order,
+        taskId: input.request.workflowTaskId ?? null,
+        divergences: divergences as Parameters<
+          typeof chapterDivergenceProposalService.createForChapter
+        >[0]["divergences"],
+        obligationContract: expectedSource?.obligationContract ?? null,
+        boundaryContract: expectedSource?.chapterBoundary ?? null,
+        repairability: assessment.repairability ?? null,
+        // M3：用与 stale 检查同一套哈希算法，否则记录的引用永远比不中。
+        chapterContentHash: stableDirectorContentHash(input.content),
+      });
+    } catch (error) {
+      this.warn("[chapter-divergence] failed to produce divergence proposal.", {
+        novelId: input.novelId,
+        chapterId: input.chapterId,
+        divergenceCount: divergences.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async finalizeChapterContent(input: FinalizeChapterContentInput): Promise<FinalizeChapterContentResult> {
@@ -111,6 +200,11 @@ export class ChapterContentFinalizationService {
       runId: input.runId,
       plannerService: this.plannerService,
     });
+    // Phase 2C：把本章的执行偏离聚合成一份非阻塞提案。
+    // 这一步的任何结果都**不得**参与下面的 needsRepair 判定，也不得抛出——
+    // 章节推进只能由既有结构化判据决定（`AGENTS.md` 自动导演质量门规则）。
+    await this.produceChapterDivergenceProposal(input, acceptance.assessment);
+
     const needsRepair = acceptance.assessment.status === "repairable"
       || acceptance.assessment.status === "needs_manual_review"
       || timelineCheck.status === "failed"

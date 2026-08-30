@@ -511,11 +511,24 @@ export async function persistActiveVolumeWorkspace(
 export async function ensureVolumeWorkspaceDocument(params: {
   novelId: string;
   getLegacySource: () => Promise<LegacyVolumeSource>;
+  /**
+   * 调用方事务客户端。传入时全部读取都在同一事务快照内完成——
+   * Change Proposal applier 需要它，否则会读到与信封事务不同的快照
+   * （复审 M2）。省略时沿用全局客户端，既有调用方行为不变。
+   */
+  db?: DbClient;
+  /**
+   * 在调用方事务内读取时必须传 true：本函数的若干自愈分支会用
+   * `runVolumeWorkspaceTransaction` **自开第二个事务**，在外层事务里执行会在
+   * SQLite 上死锁（复审 M2；由冷启动用例实测复现）。置 true 时跳过自愈写入，
+   * 只返回计算出的文档，持久化交给外层事务的正式写入。
+   */
+  skipSelfHeal?: boolean;
 }): Promise<VolumePlanDocument> {
-  const { novelId, getLegacySource } = params;
+  const { novelId, getLegacySource, db, skipSelfHeal } = params;
   const [activeRows, activeVersion] = await Promise.all([
-    listActiveVolumeRows(novelId),
-    getActiveVersionRow(novelId),
+    listActiveVolumeRows(novelId, db),
+    getActiveVersionRow(novelId, db),
   ]);
 
   if (activeVersion) {
@@ -531,7 +544,7 @@ export async function ensureVolumeWorkspaceDocument(params: {
         source: activeRows.length > 0 ? "volume" : "empty",
         activeVersionId: activeVersion.id,
     });
-    if (activeRows.length === 0 && fallbackDocument.volumes.length > 0) {
+    if (!skipSelfHeal && activeRows.length === 0 && fallbackDocument.volumes.length > 0) {
       await runVolumeWorkspaceTransaction(async (tx) => {
         await persistActiveVolumeWorkspace(tx, novelId, fallbackDocument, activeVersion.id);
       });
@@ -548,13 +561,13 @@ export async function ensureVolumeWorkspaceDocument(params: {
     });
   }
 
-  const latestVersion = await getLatestVersionRow(novelId);
+  const latestVersion = await getLatestVersionRow(novelId, db);
   if (latestVersion) {
     const document = normalizeVolumeWorkspaceDocument(novelId, latestVersion.contentJson, {
       source: "volume",
       activeVersionId: latestVersion.id,
     });
-    if (document.volumes.length > 0) {
+    if (document.volumes.length > 0 && !skipSelfHeal) {
       await runVolumeWorkspaceTransaction(async (tx) => {
         if (latestVersion.status !== "active") {
           await tx.volumePlanVersion.update({
@@ -564,6 +577,9 @@ export async function ensureVolumeWorkspaceDocument(params: {
         }
         await persistActiveVolumeWorkspace(tx, novelId, document, latestVersion.id);
       });
+      return document;
+    }
+    if (document.volumes.length > 0) {
       return document;
     }
   }
@@ -585,6 +601,10 @@ export async function ensureVolumeWorkspaceDocument(params: {
     source: "legacy",
     activeVersionId: null,
   });
+  if (skipSelfHeal) {
+    // 事务内读取：不做 legacy 回填落库，只返回计算出的文档。
+    return legacyDocument;
+  }
   const createdVersion = await runVolumeWorkspaceTransaction(async (tx) => {
     const version = await tx.volumePlanVersion.create({
       data: {

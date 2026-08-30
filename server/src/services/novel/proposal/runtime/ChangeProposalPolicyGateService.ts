@@ -34,10 +34,28 @@ export interface ChangeProposalPolicyEvaluationOptions {
 }
 
 export class ChangeProposalPolicyGateService {
+  // 本模块导出的是一个顶层单例，构造器默认参数会在模块加载期求值。
+  // 在循环加载中那会拿到尚未完成导出的构造器，所以默认依赖一律推迟到首次使用。
+  private policyEngineInstance: DirectorPolicyEngine | null;
+  private runtimePolicyReaderInstance: RuntimePolicyReader | null;
+
   constructor(
-    private readonly policyEngine = new DirectorPolicyEngine(),
-    private readonly runtimePolicyReader: RuntimePolicyReader = new DirectorRuntimeService(),
-  ) {}
+    policyEngine?: DirectorPolicyEngine,
+    runtimePolicyReader?: RuntimePolicyReader,
+  ) {
+    this.policyEngineInstance = policyEngine ?? null;
+    this.runtimePolicyReaderInstance = runtimePolicyReader ?? null;
+  }
+
+  private get policyEngine(): DirectorPolicyEngine {
+    this.policyEngineInstance ??= new DirectorPolicyEngine();
+    return this.policyEngineInstance;
+  }
+
+  private get runtimePolicyReader(): RuntimePolicyReader {
+    this.runtimePolicyReaderInstance ??= new DirectorRuntimeService();
+    return this.runtimePolicyReaderInstance;
+  }
 
   async evaluate(
     proposal: Pick<

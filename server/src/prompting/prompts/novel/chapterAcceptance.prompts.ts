@@ -1,4 +1,14 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import {
+  chapterDivergenceSchema,
+  collectChapterDivergenceContractEntries,
+  isVerifiableChapterDivergence,
+  UNVERIFIED_DIVERGENCE_DEBT_CODE,
+} from "@ai-novel/shared/types/chapterDivergence";
+import type {
+  ChapterBoundaryContract,
+  ChapterExecutionObligationContract,
+} from "@ai-novel/shared/types/chapterRuntime";
 import { z } from "zod";
 import type { PromptAsset } from "../../core/promptTypes";
 import { renderSelectedContextBlocks } from "../../core/renderContextBlocks";
@@ -202,6 +212,7 @@ export const chapterAcceptanceAssessmentSchema = z.object({
     summary: z.string().trim().min(1),
     evidence: z.string().trim().min(1).nullable().optional(),
   }))).default([]),
+  divergences: z.array(chapterDivergenceSchema).default([]),
   repairability: z.enum([
     "none",
     "patchable_obligation_gap",
@@ -226,6 +237,12 @@ export interface ChapterAcceptancePromptInput {
   chapterTitle: string;
   targetWordCount?: number | null;
   content: string;
+  /**
+   * 本章 Expected 合同。postValidate 用它对 divergences 的 contractQuotes 做
+   * 确定性回查，因此必须由调用方显式传入，不能只依赖渲染后的上下文文本。
+   */
+  obligationContract?: ChapterExecutionObligationContract | null;
+  boundaryContract?: ChapterBoundaryContract | null;
 }
 
 const CHAPTER_ACCEPTANCE_EXAMPLE: ChapterAcceptanceAssessmentOutput = {
@@ -267,6 +284,21 @@ const CHAPTER_ACCEPTANCE_EXAMPLE: ChapterAcceptanceAssessmentOutput = {
       evidence: "正文未出现春桃，也没有替代执行者。",
     },
   ],
+  divergences: [
+    {
+      kind: "next_entry_state_changed",
+      summary: "计划要求本章结束时主角仍在城内待命，正文让他连夜出城。",
+      expected: "章末主角留在城内等待接头",
+      actual: "主角在章末带队离城北上，下一章入口状态不再成立。",
+      evidence: "结尾段落写主角点齐人手连夜出城。",
+      references: {
+        affectedCharacterContractEntries: [],
+        affectedPayoffContractEntries: [],
+        touchedProtectedReveals: [],
+        contractQuotes: ["章末主角留在城内等待接头"],
+      },
+    },
+  ],
   repairability: "patchable_obligation_gap",
   decisionReason: "结尾钩子可以通过局部补丁补齐，不需要重排章节计划。",
   riskTags: ["ending_hook"],
@@ -278,12 +310,27 @@ const CHAPTER_ACCEPTANCE_EXAMPLE: ChapterAcceptanceAssessmentOutput = {
   continuePolicy: "repair_once",
 };
 
+function collectUnverifiedDivergences(
+  output: ChapterAcceptanceAssessmentOutput,
+  input: ChapterAcceptancePromptInput,
+): ChapterAcceptanceAssessmentOutput["divergences"] {
+  if (output.divergences.length === 0) {
+    return [];
+  }
+  const entries = collectChapterDivergenceContractEntries({
+    obligationContract: input.obligationContract,
+    boundaryContract: input.boundaryContract,
+  });
+  return output.divergences.filter((divergence) =>
+    !isVerifiableChapterDivergence(divergence, entries));
+}
+
 export const chapterAcceptanceAssessmentPrompt: PromptAsset<
   ChapterAcceptancePromptInput,
   ChapterAcceptanceAssessmentOutput
 > = {
   id: "novel.chapter.acceptance_assessment",
-  version: "v2",
+  version: "v3",
   taskType: "review",
   mode: "structured",
   language: "zh",
@@ -318,6 +365,9 @@ export const chapterAcceptanceAssessmentPrompt: PromptAsset<
     example: CHAPTER_ACCEPTANCE_EXAMPLE,
     note: "一次性判断章节是否可接收、是否需要局部修文、是否需要暂停确认，以及后续资产同步优先级。",
   },
+  semanticRetryPolicy: {
+    maxAttempts: 1,
+  },
   outputSchema: chapterAcceptanceAssessmentSchema,
   render: (input, context) => [
     new SystemMessage([
@@ -344,6 +394,11 @@ export const chapterAcceptanceAssessmentPrompt: PromptAsset<
       "15. status 只能使用 accepted、repairable、needs_manual_review、continue_with_risk；不得输出 acceptable、pass、passed、ok、approved 等别名。",
       "16. reader_experience 是本章读者体验合同。检查 promisedReward 是否在正文中可见、主角是否围绕 protagonistWant 主动行动并遭遇 primaryResistance、keyTurn 与 netChange 是否成立、inheritedHookResponsibilities 是否得到回应，以及 endingHook 是否产生追读力。",
       "17. 普通读者体验缺口应输出可执行的 blockingIssues / repairDirectives，并优先使用 repairable 或 continue_with_risk；不得仅因爽点、钩子或情绪强度不足升级为 needs_manual_review 或全局重规划。",
+      "18. divergences 只记录「正文写了，但与本章合同的明确期望方向相反或互斥」的情况；「该写没写」一律进 missingObligations，同一个问题不得同时出现在两个数组里。",
+      "19. divergences.kind 只能使用 next_entry_state_changed、cross_chapter_commitment、character_life_status、protected_reveal_touched、payoff_timing_shifted、relation_direction_reversed。",
+      "20. 每条 divergence 必须填写 references.contractQuotes，且必须原样引用上文合同中出现过的条目文本，不得改写、概括或自造；涉及角色时从合同原文填 affectedCharacterContractEntries，涉及伏笔时填 affectedPayoffContractEntries，涉及受保护揭露时填 touchedProtectedReveals。引用无法回查的偏离只会重试一次，仍不可核验则记为质量提醒，不会创建提案。",
+      "21. expected 必须引用合同原文，actual 必须描述正文中的实际写法；两者都不得复述本条指令或解释你的判定过程。",
+      "22. 只影响本章表达、局部节奏或可后续补偿的问题不进 divergences，按既有规则放入 riskTags。",
     ].join("\n")),
     new HumanMessage([
       `小说：${input.novelTitle}`,
@@ -357,4 +412,37 @@ export const chapterAcceptanceAssessmentPrompt: PromptAsset<
       input.content,
     ].join("\n")),
   ],
+  /**
+   * K1 收口：divergences 的 contractQuotes 必须能在本次输入的合同里精确回查。
+   * 任何一条不可核验就抛出语义校验错误，由 semanticRetryPolicy 触发一次重试；
+   * 重试后仍不可核验时走 postValidateFailureRecovery，剥离未核验项并保留 acceptance
+   * 主结果。这里刻意不做数据库语义比对——保守方向是少写状态，不是多写。
+   */
+  postValidate: (output, input) => {
+    const unverified = collectUnverifiedDivergences(output, input);
+    if (unverified.length === 0) {
+      return output;
+    }
+    throw new Error(
+      `${unverified.length} 条 divergence 的 contractQuotes 无法在本章合同中回查：`
+      + unverified.map((item) => item.summary).join(" / "),
+    );
+  },
+  postValidateFailureRecovery: ({ rawOutput, promptInput }) => {
+    const unverified = new Set(collectUnverifiedDivergences(rawOutput, promptInput));
+    if (unverified.size === 0) {
+      return rawOutput;
+    }
+    // 复审 M1：被剥离的偏离不能无声消失。推一个稳定 riskTag，让它顺着既有的
+    // riskTags → 质量债通路暴露出来，用户能看到「AI 检测到但没能核验」。
+    // 不新建通路，也不靠关键词重新猜测偏离。
+    const riskTags = rawOutput.riskTags.includes(UNVERIFIED_DIVERGENCE_DEBT_CODE)
+      ? rawOutput.riskTags
+      : [...rawOutput.riskTags, UNVERIFIED_DIVERGENCE_DEBT_CODE];
+    return {
+      ...rawOutput,
+      riskTags,
+      divergences: rawOutput.divergences.filter((item) => !unverified.has(item)),
+    };
+  },
 };

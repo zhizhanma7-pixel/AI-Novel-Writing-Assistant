@@ -1,6 +1,10 @@
 import type { StateChangeProposal } from "@ai-novel/shared/types/canonicalState";
 import { outlinePlanUpdatePayloadSchema } from "@ai-novel/shared/types/outlineWorkflow";
 import type { Prisma } from "@prisma/client";
+import {
+  assertChapterPlanWriteIsSafe,
+  type ChapterPlanMutation,
+} from "../../../planning/guards/ChapterContentProtectionGuard";
 import { StateProposalDomainError } from "../../../state/StateProposalDomainError";
 
 export async function applyOutlinePlanUpdate(
@@ -22,6 +26,22 @@ export async function applyOutlinePlanUpdate(
     orderBy: { order: "asc" },
   });
   const existingByOrder = new Map(existingChapters.map((chapter) => [chapter.order, chapter]));
+  const mutations: ChapterPlanMutation[] = payload.chapters.flatMap((chapterPlan) => {
+    const existing = existingByOrder.get(chapterPlan.order);
+    return existing
+      ? [{
+          operation: "update_plan_fields",
+          chapterId: existing.id,
+          currentChapterOrder: existing.order,
+          fields: ["title", "expectation", "taskSheet"],
+        }]
+      : [];
+  });
+  await assertChapterPlanWriteIsSafe(tx, {
+    novelId: proposal.novelId,
+    proposalType: proposal.proposalType,
+    mutations,
+  });
   const volume = await tx.volumePlan.upsert({
     where: { novelId_sortOrder: { novelId: proposal.novelId, sortOrder: 1 } },
     create: {

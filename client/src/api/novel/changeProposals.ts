@@ -9,6 +9,8 @@ import type {
   RejectChangeProposalInput,
   ReviewChangeProposalInput,
 } from "@ai-novel/shared/types/changeProposal";
+import type { ChapterDivergenceCorrectionResult } from "@ai-novel/shared/types/chapterDivergence";
+import type { ChapterDivergencePlanSuggestionResult } from "@ai-novel/shared/types/chapterDivergencePlanSuggestion";
 import type { DirectorCommandAcceptedResponse } from "@ai-novel/shared/types/directorRuntime";
 import type {
   FaithfulOutlineResult,
@@ -165,4 +167,30 @@ export function executeChangeProposal(
   proposalId: string,
 ): Promise<ChangeProposalActionResult> {
   return postProposalAction(`/novels/${novelId}/change-proposals/${proposalId}/execute`, {});
+}
+
+export async function suggestDivergencePlanChanges(
+  novelId: string,
+  proposalId: string,
+  itemId: string,
+): Promise<ChapterDivergencePlanSuggestionResult> {
+  const { data } = await apiClient.post<ApiResponse<ChapterDivergencePlanSuggestionResult>>(
+    `/novels/${novelId}/change-proposals/${proposalId}/items/${itemId}/plan-suggestions`,
+    {},
+    { silentErrorStatuses: REVIEW_ERROR_STATUSES },
+  );
+  return requireData(data, "无法生成后续调整建议。");
+}
+
+export async function correctChapterDivergence(
+  novelId: string,
+  proposalId: string,
+  itemId: string,
+): Promise<ChapterDivergenceCorrectionResult> {
+  const { data } = await apiClient.post<ApiResponse<ChapterDivergenceCorrectionResult>>(
+    `/novels/${novelId}/change-proposals/${proposalId}/items/${itemId}/correct`,
+    {},
+    { silentErrorStatuses: REVIEW_ERROR_STATUSES },
+  );
+  return requireData(data, "无法把正文改回原计划。");
 }

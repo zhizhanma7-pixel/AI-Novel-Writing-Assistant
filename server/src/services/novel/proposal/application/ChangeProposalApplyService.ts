@@ -13,6 +13,7 @@ import {
   type ChangeProposalRow,
 } from "../infrastructure/ChangeProposalMapper";
 import { changeProposalStalenessService } from "../infrastructure/ChangeProposalStalenessService";
+import { findConflictingDownstreamTarget } from "../chapterExecution/domain/ChapterDivergenceThreshold";
 import { changeProposalPolicyGateService } from "../runtime/ChangeProposalPolicyGateService";
 import { changeProposalService } from "./ChangeProposalService";
 import { assertProposedValueMatchesPayload } from "../domain/ProposedChangeValueMapper";
@@ -138,6 +139,32 @@ export class ChangeProposalApplyService {
         },
       );
     }
+    // 复审 M4：下游写目标冲突必须在**最终 payload** 上校验。生产期
+    // `downstreamPlanPatches` 恒为空，patch 是用户审阅时补的，因此只有这里
+    // 才拿得到完整输入。两个已批准项写同一个 `chapterOrder + 字段` 会让结果
+    // 依赖执行顺序，写入前必须拒绝。
+    const divergenceChanges = approvedChanges.filter((change) => (
+      change.proposalType === "chapter_execution_plan_update"
+    ));
+    if (divergenceChanges.length > 1) {
+      const conflict = findConflictingDownstreamTarget(divergenceChanges.map((change) => ({
+        path: change.changePath ?? undefined,
+        payload: parseJsonRecord(
+          change.reviewDecision === "modified" && change.userEditedPayloadJson
+            ? change.userEditedPayloadJson
+            : change.payloadJson,
+        ),
+      })));
+      if (conflict) {
+        throw new ChangeProposalError(
+          "invalid_review",
+          `Approved changes write the same downstream target ${conflict.target}; `
+          + "reject one of them or merge the patches before executing.",
+          { target: conflict.target, first: conflict.first, second: conflict.second },
+        );
+      }
+    }
+
     for (const change of approvedChanges) {
       const isModified = change.reviewDecision === "modified";
       if (isModified && !change.userEditedPayloadJson) {
