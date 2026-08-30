@@ -1,4 +1,5 @@
 import type { StateChangeProposal } from "@ai-novel/shared/types/canonicalState";
+import { characterImportPayloadSchema } from "@ai-novel/shared/types/characterImport";
 import { characterResourceUpdatePayloadSchema } from "@ai-novel/shared/types/characterResource";
 import {
   getStateProposalApplicationMode as getSharedStateProposalApplicationMode,
@@ -30,6 +31,46 @@ function parseJsonRecord(value: unknown): Record<string, unknown> {
 const DOMAIN_STATE_PROPOSAL_APPLIERS: Record<DomainStateProposalType, StateProposalApplier> = {
   outline_plan_update: applyOutlinePlanUpdate,
   chapter_execution_plan_update: applyChapterExecutionPlanUpdate,
+  /**
+   * 从外部资产导入一个角色。
+   *
+   * 走提案而不是直接写角色库，是设计文档对导入的硬要求。这里只在事务内建行，
+   * **不排队 RAG 索引**——既有的角色 applier（`character_state_update`）同样不排，
+   * 在事务内触发提交后才该发生的副作用会在回滚时留下孤儿任务。属 K5 同类的
+   * 已知边界：需要索引时由既有的重建路径补。
+   */
+  character_import: async (tx, proposal) => {
+    const parsed = characterImportPayloadSchema.safeParse(proposal.payload);
+    if (!parsed.success) {
+      throw new StateProposalDomainError({
+        proposalType: "character_import",
+        reason: "invalid_payload",
+        message: "Character import proposal has an invalid payload.",
+        cause: parsed.error,
+      });
+    }
+    const payload = parsed.data;
+    const novel = await tx.novel.findUnique({
+      where: { id: proposal.novelId },
+      select: { id: true },
+    });
+    if (!novel) {
+      throw new StateProposalDomainError({
+        proposalType: "character_import",
+        reason: "invalid_payload",
+        message: "Character import proposal references a missing novel.",
+      });
+    }
+    await tx.character.create({
+      data: {
+        novelId: proposal.novelId,
+        name: payload.name,
+        role: payload.role,
+        personality: payload.personality ?? null,
+        background: payload.background ?? null,
+      },
+    });
+  },
   character_resource_update: async (tx, proposal) => {
     const parsed = characterResourceUpdatePayloadSchema.safeParse(proposal.payload);
     if (!parsed.success) {

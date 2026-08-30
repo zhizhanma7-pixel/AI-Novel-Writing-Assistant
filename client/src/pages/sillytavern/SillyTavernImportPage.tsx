@@ -118,8 +118,9 @@ export default function SillyTavernImportPage() {
         if (result.styleProfileId) {
           parts.push("文风已存为写法资产");
         }
-        if (result.characterId) {
-          parts.push("角色已加入作品");
+        if (result.characterProposalId) {
+          // 角色走提案：这里没有"已加入"，只有"已提交待审"。
+          parts.push("角色已提交审阅，请到变更提案里确认后生效");
         }
         return parts.join("；") || "没有内容被导入。";
       }
@@ -205,6 +206,7 @@ export default function SillyTavernImportPage() {
           <div className="mt-1 text-sm leading-6 text-muted-foreground">{done}</div>
           <div className="mt-2 text-xs leading-5 text-muted-foreground">
             世界设定要在知识库里绑定给作品，文风要在写法绑定里启用，之后才会生效。
+            角色需要在作品的「变更提案」里审阅通过后才会真正加入。
           </div>
         </section>
       ) : null}

@@ -58,9 +58,9 @@ novel / chapter / task，改成支持 agent 要动枚举、迁移和所有消费
 都只产出资产，绑定由用户在既有的写法绑定 / 知识绑定界面完成。此处原先写的
 「本阶段绑到 novel」与交付切分表冲突，以「不自动绑定」为准。
 
-**per-agent 仍未做，而 Roadmap 的 Phase 3 Preset 验收里列了它**——这构成一个
-未满足的验收条件，不是可以静默延期的实现细节。是否把它纳入 Phase 3、还是
-显式改写验收口径，需要在封板前定，见本文末尾的待决口径。
+**per-agent 已按用户决定纳入 Phase 3 并实施**，见下文口径二。此处原先的
+「本阶段不做」判断已被推翻：Roadmap 列了它，不能只在实施计划里写「后续项」
+就当作满足。
 
 ### D2 — 生成参数导入但不接管模型路由
 
@@ -176,11 +176,42 @@ P8 是 D3 的守门用例，形态直接照搬 `chapterDivergencePlanSuggestionR
 - S2–S5 有用户可见能力，提交前走 `readme-release-updater`。
 - 跑 integration 前干净重建（`rm -rf server/dist`），旧 `dist` 会掩盖加载期问题。
 
-## 5b. 待决的验收口径（复审提出，封板前必须定）
+## 5b. 两条验收口径（用户 2026-08-30 定，已实施）
 
-两条 Roadmap 验收条件与当前实现不一致，都不是纯实现问题，需要先定口径：
+### 口径一 — Character Import Proposal：**只把角色那一路走 ChangeProposal**
 
-### 口径一 — Character Import Proposal
+设计文档要求「导入不要直接写正式角色库」。角色是小说范围的正式状态，适配既有
+`ChangeProposal` 信封（绑 `novelId`）；世界设定与写法资产是**全局**的，塞进
+那个信封语义不对，因此三路里只有角色进提案。
+
+新增 `character_import` 逐项类型与对应 applier，注册进 `StateProposalApplierRegistry`。
+导入时角色段产出一份 `pending_review` 提案，用户在该作品的「变更提案」里审阅、
+执行后才落成角色。**导入本身不写 `Character` 表**，有回归断言守着。
+
+顺带获得了原来缺的三样：可中断续做、`DirectorEvent` 账本记录、以及 apply 阶段
+的事务原子性。代价是一次导入会有两种结果——世界/文风立即可用，角色待审。
+
+一处踩到的既有规则：逐项的 `path` 终端段必须能在 payload 里找到同名键，
+因为 apply 前会校验「展示的 `after` 等于实际写入值」（2A 定下的规则）。
+所以 path 是 `characters.{name}.name` 而不是 `characters.{name}`。
+
+### 口径二 — per-agent preset：**纳入 Phase 3**
+
+`StyleBindingTargetType` 新增 `agent`，`targetId` 存环节名。双 Prisma schema
+与运行时契约（`chapterRuntime/styleSchemas`）一并同步——漏了后者会让按环节
+绑定的写法在组装上下文时被类型挡住。
+
+已接线的环节：正文生成（`writer`）与规划（`planner`）。`STYLE_BINDING_AGENTS`
+是那份清单，加新环节要同时接进对应的解析调用。
+
+优先级排在 novel 与 chapter 之间：环节比「整本书」具体，比「这一章」通用。
+不做隐式层级覆盖，最终顺序仍由 `priority` 决定。
+
+### 原始待决记录（供追溯）
+
+以下是定案前登记的选项与代价。
+
+#### 口径一的备选
 
 `02_SILLYTAVERN_COMPAT.md` 第 3 节明确写着「**导入不要直接写正式角色库**」，
 流程是 `Import Proposal → User Review → Commit`；Roadmap 的 Character Card
@@ -199,14 +230,10 @@ P8 是 D3 的守门用例，形态直接照搬 `chapterDivergencePlanSuggestionR
 2. 为导入单开一份轻量提案记录（满足可追溯与可续做，但等于新增一套平行审批）；
 3. 明确改写 Phase 3 的验收口径，承认"页面内逐段确认"即为 review，放弃提案账本。
 
-### 口径二 — per-agent preset assignment
+#### 口径二的备选
 
-Roadmap 的 Preset 验收列了 `per-agent assignment`（Planner / Writer / Reviewer
-各自选 preset）。现有 `StyleBindingTargetType` 只有 `novel` / `chapter` / `task`，
-支持它要改枚举、迁移并触及全部消费方。
-
-当前是延期。要么纳入 Phase 3，要么明确改写验收口径——不能只在实施计划里写
-"后续项"就当作满足了。
+Roadmap 的 Preset 验收列了 `per-agent assignment`。当时的选项是纳入 Phase 3
+或明确改写验收口径——已选前者。
 
 ## 6. 风险
 

@@ -14,6 +14,7 @@ export const STATE_PROPOSAL_APPLICATION_MODES = {
   character_resource_update: "domain_state",
   character_state_update: "domain_state",
   relation_state_update: "domain_state",
+  character_import: "domain_state",
 } as const satisfies Record<StateChangeProposal["proposalType"], StateProposalApplicationMode>;
 
 export type DomainStateProposalType = {

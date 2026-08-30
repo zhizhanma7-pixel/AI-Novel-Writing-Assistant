@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-const styleBindingTargetTypeSchema = z.enum(["novel", "chapter", "task"]);
+// 与 `styleEngine.ts` 的 `StyleBindingTargetType` 保持一致：新增 agent 后
+// 运行时契约也要认，否则按环节绑定的写法会在组装上下文时被类型挡住。
+const styleBindingTargetTypeSchema = z.enum(["novel", "chapter", "task", "agent"]);
 const styleContractSectionKeySchema = z.enum(["narrative", "character", "language", "rhythm", "antiAi", "selfCheck"]);
 const styleContractMaturitySchema = z.enum(["structured", "summary_only"]);
 

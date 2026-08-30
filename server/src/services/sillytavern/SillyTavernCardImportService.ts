@@ -6,7 +6,7 @@ import type {
   SillyTavernSegmentDecision,
   SillyTavernSegmentDestination,
 } from "@ai-novel/shared/types/sillytavernCardSplit";
-import { NovelCoreCharacterService } from "../novel/novelCoreCharacterService";
+import { changeProposalService } from "../novel/proposal/application/ChangeProposalService";
 import { StyleProfileService } from "../styleEngine/StyleProfileService";
 import { parseSillyTavernCard, SillyTavernParseError } from "./sillyTavernCardParser";
 import { listIgnoredCardFields, planSillyTavernCardSplit } from "./sillyTavernCardSplitPlanner";
@@ -38,7 +38,7 @@ export class SillyTavernCardImportService {
   constructor(
     private readonly worldBookImportService = new SillyTavernWorldBookImportService(),
     private readonly styleProfileService = new StyleProfileService(),
-    private readonly characterService = new NovelCoreCharacterService(),
+    private readonly proposalService: Pick<typeof changeProposalService, "createProposal"> = changeProposalService,
   ) {}
 
   /** 纯解析与规划，不写任何库。 */
@@ -109,24 +109,52 @@ export class SillyTavernCardImportService {
       styleProfileId = profile.id;
     }
 
-    let characterId: string | null = null;
+    // 角色**不直接写角色库**：设计文档要求导入走提案。角色是小说范围的正式
+    // 状态，适配既有 `ChangeProposal` 信封；世界设定与写法是全局资产，不适配，
+    // 所以只有这一路进提案。
+    let characterProposalId: string | null = null;
     if (characterSegments.length > 0 && input.novelId) {
-      const character = await this.characterService.createCharacter(input.novelId, {
-        name: input.characterName?.trim() || cardName,
+      const name = input.characterName?.trim() || cardName;
+      const payload = {
+        name,
         // 默认「配角」而不是「主角」：正文与统计链路用 `role === "主角"` 和
         // /主角|反派/ 判定身份，导入一张卡不该让它自动成为这本书的主角。
         role: input.characterRole?.trim() || "配角",
-        personality: this.joinByField(characterSegments, "personality") || undefined,
-        background: this.joinByField(characterSegments, "description", "scenario") || undefined,
+        personality: this.joinByField(characterSegments, "personality") || null,
+        background: this.joinByField(characterSegments, "description", "scenario") || null,
+        sourceLabel: `SillyTavern 角色卡 · ${cardName}`,
+      };
+      const proposal = await this.proposalService.createProposal(input.novelId, {
+        proposalType: "asset_import",
+        summary: `从 SillyTavern 角色卡导入角色「${name}」`,
+        reasoningSummary: `由 ${characterSegments.length} 段被判定为角色事实的内容组成。`,
+        submitForReview: true,
+        sourceRefs: [],
+        warnings: [],
+        changes: [{
+          proposalType: "character_import",
+          // 路径的终端段必须对应 payload 里的一个键：apply 前会校验
+          // 「展示的 after 等于实际写入值」，这是 2A 定下的规则。
+          path: `characters.${name}.name`,
+          operation: "add",
+          category: "character",
+          severity: "major",
+          before: null,
+          after: name,
+          payload,
+          reason: "这些内容被判定为属于这个角色本身。",
+          evidence: characterSegments.map((item) => item.segment.sourceLabel),
+          sourceRefs: [],
+        }],
       });
-      characterId = character.id;
+      characterProposalId = proposal.id;
     }
 
     return {
       knowledgeDocumentId,
       knowledgeUnchanged,
       styleProfileId,
-      characterId,
+      characterProposalId,
       appliedCounts: {
         world: worldSegments.length,
         style: styleSegments.length,

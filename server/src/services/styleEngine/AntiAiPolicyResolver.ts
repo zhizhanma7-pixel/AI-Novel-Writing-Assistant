@@ -11,8 +11,10 @@ import { mapAntiAiRuleRow, mapStyleProfileRow } from "./helpers";
 
 const TARGET_PRIORITY: Record<StyleBinding["targetType"], number> = {
   novel: 1,
-  chapter: 2,
-  task: 3,
+  // 环节绑定比「整本书」具体，但比「这一章」通用。
+  agent: 2,
+  chapter: 3,
+  task: 4,
 };
 
 function sortEffectiveBindings(bindings: StyleBinding[]): StyleBinding[] {

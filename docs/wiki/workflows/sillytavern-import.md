@@ -82,10 +82,31 @@ character_book 那套为准；不认识的原生字段一律 passthrough 保留�
 只对该角色生效，角色事实进了世界则对所有角色生效。**两个方向的错都不便宜，
 所以交给作者判断而不是让模型猜。**
 
-## 尚未满足的 Roadmap 验收
+## 角色走提案，世界与文风直接入库
 
-封板前需要定口径，见 `docs/dev/IMPLEMENTATION_PLAN_SILLYTAVERN_IMPORT.md`：
+**导入不直接写正式角色库**——设计文档的硬要求。角色是小说范围的正式状态，
+因此走既有 `ChangeProposal` 信封：导入产出一份 `pending_review` 提案
+（逐项类型 `character_import`），用户在该作品的「变更提案」里审阅并执行后
+才落成角色。
 
-- **Character Import Proposal**：设计文档要求「导入不要直接写正式角色库」，
-  当前是页面内逐段确认后直接写入，没有持久化提案与账本记录。
-- **per-agent preset assignment**：现有绑定只有 novel / chapter / task。
+世界设定与写法资产**不走提案**：它们是全局资产，不属于任何一本书，塞进
+绑 `novelId` 的信封语义不对。
+
+这条分界的后果要对用户讲清楚：**一次导入会有两种结果**——世界设定与文风
+立即可用（仍需绑定），角色则要再确认一次。
+
+一处容易踩的既有规则：逐项的 `path` 终端段必须能在 payload 里找到同名键，
+因为 apply 前会校验「展示的 `after` 等于实际写入值」。
+
+## 按环节绑定写法（per-agent）
+
+`StyleBindingTargetType` 的 `agent` 表示按**环节**绑定，`targetId` 存环节名。
+已接线的环节是正文生成（`writer`）与规划（`planner`）；`STYLE_BINDING_AGENTS`
+是那份清单，**加新环节要同时接进对应的解析调用**，否则绑定建得出来却不生效。
+
+优先级排在 novel 与 chapter 之间：环节比「整本书」具体，比「这一章」通用。
+不做隐式层级覆盖，最终顺序由 `priority` 决定。
+
+新增绑定目标时要同步的地方：双 Prisma schema 的枚举、`styleEngine.ts` 的类型、
+运行时契约 `chapterRuntime/styleSchemas`、优先级表（两处）、编译器标签表、
+路由校验、前端标签表。漏掉运行时契约会让绑定在组装上下文时被类型挡住。

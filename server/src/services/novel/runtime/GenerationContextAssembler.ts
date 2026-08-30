@@ -278,6 +278,8 @@ export class GenerationContextAssembler {
         novelId,
         chapterId,
         taskStyleProfileId: request.taskStyleProfileId,
+        // 正文生成环节：绑到 writer 的写法在这里生效。
+        agent: "writer",
       }),
       payoffLedgerSyncService.getPayoffLedger(novelId, {
         chapterOrder: chapter.order,

@@ -17,7 +17,18 @@ export type StyleSourceType =
   | "from_sillytavern_card";
 export type StyleExtractionSourceProcessingMode = "full_text" | "representative_sample";
 export type StyleProfileStatus = "active" | "archived";
-export type StyleBindingTargetType = "novel" | "chapter" | "task";
+/**
+ * 写法绑定的作用目标。
+ *
+ * `agent` 是按**环节**绑定（`targetId` 存环节名，如 `writer` / `planner`），
+ * 让「正文用一种写法、规划用另一种」成为可能。它与 novel / chapter 并列，
+ * 谁先生效由 `priority` 决定，不做隐式的层级覆盖。
+ */
+export type StyleBindingTargetType = "novel" | "chapter" | "task" | "agent";
+
+/** 目前接了写法解析的环节。加新环节要同时把它接进对应的解析调用。 */
+export const STYLE_BINDING_AGENTS = ["writer", "planner"] as const;
+export type StyleBindingAgent = typeof STYLE_BINDING_AGENTS[number];
 export type AntiAiRuleType = "forbidden" | "risk" | "encourage";
 export type StyleDetectionRuleType = "style" | "character" | AntiAiRuleType;
 export type AntiAiSeverity = "low" | "medium" | "high";

@@ -186,9 +186,28 @@ async function main() {
     const style = applied.styleProfileId
       ? await prisma.styleProfile.findUnique({ where: { id: applied.styleProfileId } })
       : null;
-    const character = applied.characterId
-      ? await prisma.character.findUnique({ where: { id: applied.characterId } })
+    // 角色现在走提案：先看提案落成什么样，再确认角色库里此刻还没有它。
+    const characterProposal = applied.characterProposalId
+      ? await prisma.changeProposal.findUnique({
+        where: { id: applied.characterProposalId },
+        include: { changes: true },
+      })
       : null;
+    const charactersBeforeReview = await prisma.character.count({ where: { novelId: novel.id } });
+
+    // 走一遍正式审阅链路，确认提案能真正落成角色。
+    let committedCharacter = null;
+    if (characterProposal) {
+      const {
+        changeProposalReviewService,
+      } = require(path.join(repoRoot, "server", "dist", "services", "novel", "proposal", "application", "ChangeProposalReviewService.js"));
+      const {
+        changeProposalApplyService,
+      } = require(path.join(repoRoot, "server", "dist", "services", "novel", "proposal", "application", "ChangeProposalApplyService.js"));
+      await changeProposalReviewService.approveProposal(novel.id, characterProposal.id, {});
+      await changeProposalApplyService.executeProposal(novel.id, characterProposal.id);
+      committedCharacter = await prisma.character.findFirst({ where: { novelId: novel.id } });
+    }
 
     console.log(JSON.stringify({
       planChangedTables: diffSnapshots(beforePlan, afterPlan),
@@ -201,16 +220,19 @@ async function main() {
       pngAppliedCounts: pngApplied.appliedCounts,
       pngKnowledgeDocumentId: pngApplied.knowledgeDocumentId,
       pngStyleProfileId: pngApplied.styleProfileId,
-      pngCharacterId: pngApplied.characterId,
+      pngCharacterProposalId: pngApplied.characterProposalId,
       applyChangedTables: diffSnapshots(beforeApply, afterApply),
       applied,
       knowledgeContent: knowledge ? knowledge.activeVersion.content : null,
       styleSummary: style ? JSON.parse(style.narrativeRulesJson || "{}").summary : null,
       styleSourceType: style ? style.sourceType : null,
-      characterName: character ? character.name : null,
-      characterPersonality: character ? character.personality : null,
-      characterBackground: character ? character.background : null,
-      characterNovelId: character ? character.novelId : null,
+      characterProposalStatus: characterProposal ? characterProposal.status : null,
+      characterProposalType: characterProposal ? characterProposal.changes[0].proposalType : null,
+      charactersBeforeReview,
+      characterName: committedCharacter ? committedCharacter.name : null,
+      characterPersonality: committedCharacter ? committedCharacter.personality : null,
+      characterBackground: committedCharacter ? committedCharacter.background : null,
+      characterNovelId: committedCharacter ? committedCharacter.novelId : null,
       novelId: novel.id,
     }));
   } finally {
@@ -321,7 +343,16 @@ test("one card splits three ways according to the decisions", () => {
   assert.ok(result.styleSummary.includes("用冷硬的短句写"));
   assert.ok(result.styleSummary.includes("你不该来"));
 
-  // 角色：性格与被判为角色事实的那一段。
+  // 角色：走提案，不直接写角色库。
+  assert.equal(result.characterProposalStatus, "pending_review");
+  assert.equal(result.characterProposalType, "character_import");
+  assert.equal(
+    result.charactersBeforeReview,
+    0,
+    "设计文档要求导入不直接写正式角色库：审阅前不该有角色",
+  );
+
+  // 审阅通过并执行之后才真正落成角色。
   assert.equal(result.characterName, "沈砚");
   assert.equal(result.characterPersonality, "沉默，护短");
   assert.ok(result.characterBackground.includes("左手有旧伤"));
@@ -352,14 +383,25 @@ test("applying touches only the three destination tables", () => {
     "KnowledgeDocument",
     "KnowledgeDocumentVersion",
     "StyleProfile",
-    "Character",
-    // 知识与角色都会排队重建 RAG 索引，走的是既有队列。
+    // 角色走提案，所以这一趟写的是提案信封与逐项，而不是 Character。
+    // 提案还会被索引为 DirectorArtifact 并记事件——那是既有提案体系
+    // 自带的账本与 stale 检测，正是走这条路想要的东西。
+    "ChangeProposal",
+    "StateChangeProposal",
+    "DirectorEvent",
+    "DirectorArtifact",
+    // 知识入库会排队重建 RAG 索引，走的是既有队列。
     "RagIndexJob",
   ].includes(table));
   assert.deepEqual(unexpected, [], `意外写入的表：${unexpected.join(", ")}`);
   assert.ok(result.applyChangedTables.includes("KnowledgeDocument"));
   assert.ok(result.applyChangedTables.includes("StyleProfile"));
-  assert.ok(result.applyChangedTables.includes("Character"));
+  assert.ok(result.applyChangedTables.includes("ChangeProposal"));
+  assert.equal(
+    result.applyChangedTables.includes("Character"),
+    false,
+    "导入本身不该写角色库",
+  );
 });
 
 test("a card extracted from a PNG goes through the same split pipeline", () => {
@@ -375,6 +417,6 @@ test("a card extracted from a PNG goes through the same split pipeline", () => {
   assert.equal(result.pngAppliedCounts.style, 2);
   assert.ok(result.pngKnowledgeDocumentId, "世界设定应当落地");
   assert.ok(result.pngStyleProfileId, "文风应当落地");
-  // 这次没有段落分给角色，也就没给 novelId，因此不该创建角色。
-  assert.equal(result.pngCharacterId, null);
+  // 这次没有段落分给角色，也就没给 novelId，因此不该产生角色提案。
+  assert.equal(result.pngCharacterProposalId, null);
 });

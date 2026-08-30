@@ -57,6 +57,8 @@ export default function WritingFormulaWorkbenchPanel(props: WritingFormulaWorkbe
 
   const bindingTargetLabel: Record<StyleBinding["targetType"], string> = {
     novel: "整本书",
+    // 按环节绑定：targetId 是环节名（写正文 / 做规划）。
+    agent: "指定环节",
     chapter: "章节",
     task: "本次任务",
   };

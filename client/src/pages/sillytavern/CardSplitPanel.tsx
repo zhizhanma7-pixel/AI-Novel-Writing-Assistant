@@ -152,6 +152,7 @@ export default function CardSplitPanel(props: {
             <div className="text-sm font-medium text-foreground">这个角色属于哪本书</div>
             <div className="mt-1 text-xs leading-5 text-muted-foreground">
               角色必须归属一本书；世界设定和文风是全局的，不需要选。
+              角色会先提交为待审提案，在该作品的「变更提案」里确认后才真正加入。
             </div>
           </div>
           <Select value={novelId || "choose"} onValueChange={(value) => setNovelId(value === "choose" ? "" : value)}>

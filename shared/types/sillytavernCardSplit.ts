@@ -79,8 +79,13 @@ export const sillyTavernCardApplyResultSchema = z.object({
   knowledgeUnchanged: z.boolean(),
   /** 文风去处。 */
   styleProfileId: z.string().nullable(),
-  /** 角色去处。角色必须归属一本书，所以只有给了 novelId 才会写。 */
-  characterId: z.string().nullable(),
+  /**
+   * 角色那一路产生的待审提案 id。
+   *
+   * 角色**不直接写入**：设计文档要求导入走提案，且角色是小说范围的正式状态，
+   * 适配既有 `ChangeProposal` 信封。世界设定与写法是全局资产，不进提案。
+   */
+  characterProposalId: z.string().nullable(),
   appliedCounts: z.object({
     world: z.number().int().nonnegative(),
     style: z.number().int().nonnegative(),

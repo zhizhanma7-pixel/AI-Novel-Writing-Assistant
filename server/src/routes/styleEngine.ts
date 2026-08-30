@@ -128,7 +128,7 @@ const antiAiRuleAiDraftSchema = z.object({
 
 const bindingSchema = z.object({
   styleProfileId: z.string().trim().min(1),
-  targetType: z.enum(["novel", "chapter", "task"]),
+  targetType: z.enum(["novel", "chapter", "task", "agent"]),
   targetId: z.string().trim().min(1),
   priority: z.number().int().min(0).default(1),
   weight: z.number().min(0.3).max(1).default(1),
@@ -136,7 +136,7 @@ const bindingSchema = z.object({
 });
 
 const bindingQuerySchema = z.object({
-  targetType: z.enum(["novel", "chapter", "task"]).optional(),
+  targetType: z.enum(["novel", "chapter", "task", "agent"]).optional(),
   targetId: z.string().trim().optional(),
   styleProfileId: z.string().trim().optional(),
 });
