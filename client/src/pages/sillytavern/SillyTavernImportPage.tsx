@@ -248,7 +248,8 @@ export default function SillyTavernImportPage() {
               {inspected.worldBookPreview.unknownFields.length > 0 ? (
                 <div className="text-xs leading-5 text-muted-foreground">
                   这份文件里有本项目还不认识的内容：
-                  {inspected.worldBookPreview.unknownFields.join("、")}。它们不会被导入。
+                  {inspected.worldBookPreview.unknownFields.join("、")}。
+                  它们不参与解析，但会原样附在文档末尾，方便日后回溯。
                 </div>
               ) : null}
               <Button

@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import type {
-  SillyTavernCardSplitPlan,
-  SillyTavernSegmentDestination,
+import {
+  SILLYTAVERN_UNKNOWN_SEGMENT_FIELD,
+  type SillyTavernCardSplitPlan,
+  type SillyTavernSegmentDestination,
 } from "@ai-novel/shared/types/sillytavernCardSplit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,14 @@ export default function CardSplitPanel(props: {
     choices[segmentId]
   );
 
+  // 未识别内容是一段 JSON：进角色或写法只会把读不懂的元信息当成事实或指令，
+  // 服务端也会拒。这里就不把那两个选项摆出来。
+  const optionsFor = (sourceField: string) => (
+    sourceField === SILLYTAVERN_UNKNOWN_SEGMENT_FIELD
+      ? DESTINATION_OPTIONS.filter((option) => option.value === "world" || option.value === "skip")
+      : DESTINATION_OPTIONS
+  );
+
   const undecided = props.plan.segments.filter((segment) => !destinationOf(segment.id));
   const goesToCharacter = props.plan.segments.some(
     (segment) => destinationOf(segment.id) === "character",
@@ -86,9 +95,10 @@ export default function CardSplitPanel(props: {
             这张卡里有本项目还不认识的内容
           </div>
           <div className="mt-1 text-xs leading-5 text-amber-900/80 dark:text-amber-200/80">
-            {props.plan.unknownFields.join("、")} —— 现在不会进入任何一个去处。
-            只要这次导入产生了角色或文风资产，原始文件就会随之留存，将来支持了还能找回；
-            若这次只导入世界设定，原文不会被保存，建议自己留一份原文件。
+            {props.plan.unknownFields.join("、")} —— 它们不会被解读。
+            下面「原始文件中未被识别的内容」那一段就是它们的原值，默认不导入；
+            你可以把它选成「世界设定」，原值会附在世界文档末尾，日后还能回溯。
+            另外，只要这次导入产生了角色或文风资产，整份原始文件也会随之留存。
           </div>
         </section>
       ) : null}
@@ -147,7 +157,7 @@ export default function CardSplitPanel(props: {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="choose" disabled>选择这段内容的去向</SelectItem>
-                  {DESTINATION_OPTIONS.map((option) => (
+                  {optionsFor(segment.sourceField).map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label} — {option.hint}
                     </SelectItem>

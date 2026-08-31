@@ -1,10 +1,11 @@
 import type { ParsedSillyTavernCard } from "@ai-novel/shared/types/sillytavernCard";
-import type {
-  SillyTavernCardApplyResult,
-  SillyTavernCardSegment,
-  SillyTavernCardSplitPlan,
-  SillyTavernSegmentDecision,
-  SillyTavernSegmentDestination,
+import {
+  SILLYTAVERN_UNKNOWN_SEGMENT_FIELD,
+  type SillyTavernCardApplyResult,
+  type SillyTavernCardSegment,
+  type SillyTavernCardSplitPlan,
+  type SillyTavernSegmentDecision,
+  type SillyTavernSegmentDestination,
 } from "@ai-novel/shared/types/sillytavernCardSplit";
 import { changeProposalService } from "../novel/proposal/application/ChangeProposalService";
 import { StyleProfileService } from "../styleEngine/StyleProfileService";
@@ -189,6 +190,19 @@ export class SillyTavernCardImportService {
           `提交的内容里有一段不属于这张卡（${decision.segmentId}），请重新读取后再确认。`,
         );
       }
+      // 未识别内容是一段 JSON，进角色背景或写法约束都是错的：那会把读不懂的
+      // 元信息当成作品事实或写作指令喂给模型。只允许「随世界设定留存」或不导入。
+      const segment = byId.get(decision.segmentId);
+      if (
+        segment?.sourceField === SILLYTAVERN_UNKNOWN_SEGMENT_FIELD
+        && decision.destination !== "world"
+        && decision.destination !== "skip"
+      ) {
+        throw new SillyTavernParseError(
+          "invalid_destination",
+          "未识别内容只能随世界设定留存，或者不导入。",
+        );
+      }
       chosen.set(decision.segmentId, decision.destination);
     }
 
@@ -218,12 +232,25 @@ export class SillyTavernCardImportService {
     if (worldSegments.length > 0 || plan.embeddedBook) {
       sections.push(`# ${cardName} · 世界设定`);
     }
-    for (const { segment } of worldSegments) {
+    // 未识别内容是附录，排在正文与内嵌世界书之后，不要插进设定中间。
+    const isUnknown = (segment: SillyTavernCardSegment) => (
+      segment.sourceField === SILLYTAVERN_UNKNOWN_SEGMENT_FIELD
+    );
+    for (const { segment } of worldSegments.filter((item) => !isUnknown(item.segment))) {
       sections.push(`## ${segment.sourceLabel}\n\n${segment.text.trim()}`);
     }
     // 卡片内嵌的世界书归属确定，随世界设定一起入库。
     if (plan.embeddedBook?.content) {
       sections.push(plan.embeddedBook.content);
+    }
+    for (const { segment } of worldSegments.filter((item) => isUnknown(item.segment))) {
+      sections.push([
+        `## ${segment.sourceLabel}`,
+        "",
+        "以下内容本项目当前不解读，是你在导入时选择保留的，原样附在这里以便日后回溯：",
+        "",
+        segment.text.trim(),
+      ].join("\n"));
     }
     return sections.join("\n\n").trim();
   }

@@ -1,8 +1,9 @@
 import type { ParsedSillyTavernCard } from "@ai-novel/shared/types/sillytavernCard";
-import type {
-  SillyTavernCardSegment,
-  SillyTavernSegmentDestination,
-  SillyTavernSuggestionOrigin,
+import {
+  SILLYTAVERN_UNKNOWN_SEGMENT_FIELD,
+  type SillyTavernCardSegment,
+  type SillyTavernSegmentDestination,
+  type SillyTavernSuggestionOrigin,
 } from "@ai-novel/shared/types/sillytavernCardSplit";
 
 /**
@@ -139,7 +140,43 @@ export function planSillyTavernCardSplit(parsed: ParsedSillyTavernCard): SillyTa
     }
   }
 
+  const unknown = buildUnknownSegment(parsed);
+  if (unknown) {
+    segments.push(unknown);
+  }
+
   return segments;
+}
+
+/**
+ * 解析器认不出的字段，单独成一段交给作者取舍。
+ *
+ * **默认「不导入」，保持原有行为**——不擅自把一段 JSON 塞进检索。但它必须摆在
+ * 台面上：一张卡的内容若全部分到世界设定，就不会产生角色提案或写法资产，原文
+ * 没有任何载体，这些值会不可逆地消失。作者只有在这里才能让它们跟着走。
+ *
+ * `origin` 是 `deterministic` 而不是 `needs_review`：多数 V2/V3 卡片都带
+ * `extensions` 之类的未知字段，强制逐张确认只会变成每次都要点一下的噪音。
+ */
+function buildUnknownSegment(parsed: ParsedSillyTavernCard): SillyTavernCardSegment | null {
+  const entries = Object.entries(parsed.rawImportedMetadata);
+  if (entries.length === 0) {
+    return null;
+  }
+  return {
+    id: `${SILLYTAVERN_UNKNOWN_SEGMENT_FIELD}:0`,
+    sourceField: SILLYTAVERN_UNKNOWN_SEGMENT_FIELD,
+    // 这个标签同时是世界文档里那一段的小标题，所以直接写成能独立读懂的话。
+    sourceLabel: "原始文件中未被识别的内容",
+    text: entries
+      .map(([key, value]) => `- ${key}：${JSON.stringify(value)}`)
+      .join("\n"),
+    suggestedDestination: "skip",
+    reason: "本项目还不解读这些字段。默认不导入；选「世界设定」会把原值原样附在"
+      + "世界文档末尾，日后仍能回溯——若这张卡的内容全部去了世界设定，这是原文"
+      + "唯一的留存机会。",
+    origin: "deterministic",
+  };
 }
 
 /**

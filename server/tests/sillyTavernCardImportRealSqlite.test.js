@@ -178,6 +178,51 @@ async function main() {
     });
     const afterApply = await snapshotDatabase(prisma);
 
+    // 全部分流到世界设定的那一趟：不产生角色提案、不产生写法资产，原文没有
+    // 别的载体。未识别内容这一段是作者唯一能让原值留下来的地方。
+    const worldOnlyDecisions = [
+      { segmentId: "description:0", destination: "world" },
+      { segmentId: "description:1", destination: "world" },
+      { segmentId: "scenario:0", destination: "world" },
+      { segmentId: "personality:0", destination: "skip" },
+      { segmentId: "system_prompt:0", destination: "skip" },
+      { segmentId: "first_mes:0", destination: "skip" },
+      { segmentId: "__unknown__:0", destination: "world" },
+    ];
+    const worldOnly = await service.apply({
+      rawJson: CARD,
+      decisions: worldOnlyDecisions,
+      knowledgeTitle: "只有世界设定的卡片",
+    });
+    const worldOnlyKnowledge = worldOnly.knowledgeDocumentId
+      ? await prisma.knowledgeDocument.findUnique({
+        where: { id: worldOnly.knowledgeDocumentId },
+        include: { activeVersion: true },
+      })
+      : null;
+
+    // 默认不选它时，现状保持不变：原值不进任何去处。
+    const worldOnlyDefault = await service.apply({
+      rawJson: CARD,
+      decisions: worldOnlyDecisions.filter((item) => item.segmentId !== "__unknown__:0"),
+      knowledgeTitle: "未识别内容默认不导入",
+    });
+    const worldOnlyDefaultKnowledge = worldOnlyDefault.knowledgeDocumentId
+      ? await prisma.knowledgeDocument.findUnique({
+        where: { id: worldOnlyDefault.knowledgeDocumentId },
+        include: { activeVersion: true },
+      })
+      : null;
+
+    // 一段 JSON 进角色背景或写法约束都是错的：服务端要挡住。
+    const unknownToCharacter = await expectRejection(() => service.apply({
+      rawJson: CARD,
+      decisions: worldOnlyDecisions
+        .filter((item) => item.segmentId !== "__unknown__:0")
+        .concat([{ segmentId: "__unknown__:0", destination: "character" }]),
+      novelId: novel.id,
+    }));
+
     const knowledge = applied.knowledgeDocumentId
       ? await prisma.knowledgeDocument.findUnique({
         where: { id: applied.knowledgeDocumentId },
@@ -233,6 +278,14 @@ async function main() {
         ? JSON.parse(characterProposal.changes[0].payloadJson)
         : null,
       planUnknownFields: plan.unknownFields,
+      worldOnlyApplied: worldOnly.appliedCounts,
+      worldOnlyStyleProfileId: worldOnly.styleProfileId,
+      worldOnlyCharacterProposalId: worldOnly.characterProposalId,
+      worldOnlyKnowledgeContent: worldOnlyKnowledge ? worldOnlyKnowledge.activeVersion.content : null,
+      worldOnlyDefaultKnowledgeContent: worldOnlyDefaultKnowledge
+        ? worldOnlyDefaultKnowledge.activeVersion.content
+        : null,
+      unknownToCharacter,
       charactersBeforeReview,
       characterName: committedCharacter ? committedCharacter.name : null,
       characterPersonality: committedCharacter ? committedCharacter.personality : null,
@@ -330,7 +383,8 @@ test("one card splits three ways according to the decisions", () => {
     world: 1,
     style: 2,
     character: 2,
-    skipped: 1,
+    // scenario 那段，加上默认不导入的「未识别内容」。
+    skipped: 2,
   });
 
   // 世界设定：第一段描述 + 卡片内嵌的世界书。
@@ -440,4 +494,41 @@ test("the original file survives in the proposal so unknown fields stay recovera
     { depth_prompt: { prompt: "保持冷淡", depth: 4 } },
     "没被识别的字段要能从提案里原样取回",
   );
+});
+
+test("routing the unrecognised segment to world is the author's own call", () => {
+  const result = scenarioResult();
+
+  // 全部内容都去了世界设定：没有角色提案、没有写法资产，原文没有别的载体。
+  assert.equal(result.worldOnlyStyleProfileId, null);
+  assert.equal(result.worldOnlyCharacterProposalId, null);
+
+  // 作者选了「世界设定」，原值就跟着进文档，日后还能回溯。
+  assert.ok(result.worldOnlyKnowledgeContent.includes("原始文件中未被识别的内容"));
+  assert.ok(result.worldOnlyKnowledgeContent.includes("extensions"));
+  assert.ok(result.worldOnlyKnowledgeContent.includes("保持冷淡"), "原值要原样留住");
+
+  // 附录排在正文与内嵌世界书之后，不插进设定中间。
+  const appendixAt = result.worldOnlyKnowledgeContent.indexOf("原始文件中未被识别的内容");
+  const bookAt = result.worldOnlyKnowledgeContent.indexOf("影卫直属城主");
+  assert.ok(bookAt >= 0 && bookAt < appendixAt, "未识别内容应当排在最后");
+});
+
+test("leaving the unrecognised segment alone keeps the previous behaviour", () => {
+  const result = scenarioResult();
+
+  // 默认值就是现状：不擅自把一段 JSON 塞进检索。
+  assert.equal(
+    result.worldOnlyDefaultKnowledgeContent.includes("原始文件中未被识别的内容"),
+    false,
+  );
+  assert.equal(result.worldOnlyDefaultKnowledgeContent.includes("保持冷淡"), false);
+});
+
+test("the unrecognised segment cannot be routed into a character or a style asset", () => {
+  const result = scenarioResult();
+
+  // 那会把读不懂的元信息当成作品事实或写作指令喂给模型。
+  assert.equal(result.unknownToCharacter.rejected, true);
+  assert.equal(result.unknownToCharacter.code, "invalid_destination");
 });

@@ -208,6 +208,37 @@ test("unrecognised content is kept in the document instead of vanishing", () => 
   assert.ok(preview.content.includes("100"));
 });
 
+test("an unknown top-level field keeps its value, not just its name", () => {
+  // 曾经的行为：顶层未知字段的值只有解析层手上有，渲染却一律回条目里找，
+  // 于是文档里只剩一个字段名，值永久消失。
+  const preview = service.preview({
+    name: "北境设定",
+    entries: { "0": { key: ["影卫"], content: "影卫直属城主。" } },
+    future_top: { secret: "KEEP" },
+  });
+
+  assert.deepEqual(preview.unknownFields, ["future_top"]);
+  assert.ok(preview.content.includes("原始文件中未被识别的内容"));
+  assert.ok(preview.content.includes("future_top"), "字段名要出现");
+  assert.ok(preview.content.includes("KEEP"), "顶层字段的值必须原样留在文档里");
+});
+
+test("top-level and per-entry unknowns are both kept when they show up together", () => {
+  // 曾经的行为：条目里恰好也有未知字段时，条目那几行把顶层字段整个挤掉，
+  // 顶层的连名字都不出现。两个来源必须各自渲染。
+  const preview = service.preview({
+    name: "北境设定",
+    entries: { "0": { key: ["影卫"], content: "影卫直属城主。", uid: 42 } },
+    future_top: { secret: "KEEP" },
+  });
+
+  assert.deepEqual([...preview.unknownFields].sort(), ["future_top", "uid"]);
+  assert.ok(preview.content.includes("future_top"));
+  assert.ok(preview.content.includes("KEEP"), "顶层值不能被条目那几行挤掉");
+  assert.ok(preview.content.includes("uid"));
+  assert.ok(preview.content.includes("42"), "条目值同样要留住");
+});
+
 test("a book with nothing unrecognised gets no extra section", () => {
   const preview = service.preview(book([
     { keys: ["影卫"], content: "内容", enabled: true, insertion_order: 0 },

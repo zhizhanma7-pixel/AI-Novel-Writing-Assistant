@@ -55,11 +55,34 @@ function renderEntry(entry: SillyTavernBookEntry, index: number): string {
   return lines.join("\n");
 }
 
+/**
+ * 未识别内容的两个来源，必须分开传。
+ *
+ * 顶层字段的值只有解析层手上有（`rawImportedMetadata`），条目里的值挂在条目
+ * 对象上。把两者压成一个字段名数组、再统一回条目里找值是行不通的：顶层字段
+ * 在条目上永远找不到，值就此消失；而条目里恰好也有未知字段时，顶层那一条连
+ * 名字都不会出现。
+ */
+interface WorldBookUnknownSources {
+  /** 顶层未识别字段：键是字段名，值是原值。 */
+  topLevel?: Record<string, unknown>;
+  /** 条目内未识别的字段名；值逐条从条目对象上取。 */
+  entryFields?: string[];
+}
+
 function buildPreview(
   book: SillyTavernBook,
   warnings: SillyTavernWorldBookPreview["warnings"],
-  unknownFields: string[] = [],
+  unknown: WorldBookUnknownSources = {},
 ): SillyTavernWorldBookPreview {
+  const topLevelUnknown = unknown.topLevel ?? {};
+  const entryUnknownFields = unknown.entryFields ?? [];
+  // 对外仍然只报字段名，两处合并去重——契约没变，变的是它们怎么被渲染。
+  const unknownFields = [...new Set([
+    ...Object.keys(topLevelUnknown),
+    ...entryUnknownFields,
+  ])].sort();
+
   const included = book.entries.filter((entry) => entry.enabled && entry.content.trim());
   const excluded = book.entries.filter((entry) => !entry.enabled);
 
@@ -80,22 +103,26 @@ function buildPreview(
     // 未识别的内容也要能被找回来。知识文档没有存放原始文件的位置，
     // 但把这些字段原样附在末尾、明确标注，比让它们永久消失强——
     // 只在确实存在时才附加，绝大多数文件不会多出这一段。
-    const unknownPayload = book.entries
-      .map((entry, index) => {
-        const extras = Object.fromEntries(
-          Object.entries(entry).filter(([key]) => unknownFields.includes(key)),
-        );
-        return Object.keys(extras).length > 0
-          ? `- 第 ${index + 1} 条：${JSON.stringify(extras)}`
-          : null;
-      })
-      .filter((line): line is string => line !== null);
+    const unknownPayload: string[] = [];
+    // 顶层字段：值就在解析结果里，原样写出来，不要退化成只剩一个字段名。
+    for (const key of Object.keys(topLevelUnknown).sort()) {
+      unknownPayload.push(`- 顶层字段 ${key}：${JSON.stringify(topLevelUnknown[key])}`);
+    }
+    // 条目内字段：值挂在条目对象上，按原文件里的条目顺序逐条取。
+    for (const [index, entry] of book.entries.entries()) {
+      const extras = Object.fromEntries(
+        Object.entries(entry).filter(([key]) => entryUnknownFields.includes(key)),
+      );
+      if (Object.keys(extras).length > 0) {
+        unknownPayload.push(`- 第 ${index + 1} 条：${JSON.stringify(extras)}`);
+      }
+    }
     sections.push([
       "## 原始文件中未被识别的内容",
       "",
       "以下内容本项目当前不解读，原样保留以便日后回溯：",
       "",
-      ...(unknownPayload.length > 0 ? unknownPayload : [`- 字段：${unknownFields.join("、")}`]),
+      ...unknownPayload,
     ].join("\n"));
   }
 
@@ -119,20 +146,19 @@ export class SillyTavernWorldBookImportService {
   /** 纯解析与渲染，不写任何库。 */
   preview(rawJson: unknown): SillyTavernWorldBookPreview {
     const parsed = parseSillyTavernBook(rawJson);
-    return buildPreview(
-      parsed.book,
-      parsed.warnings,
-      // 顶层未知字段与条目内部的未知字段都要算上。
-      [...new Set([
-        ...Object.keys(parsed.rawImportedMetadata),
-        ...collectUnknownBookEntryFields(parsed.book),
-      ])].sort(),
-    );
+    return buildPreview(parsed.book, parsed.warnings, {
+      // 顶层未知字段与条目内部的未知字段都要算上，且各自带着自己的值。
+      topLevel: parsed.rawImportedMetadata,
+      entryFields: collectUnknownBookEntryFields(parsed.book),
+    });
   }
 
   /** 从一张角色卡里取出内嵌世界书的预览；卡片没带世界书时返回 null。 */
   previewFromCardBook(book: SillyTavernBook | null): SillyTavernWorldBookPreview | null {
-    return book ? buildPreview(book, [], collectUnknownBookEntryFields(book)) : null;
+    // 卡片内嵌的世界书没有自己的顶层壳——那层字段属于角色卡，由卡片路径处理。
+    return book
+      ? buildPreview(book, [], { entryFields: collectUnknownBookEntryFields(book) })
+      : null;
   }
 
   async importBook(input: {

@@ -29,6 +29,15 @@ export type SillyTavernSegmentDestination = z.infer<typeof sillyTavernSegmentDes
 export const sillyTavernSuggestionOriginSchema = z.enum(["deterministic", "needs_review"]);
 export type SillyTavernSuggestionOrigin = z.infer<typeof sillyTavernSuggestionOriginSchema>;
 
+/**
+ * 未识别内容那一段的 `sourceField`。
+ *
+ * 它不来自任何一个卡片字段，而是解析器认不出的那些字段的集合。单独给它一个
+ * 标识，是因为服务端要限制它的可选去向（一段 JSON 进角色背景或写法约束都是
+ * 错的），界面也要据此只给出「世界设定 / 不导入」两个选项。
+ */
+export const SILLYTAVERN_UNKNOWN_SEGMENT_FIELD = "__unknown__";
+
 export const sillyTavernCardSegmentSchema = z.object({
   /** 稳定标识，形如 `description:1`，用户提交决定时按它对应。 */
   id: z.string(),

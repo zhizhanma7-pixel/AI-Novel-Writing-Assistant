@@ -225,3 +225,35 @@ test("unknown fields are separate from the metadata we deliberately skip", () =>
   assert.deepEqual(plan.ignoredFields.map((entry) => entry.field), ["creator_notes"]);
   assert.deepEqual(plan.unknownFields, ["some_future_field"]);
 });
+
+test("unrecognised fields become a segment the author can route, defaulting to skip", () => {
+  // 保留现状作为默认：不擅自把一段 JSON 塞进检索。但它必须摆在台面上可选——
+  // 一张卡全部分到世界设定时不产生角色提案或写法资产，原文没有别的载体。
+  const plan = service.plan(card({
+    description: "描述",
+    some_future_field: { nested: "将来才有的东西" },
+  }));
+
+  const [segment] = plan.segments.filter(
+    (item) => item.sourceField === "__unknown__",
+  );
+  assert.ok(segment, "未识别内容要单独成一段");
+  assert.equal(segment.suggestedDestination, "skip", "默认保持现状：不导入");
+  assert.equal(
+    segment.origin,
+    "deterministic",
+    "多数 V2/V3 卡片都带未知字段，强制逐张确认只会变成噪音",
+  );
+  assert.ok(segment.text.includes("some_future_field"));
+  assert.ok(segment.text.includes("将来才有的东西"), "原值要摆出来给作者看");
+});
+
+test("a card with nothing unfamiliar gets no unknown-content segment", () => {
+  const plan = service.plan(card({ description: "描述", personality: "性格" }));
+
+  assert.equal(
+    plan.segments.some((item) => item.sourceField === "__unknown__"),
+    false,
+    "绝大多数文件不该因此多出一段要处理的内容",
+  );
+});
