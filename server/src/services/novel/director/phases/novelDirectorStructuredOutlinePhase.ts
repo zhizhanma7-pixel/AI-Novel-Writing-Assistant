@@ -60,29 +60,60 @@ export function buildCharacterDynamicsRebuildRecoveryKey(
   return `character.volumeRebuild:structured_outline:${novelId}:${signature}`;
 }
 
+/** 这一轮兜底最多往后找几个键：succeeded 的记录会挡住同键，得绕过去。 */
+const REBUILD_RECOVERY_MAX_KEY_PROBES = 4;
+
+/**
+ * 兜底作业的排队结果。
+ *
+ * `scheduled` 表示"确实有一件会被 lease 的作业在等着跑"。这是唯一能说
+ * 「重建交出去了」的情况，其余都得如实说明没人管。
+ */
+type RebuildRecoveryOutcome =
+  | { scheduled: true; idempotencyKey: string }
+  | { scheduled: false; reason: "dead"; idempotencyKey: string; attempts: number; maxAttempts: number }
+  | { scheduled: false; reason: "exhausted"; idempotencyKey: string };
+
 async function enqueueCharacterDynamicsRebuildRecovery(input: {
   novelId: string;
   taskId: string;
   workspace: VolumePlanDocument;
-}): Promise<void> {
-  const idempotencyKey = buildCharacterDynamicsRebuildRecoveryKey(input.novelId, input.workspace);
-  const { job, created } = await novelSideEffectJobService.enqueueJob({
-    novelId: input.novelId,
-    jobType: "character.volumeRebuild",
-    idempotencyKey,
-    payload: {
+}): Promise<RebuildRecoveryOutcome> {
+  const baseKey = buildCharacterDynamicsRebuildRecoveryKey(input.novelId, input.workspace);
+  let idempotencyKey = baseKey;
+  for (let probe = 0; probe < REBUILD_RECOVERY_MAX_KEY_PROBES; probe += 1) {
+    idempotencyKey = probe === 0 ? baseKey : `${baseKey}:retry-${probe}`;
+    const { job, created } = await novelSideEffectJobService.enqueueJob({
       novelId: input.novelId,
-      sourceType: "rebuild_projection",
-    },
-  });
-  // 队列只 lease pending / failed 的作业，进了死信就再也不会被取走；而同键再排一次
-  // 只会拿回那条死信记录（created=false）。此时投影其实没人管了，必须说出来，
-  // 不能停在"以为已经交给队列"的假象里。
-  if (!created && job?.status === "dead") {
-    console.error(
-      `[director.structured_outline] event=character_dynamics_rebuild_recovery_dead taskId=${input.taskId} novelId=${input.novelId} idempotencyKey=${idempotencyKey} attempts=${job.attempts}/${job.maxAttempts} — 角色动态投影仍停在旧的章节规划上，需要人工重建。`,
-    );
+      jobType: "character.volumeRebuild",
+      idempotencyKey,
+      payload: {
+        novelId: input.novelId,
+        sourceType: "rebuild_projection",
+      },
+    });
+    if (created) {
+      return { scheduled: true, idempotencyKey };
+    }
+    // 队列只 lease pending / failed，所以只有非终态的既有作业才算"已经有人管"。
+    if (job && job.status !== "succeeded" && job.status !== "dead") {
+      return { scheduled: true, idempotencyKey };
+    }
+    if (job?.status === "dead") {
+      // 死信是重试预算已经用尽，不自动复活——那就失去死信的意义了。
+      return {
+        scheduled: false,
+        reason: "dead",
+        idempotencyKey,
+        attempts: job.attempts,
+        maxAttempts: job.maxAttempts,
+      };
+    }
+    // 剩下的只有 succeeded：那条记录修的是**上一次**的重建需求，跟这次刚发生的
+    // 失败无关。成功记录会永久留在表里，而键只指纹了章节结构，所以同结构的第二次
+    // 失败会被它一直挡住、静默地什么都没排。换一个键接着排。
   }
+  return { scheduled: false, reason: "exhausted", idempotencyKey };
 }
 
 function buildChapterOrderRangeLabel(startOrder: number, endOrder: number): string {
@@ -560,15 +591,24 @@ export async function runDirectorStructuredOutlinePhase(input: {
     // side-effect 队列重试（退避 + 死信），至少能自己恢复。
     // 幂等键带上章节结构指纹：拆章再变一次就是一件新的重建，不能被上一次的
     // 成功记录挡住。
-    await enqueueCharacterDynamicsRebuildRecovery({
+    const recovery = await enqueueCharacterDynamicsRebuildRecovery({
       novelId,
       taskId,
       workspace: persistedOutlineWorkspace,
-    }).catch((enqueueError) => {
+    }).catch((enqueueError): RebuildRecoveryOutcome => {
       console.warn(
         `[director.structured_outline] event=character_dynamics_rebuild_recovery_enqueue_failed taskId=${taskId} novelId=${novelId} error=${JSON.stringify(enqueueError instanceof Error ? enqueueError.message : String(enqueueError))}`,
       );
+      return { scheduled: false, reason: "exhausted", idempotencyKey: "" };
     });
+    if (!recovery.scheduled) {
+      // 没排上就是没人管：投影仍停在旧的章节规划上，正文却会照常往下写。
+      console.error(
+        `[director.structured_outline] event=character_dynamics_rebuild_recovery_${recovery.reason} taskId=${taskId} novelId=${novelId} idempotencyKey=${recovery.idempotencyKey}${
+          recovery.reason === "dead" ? ` attempts=${recovery.attempts}/${recovery.maxAttempts}` : ""
+        } — 角色动态投影仍停在旧的章节规划上，需要人工重建。`,
+      );
+    }
   });
 
   const syncCursor = resolveStructuredOutlineRecoveryCursor({
