@@ -253,6 +253,10 @@ export class NovelDirectorAutoExecutionRuntime {
         });
       }
 
+      // 当前这个 pipeline job 是为哪一章跑的。失败熔断被治理放行后要靠它判断
+      // "还能不能往前走"：下一章要是还等于它，继续就等于原地重跑同一章。
+      const activeJobChapterId = autoExecution.nextChapterId ?? null;
+      const activeJobChapterOrder = autoExecution.nextChapterOrder ?? null;
       while (pipelineJobId) {
         if (await shouldStopAutoExecution(this.deps, input.taskId, pipelineJobId)) {
           return;
@@ -314,8 +318,11 @@ export class NovelDirectorAutoExecutionRuntime {
             if (!continuedState) {
               return;
             }
-            // 放行后回到循环头重新取状态继续下一章。重复放行不会无限循环：
-            // issue 治理按 fingerprint 累计次数，超过阈值会升级成暂停或失败。
+            // 放行后回到循环头继续下一章。这里不会空转的原因是用量记录去重：
+            // 合闸后的状态保留了 lastUsageRecordId，下一轮 recordUsageAnomalySignal
+            // 看到同一条记录会直接返回原状态、不再开闸。
+            // （不要指望 issue 治理来兜底：resolveDirectorIssueDecision 是纯函数，
+            // 既不查历史也不看 fingerprint，fingerprint 只用于事件幂等。）
             autoExecution = continuedState;
             continue autoExecutionLoop;
           }
@@ -660,12 +667,42 @@ export class NovelDirectorAutoExecutionRuntime {
             circuitBreaker: failureCircuitBreaker,
             resumeStage: "pipeline",
           });
-          if (!continuedState) {
+          if (continuedState) {
+            // 放行的状态是从 failedAutoExecution 上合闸来的，它仍带着这个已经失败的
+            // 终态 job。直接 continue 会在循环头走「已有 job」分支重新取到同一个
+            // 失败 job，原地死循环——治理那边也拦不住：resolveDirectorIssueDecision
+            // 是纯函数，不查历史也不看 fingerprint；全书模式下质量类问题只要有可用
+            // 正文更是被锁定成 continue_with_warning，每一轮都会放行。
+            // 所以清掉 job 再按新状态重解析，并且只有"下一章不再是刚失败的那一章"
+            // （或者已经没有剩余章节）才继续；否则落到失败处理，让任务停在安全位置。
+            pipelineJobId = "";
+            ({ range, autoExecution } = await resolveAutoExecutionRuntimeRangeAndState(this.deps, {
+              novelId: input.novelId,
+              existingState: { ...continuedState, pipelineJobId: null, pipelineStatus: null },
+              pipelineJobId: null,
+              pipelineStatus: "queued",
+              allowLazyChapterPlanning,
+            }));
+            const advanced = (
+              (autoExecution.remainingChapterCount ?? 0) === 0
+              || autoExecution.nextChapterId !== activeJobChapterId
+              || autoExecution.nextChapterOrder !== activeJobChapterOrder
+            );
+            if (advanced) {
+              await syncAutoExecutionTaskState(this.deps, {
+                taskId: input.taskId,
+                novelId: input.novelId,
+                request: input.request,
+                range,
+                autoExecution,
+                isBackgroundRunning: true,
+                resumeStage: "pipeline",
+              });
+              continue autoExecutionLoop;
+            }
+          } else {
             return;
           }
-          // 同上：治理放行就继续下一章，而不是把任务留在运行态里空转。
-          autoExecution = continuedState;
-          continue autoExecutionLoop;
         }
         await this.deps.workflowService.markTaskFailed(input.taskId, failureMessage, {
           stage: "quality_repair",

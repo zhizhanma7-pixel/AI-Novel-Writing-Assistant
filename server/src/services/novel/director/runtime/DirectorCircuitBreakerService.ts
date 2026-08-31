@@ -33,6 +33,10 @@ export function buildClosedDirectorCircuitBreakerState(
     replanLoopCount: previous?.replanLoopCount ?? 0,
     modelFailureCount: previous?.modelFailureCount ?? 0,
     usageAnomalyCount: previous?.usageAnomalyCount ?? 0,
+    // 合闸要保留「这条用量记录已经处理过」的标记。丢掉它，治理放行后下一轮会
+    // 再次取到同一条用量记录、重新开闸，熔断就在开合之间空转。计数都保留了，
+    // 唯独漏这一个是不一致。
+    lastUsageRecordId: previous?.lastUsageRecordId ?? null,
   };
 }
 

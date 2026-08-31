@@ -65,15 +65,24 @@ async function enqueueCharacterDynamicsRebuildRecovery(input: {
   taskId: string;
   workspace: VolumePlanDocument;
 }): Promise<void> {
-  await novelSideEffectJobService.enqueueJob({
+  const idempotencyKey = buildCharacterDynamicsRebuildRecoveryKey(input.novelId, input.workspace);
+  const { job, created } = await novelSideEffectJobService.enqueueJob({
     novelId: input.novelId,
     jobType: "character.volumeRebuild",
-    idempotencyKey: buildCharacterDynamicsRebuildRecoveryKey(input.novelId, input.workspace),
+    idempotencyKey,
     payload: {
       novelId: input.novelId,
       sourceType: "rebuild_projection",
     },
   });
+  // 队列只 lease pending / failed 的作业，进了死信就再也不会被取走；而同键再排一次
+  // 只会拿回那条死信记录（created=false）。此时投影其实没人管了，必须说出来，
+  // 不能停在"以为已经交给队列"的假象里。
+  if (!created && job?.status === "dead") {
+    console.error(
+      `[director.structured_outline] event=character_dynamics_rebuild_recovery_dead taskId=${input.taskId} novelId=${input.novelId} idempotencyKey=${idempotencyKey} attempts=${job.attempts}/${job.maxAttempts} — 角色动态投影仍停在旧的章节规划上，需要人工重建。`,
+    );
+  }
 }
 
 function buildChapterOrderRangeLabel(startOrder: number, endOrder: number): string {

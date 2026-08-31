@@ -679,6 +679,95 @@ test("a failed character dynamics rebuild is handed to the side-effect queue ins
   assert.match(enqueued[0].idempotencyKey, /^character\.volumeRebuild:structured_outline:novel-demo:[0-9a-f]{40}$/);
 });
 
+test("a dead recovery job is reported instead of silently swallowing the rebuild", async () => {
+  // 队列只 lease pending / failed 的作业，进了死信就再也不会被取走；而同键再排一次
+  // 只会拿回那条死信记录。这种情况下投影其实没人管了，必须说出来。
+  const originals = {
+    chapterFindMany: prisma.chapter.findMany,
+    transaction: prisma.$transaction,
+    enqueueJob: novelSideEffectJobService.enqueueJob,
+    consoleError: console.error,
+  };
+  const errors = [];
+  const harness = buildRebuildRecoveryHarness(async () => {
+    throw new Error("rebuild exploded");
+  });
+  prisma.chapter.findMany = async () => [{ id: "chapter-1" }, { id: "chapter-2" }];
+  prisma.$transaction = harness.noopTransaction;
+  novelSideEffectJobService.enqueueJob = async () => ({
+    job: { status: "dead", attempts: 5, maxAttempts: 5 },
+    created: false,
+  });
+  console.error = (message) => {
+    errors.push(String(message));
+  };
+
+  try {
+    await runDirectorStructuredOutlinePhase({
+      taskId: "task-rebuild-dead",
+      novelId: "novel-demo",
+      request: harness.request,
+      baseWorkspace: harness.baseWorkspace,
+      dependencies: harness.dependencies,
+      callbacks: harness.callbacks,
+    });
+  } finally {
+    prisma.chapter.findMany = originals.chapterFindMany;
+    prisma.$transaction = originals.transaction;
+    novelSideEffectJobService.enqueueJob = originals.enqueueJob;
+    console.error = originals.consoleError;
+  }
+
+  const reported = errors.filter((message) => message.includes("character_dynamics_rebuild_recovery_dead"));
+  assert.equal(reported.length, 1, `死信兜底必须被显式报出来：${JSON.stringify(errors)}`);
+  assert.match(reported[0], /attempts=5\/5/);
+  assert.match(reported[0], /需要人工重建/);
+});
+
+test("an already queued recovery job is not reported as dead", async () => {
+  const originals = {
+    chapterFindMany: prisma.chapter.findMany,
+    transaction: prisma.$transaction,
+    enqueueJob: novelSideEffectJobService.enqueueJob,
+    consoleError: console.error,
+  };
+  const errors = [];
+  const harness = buildRebuildRecoveryHarness(async () => {
+    throw new Error("rebuild exploded");
+  });
+  prisma.chapter.findMany = async () => [{ id: "chapter-1" }, { id: "chapter-2" }];
+  prisma.$transaction = harness.noopTransaction;
+  // 同键已有一条待跑的作业：重建已经在队列里，不该再报死信。
+  novelSideEffectJobService.enqueueJob = async () => ({
+    job: { status: "pending", attempts: 0, maxAttempts: 5 },
+    created: false,
+  });
+  console.error = (message) => {
+    errors.push(String(message));
+  };
+
+  try {
+    await runDirectorStructuredOutlinePhase({
+      taskId: "task-rebuild-queued",
+      novelId: "novel-demo",
+      request: harness.request,
+      baseWorkspace: harness.baseWorkspace,
+      dependencies: harness.dependencies,
+      callbacks: harness.callbacks,
+    });
+  } finally {
+    prisma.chapter.findMany = originals.chapterFindMany;
+    prisma.$transaction = originals.transaction;
+    novelSideEffectJobService.enqueueJob = originals.enqueueJob;
+    console.error = originals.consoleError;
+  }
+
+  assert.equal(
+    errors.filter((message) => message.includes("character_dynamics_rebuild_recovery_dead")).length,
+    0,
+  );
+});
+
 test("the rebuild recovery key changes when the chapter structure changes", () => {
   // 成功的 side-effect 作业会一直留在表里，幂等键固定就意味着后续重建永远排不
   // 进去。键必须随卷/章结构变化，拆章改一次就是一件新的重建。
