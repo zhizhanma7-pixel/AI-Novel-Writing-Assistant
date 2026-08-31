@@ -595,18 +595,15 @@ export async function runDirectorStructuredOutlinePhase(input: {
       novelId,
       taskId,
       workspace: persistedOutlineWorkspace,
-    }).catch((enqueueError): RebuildRecoveryOutcome => {
-      console.warn(
-        `[director.structured_outline] event=character_dynamics_rebuild_recovery_enqueue_failed taskId=${taskId} novelId=${novelId} error=${JSON.stringify(enqueueError instanceof Error ? enqueueError.message : String(enqueueError))}`,
-      );
-      return { scheduled: false, reason: "exhausted", idempotencyKey: "" };
     });
     if (!recovery.scheduled) {
-      // 没排上就是没人管：投影仍停在旧的章节规划上，正文却会照常往下写。
-      console.error(
-        `[director.structured_outline] event=character_dynamics_rebuild_recovery_${recovery.reason} taskId=${taskId} novelId=${novelId} idempotencyKey=${recovery.idempotencyKey}${
-          recovery.reason === "dead" ? ` attempts=${recovery.attempts}/${recovery.maxAttempts}` : ""
-        } — 角色动态投影仍停在旧的章节规划上，需要人工重建。`,
+      // 没排上就是没人管。这里必须拒绝完成，让导演任务进入既有恢复链；只写日志
+      // 会让正文继续读取旧的 plannedChapterOrders / isCoreInVolume。
+      const recoveryDetails = recovery.reason === "dead"
+        ? `死信已耗尽 ${recovery.attempts}/${recovery.maxAttempts} 次重试`
+        : "可用幂等键已耗尽";
+      throw new Error(
+        `角色动态投影重建失败，且兜底作业无法排队（${recoveryDetails}；key=${recovery.idempotencyKey}）。`,
       );
     }
   });

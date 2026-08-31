@@ -684,10 +684,9 @@ async function runRebuildRecovery(taskId, enqueueJob) {
     chapterFindMany: prisma.chapter.findMany,
     transaction: prisma.$transaction,
     enqueueJob: novelSideEffectJobService.enqueueJob,
-    consoleError: console.error,
   };
-  const errors = [];
   const enqueued = [];
+  let thrown = null;
   const harness = buildRebuildRecoveryHarness(async () => {
     throw new Error("rebuild exploded");
   });
@@ -697,10 +696,6 @@ async function runRebuildRecovery(taskId, enqueueJob) {
     enqueued.push(input);
     return enqueueJob(input, enqueued.length);
   };
-  console.error = (message) => {
-    errors.push(String(message));
-  };
-
   try {
     await runDirectorStructuredOutlinePhase({
       taskId,
@@ -710,21 +705,22 @@ async function runRebuildRecovery(taskId, enqueueJob) {
       dependencies: harness.dependencies,
       callbacks: harness.callbacks,
     });
+  } catch (error) {
+    thrown = error;
   } finally {
     prisma.chapter.findMany = originals.chapterFindMany;
     prisma.$transaction = originals.transaction;
     novelSideEffectJobService.enqueueJob = originals.enqueueJob;
-    console.error = originals.consoleError;
   }
 
-  return { enqueued, errors };
+  return { enqueued, thrown };
 }
 
 test("an earlier successful recovery must not block the next failure", async () => {
   // 成功记录永久留在表里，而幂等键只指纹了章节结构。若把 succeeded 当成"已经有人
   // 管"，同结构的第二次失败就会被那条旧记录一直挡住、静默什么都没排——这正是
   // 上一轮没有关掉的那个口子。
-  const { enqueued, errors } = await runRebuildRecovery("task-rebuild-after-success", (input, callIndex) => {
+  const { enqueued, thrown } = await runRebuildRecovery("task-rebuild-after-success", (input, callIndex) => {
     if (callIndex === 1) {
       // 第一次撞上的是上一次修好留下的成功记录。
       return { job: { status: "succeeded", attempts: 1, maxAttempts: 5 }, created: false };
@@ -736,12 +732,12 @@ test("an earlier successful recovery must not block the next failure", async () 
   assert.match(enqueued[0].idempotencyKey, /^character\.volumeRebuild:structured_outline:novel-demo:[0-9a-f]{40}$/);
   assert.equal(enqueued[1].idempotencyKey, `${enqueued[0].idempotencyKey}:retry-1`);
   assert.deepEqual(enqueued[1].payload, { novelId: "novel-demo", sourceType: "rebuild_projection" });
-  assert.deepEqual(errors.filter((message) => message.includes("rebuild_recovery_")), []);
+  assert.equal(thrown, null);
 });
 
 test("a chain of successful recoveries keeps finding a free key", async () => {
   // 连续几次同结构失败：每一次都要真的排上，而不是从第二次起就没人管。
-  const { enqueued, errors } = await runRebuildRecovery("task-rebuild-chain", (input, callIndex) => {
+  const { enqueued, thrown } = await runRebuildRecovery("task-rebuild-chain", (input, callIndex) => {
     if (callIndex <= 2) {
       return { job: { status: "succeeded", attempts: 1, maxAttempts: 5 }, created: false };
     }
@@ -750,42 +746,49 @@ test("a chain of successful recoveries keeps finding a free key", async () => {
 
   assert.equal(enqueued.length, 3);
   assert.equal(enqueued[2].idempotencyKey, `${enqueued[0].idempotencyKey}:retry-2`);
-  assert.deepEqual(errors.filter((message) => message.includes("rebuild_recovery_")), []);
+  assert.equal(thrown, null);
 });
 
-test("giving up after too many taken keys is reported, not swallowed", async () => {
-  const { enqueued, errors } = await runRebuildRecovery("task-rebuild-exhausted", () => (
+test("giving up after too many taken keys rejects the phase into recovery", async () => {
+  const { enqueued, thrown } = await runRebuildRecovery("task-rebuild-exhausted", () => (
     { job: { status: "succeeded", attempts: 1, maxAttempts: 5 }, created: false }
   ));
 
   assert.equal(enqueued.length, 4, "探测要有上限，不能无限往后排");
-  const reported = errors.filter((message) => message.includes("rebuild_recovery_exhausted"));
-  assert.equal(reported.length, 1, `放弃了就必须说出来：${JSON.stringify(errors)}`);
-  assert.match(reported[0], /需要人工重建/);
+  assert.ok(thrown instanceof Error, "没有可用兜底作业时阶段必须失败");
+  assert.match(thrown.message, /可用幂等键已耗尽/);
 });
 
-test("a dead recovery job is reported instead of silently swallowing the rebuild", async () => {
+test("a dead recovery job rejects the phase instead of silently swallowing the rebuild", async () => {
   // 队列只 lease pending / failed 的作业，进了死信就再也不会被取走。死信是重试预算
   // 已经用尽，不自动复活——但必须说出来，不能停在"以为已经交给队列"的假象里。
-  const { enqueued, errors } = await runRebuildRecovery("task-rebuild-dead", () => (
+  const { enqueued, thrown } = await runRebuildRecovery("task-rebuild-dead", () => (
     { job: { status: "dead", attempts: 5, maxAttempts: 5 }, created: false }
   ));
 
   assert.equal(enqueued.length, 1, "死信不该被自动绕过去重排");
-  const reported = errors.filter((message) => message.includes("character_dynamics_rebuild_recovery_dead"));
-  assert.equal(reported.length, 1, `死信兜底必须被显式报出来：${JSON.stringify(errors)}`);
-  assert.match(reported[0], /attempts=5\/5/);
-  assert.match(reported[0], /需要人工重建/);
+  assert.ok(thrown instanceof Error, "死信意味着没人接手，阶段必须失败");
+  assert.match(thrown.message, /死信已耗尽 5\/5 次重试/);
 });
 
 test("an already queued recovery job is not reported as dead", async () => {
   // 同键已有一条待跑的作业：重建已经在队列里，不该再排也不该报错。
-  const { enqueued, errors } = await runRebuildRecovery("task-rebuild-queued", () => (
+  const { enqueued, thrown } = await runRebuildRecovery("task-rebuild-queued", () => (
     { job: { status: "pending", attempts: 0, maxAttempts: 5 }, created: false }
   ));
 
   assert.equal(enqueued.length, 1);
-  assert.deepEqual(errors.filter((message) => message.includes("rebuild_recovery_")), []);
+  assert.equal(thrown, null);
+});
+
+test("an enqueue failure rejects the phase into the director recovery chain", async () => {
+  const { enqueued, thrown } = await runRebuildRecovery("task-rebuild-enqueue-failed", () => {
+    throw new Error("queue unavailable");
+  });
+
+  assert.equal(enqueued.length, 1);
+  assert.ok(thrown instanceof Error, "入队失败不能被日志吞掉");
+  assert.match(thrown.message, /queue unavailable/);
 });
 
 test("the rebuild recovery key changes when the chapter structure changes", () => {
