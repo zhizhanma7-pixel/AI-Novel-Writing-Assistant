@@ -291,6 +291,8 @@ test("director character phase applies an existing draft cast option without reg
   assert.equal(autoGenerateCalls, 0);
   assert.equal(applyCalls, 1);
   assert.deepEqual(applyArgs[0]?.[2], {
+    // 没要求「首稿之后再补角色」，所以后续补齐同步做完，不推到后台。
+    postApplyMode: "sync",
     visibleProfileGeneration: {
       provider: "deepseek",
       model: "deepseek-chat",

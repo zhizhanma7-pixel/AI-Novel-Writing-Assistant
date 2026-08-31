@@ -54,6 +54,7 @@ interface CircuitBreakerWorkflowPort extends AutoExecutionCheckpointRuntimeDeps 
       chapterId?: string | null;
       progress?: number;
     }): Promise<unknown>;
+    requeueTaskForRecovery(taskId: string, message: string): Promise<unknown>;
   };
   automationLedgerEventService?: AutomationLedgerEventPort;
 }
@@ -133,14 +134,25 @@ function issueCodeForCircuitBreaker(
   }
 }
 
+/**
+ * 熔断原因决定了"有没有可用产物"。
+ *
+ * 局部修复耗尽 / 重规划打转时正文是写出来了的，只是没过闸；模型不可用、数据
+ * 风险那些则连产物都没有。这个值会进 issue 评估提示词的「存在可用产物」，
+ * 一律填 false 会让治理侧对前一类误判。
+ */
+function hasUsableOutputForCircuitBreaker(reason: DirectorCircuitBreakerState["reason"]): boolean {
+  return reason === "auto_repair_exhausted" || reason === "replan_loop";
+}
+
 export async function stopAutoExecutionForCircuitBreaker(
   deps: CircuitBreakerWorkflowPort,
   input: Parameters<typeof applyCircuitBreakerStop>[1],
-): Promise<void> {
+): Promise<DirectorAutoExecutionState | null> {
   const issuePolicy = input.request.issuePolicy;
   if (input.request.issueGovernanceVersion !== 1 || !issuePolicy) {
     await applyCircuitBreakerStop(deps, input);
-    return;
+    return null;
   }
   const failureCount = Math.max(
     input.circuitBreaker.failureCount ?? 0,
@@ -150,6 +162,7 @@ export async function stopAutoExecutionForCircuitBreaker(
     input.circuitBreaker.usageAnomalyCount ?? 0,
     1,
   );
+  let continuedState: DirectorAutoExecutionState | null = null;
   await directorIssueService.reportIssue({
     issueGovernanceVersion: input.request.issueGovernanceVersion,
     taskId: input.taskId,
@@ -165,7 +178,7 @@ export async function stopAutoExecutionForCircuitBreaker(
     chapterOrder: input.circuitBreaker.chapterOrder ?? undefined,
     attempt: failureCount,
     maxAttempts: failureCount,
-    hasUsableOutput: false,
+    hasUsableOutput: hasUsableOutputForCircuitBreaker(input.circuitBreaker.reason),
     runMode: input.request.runMode,
     fingerprint: [
       "circuit_breaker",
@@ -178,8 +191,37 @@ export async function stopAutoExecutionForCircuitBreaker(
     provider: input.request.provider,
     model: input.request.model,
     temperature: input.request.temperature,
-    applyAction: async () => applyCircuitBreakerStop(deps, input),
+    // 治理选出的动作必须真的被执行。一律走 applyCircuitBreakerStop 等于把任务
+    // 直接判失败，issuePolicy / issueActions 对熔断这条路就成了摆设。
+    applyAction: async (decision) => {
+      if (decision.action === "continue_with_warning" || decision.action === "auto_retry") {
+        continuedState = withCircuitBreakerState(
+          input.autoExecution,
+          buildClosedDirectorCircuitBreakerState(input.circuitBreaker),
+        );
+        await syncAutoExecutionTaskState(deps, {
+          taskId: input.taskId,
+          novelId: input.novelId,
+          request: input.request,
+          range: input.range,
+          autoExecution: continuedState,
+          isBackgroundRunning: true,
+          resumeStage: input.resumeStage ?? "pipeline",
+        });
+        return;
+      }
+      await applyCircuitBreakerStop(deps, input);
+      if (decision.action === "pause_for_manual") {
+        // 暂停等人工是"停在安全位置等恢复"，不是"任务作废"：要重新排队，
+        // 否则作者在恢复入口看不到这个任务。
+        await deps.workflowService.requeueTaskForRecovery(
+          input.taskId,
+          input.circuitBreaker.message?.trim() || "自动导演已在安全位置暂停，等待恢复。",
+        );
+      }
+    },
   });
+  return continuedState;
 }
 
 export async function resolveUsageCircuitBreaker(input: {
@@ -418,7 +460,7 @@ export async function runFullBookAutopilotReplanNotice(input: {
         nodeKey: "planner.replan",
       });
       if (isDirectorCircuitBreakerOpen(replanFailureBreaker)) {
-        await stopAutoExecutionForCircuitBreaker(input.deps, {
+        const continuedState = await stopAutoExecutionForCircuitBreaker(input.deps, {
           taskId: input.taskId,
           novelId: input.novelId,
           request: input.request,
@@ -427,6 +469,15 @@ export async function runFullBookAutopilotReplanNotice(input: {
           circuitBreaker: replanFailureBreaker,
           resumeStage: "pipeline",
         });
+        // 治理判了"带警告继续"，任务已经被重新拉起，这里不能再报 stopped。
+        if (continuedState) {
+          return {
+            stopped: false,
+            circuitBreaker: continuedState.circuitBreaker ?? buildClosedDirectorCircuitBreakerState(replanFailureBreaker),
+            autoExecution: continuedState,
+            decision: "defer_and_continue",
+          };
+        }
         return { stopped: true };
       }
       throw error;

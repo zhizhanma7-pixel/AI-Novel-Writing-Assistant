@@ -99,7 +99,9 @@ export class NovelDirectorAutoExecutionRuntime {
       }
     }
     if (isDirectorCircuitBreakerOpen(autoExecution.circuitBreaker)) {
-      await stopAutoExecutionForCircuitBreaker(this.deps, {
+      // 治理可能判「带警告继续」：那时任务已被重新拉起并处于运行态，直接 return
+      // 会让它停在"显示运行中但永远不再推进"的状态。拿到 continuedState 就接着跑。
+      const continuedState = await stopAutoExecutionForCircuitBreaker(this.deps, {
         taskId: input.taskId,
         novelId: input.novelId,
         request: input.request,
@@ -108,7 +110,10 @@ export class NovelDirectorAutoExecutionRuntime {
         circuitBreaker: autoExecution.circuitBreaker,
         resumeStage: input.resumeStage,
       });
-      return;
+      if (!continuedState) {
+        return;
+      }
+      autoExecution = continuedState;
     }
 
     try {
@@ -297,7 +302,7 @@ export class NovelDirectorAutoExecutionRuntime {
         if (usageCircuitBreaker) {
           autoExecution = withCircuitBreakerState(autoExecution, usageCircuitBreaker);
           if (isDirectorCircuitBreakerOpen(usageCircuitBreaker)) {
-            await stopAutoExecutionForCircuitBreaker(this.deps, {
+            const continuedState = await stopAutoExecutionForCircuitBreaker(this.deps, {
               taskId: input.taskId,
               novelId: input.novelId,
               request: input.request,
@@ -306,7 +311,13 @@ export class NovelDirectorAutoExecutionRuntime {
               circuitBreaker: usageCircuitBreaker,
               resumeStage: "pipeline",
             });
-            return;
+            if (!continuedState) {
+              return;
+            }
+            // 放行后回到循环头重新取状态继续下一章。重复放行不会无限循环：
+            // issue 治理按 fingerprint 累计次数，超过阈值会升级成暂停或失败。
+            autoExecution = continuedState;
+            continue autoExecutionLoop;
           }
           await syncAutoExecutionTaskState(this.deps, {
             taskId: input.taskId,
@@ -640,7 +651,7 @@ export class NovelDirectorAutoExecutionRuntime {
           }
         }
         if (isDirectorCircuitBreakerOpen(failureCircuitBreaker)) {
-          await stopAutoExecutionForCircuitBreaker(this.deps, {
+          const continuedState = await stopAutoExecutionForCircuitBreaker(this.deps, {
             taskId: input.taskId,
             novelId: input.novelId,
             request: input.request,
@@ -649,7 +660,12 @@ export class NovelDirectorAutoExecutionRuntime {
             circuitBreaker: failureCircuitBreaker,
             resumeStage: "pipeline",
           });
-          return;
+          if (!continuedState) {
+            return;
+          }
+          // 同上：治理放行就继续下一章，而不是把任务留在运行态里空转。
+          autoExecution = continuedState;
+          continue autoExecutionLoop;
         }
         await this.deps.workflowService.markTaskFailed(input.taskId, failureMessage, {
           stage: "quality_repair",

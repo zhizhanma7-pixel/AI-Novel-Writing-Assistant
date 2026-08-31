@@ -6,8 +6,8 @@ const {
   pickApplicableVisibleProfileFields,
 } = require("../dist/services/novel/characterProfile/CharacterVisibleProfileService");
 const {
-  buildCharactersContextText,
-} = require("../dist/services/novel/runtime/runtimeContextBlocks");
+  buildDynamicCharacterGuidance,
+} = require("../dist/prompting/prompts/novel/chapterLayeredContextCharacters");
 const {
   characterVisibleProfileCompletionPrompt,
 } = require("../dist/prompting/prompts/novel/characterVisibleProfile.prompts");
@@ -51,8 +51,15 @@ test("visible profile validator treats generic prose as vague", () => {
 });
 
 test("chapter character context includes compact visible profile summary", () => {
-  const text = buildCharactersContextText([
-    {
+  // 这段外显摘要以前由 runtimeContextBlocks.buildCharactersContextText 拼在
+  // 「角色底表」里，现在改由分层上下文生成，挂到 characterBehaviorGuides 的
+  // visibleProfileSummary 上，再由 chapterLayeredContextShared 渲染成
+  // 「可见表现：…」。落点变了，但正文仍必须拿得到样貌 / 标志 / 声音。
+  const { characterBehaviorGuides } = buildDynamicCharacterGuidance({
+    chapter: { order: 3 },
+    openConflicts: [],
+    characterRoster: [{
+      id: "character-1",
       name: "林照",
       role: "主角",
       personality: "谨慎但不退让",
@@ -60,13 +67,27 @@ test("chapter character context includes compact visible profile summary", () =>
       physique: "少年感偏瘦，肩背却很稳",
       signatureDetail: "思考时会用拇指摩挲旧铜戒",
       voiceTexture: "声音偏低，短句多，越危险越慢",
+    }],
+    characterDynamics: {
+      relations: [],
+      candidates: [],
+      characters: [{
+        characterId: "character-1",
+        name: "林照",
+        role: "主角",
+        absenceRisk: "none",
+        absenceSpan: 0,
+        isCoreInVolume: true,
+        plannedChapterOrders: [3],
+      }],
     },
-  ]);
+  });
 
-  assert.match(text, /外显/);
-  assert.match(text, /样貌\/体态=/);
-  assert.match(text, /标志=/);
-  assert.match(text, /声音=/);
+  const [guide] = characterBehaviorGuides;
+  assert.equal(guide.name, "林照");
+  assert.match(guide.visibleProfileSummary, /样貌\/体态=/);
+  assert.match(guide.visibleProfileSummary, /标志=/);
+  assert.match(guide.visibleProfileSummary, /声音=/);
 });
 
 test("visible profile prompt carries author guidance into the request", () => {

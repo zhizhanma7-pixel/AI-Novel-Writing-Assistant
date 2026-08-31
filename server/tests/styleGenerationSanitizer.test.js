@@ -5,9 +5,6 @@ const {
   detectForbiddenStyleEntities,
   sanitizeStyleContextForGeneration,
 } = require("../dist/services/styleEngine/styleGenerationSanitizer.js");
-const {
-  buildStyleEngineBlock,
-} = require("../dist/services/novel/runtime/runtimeContextBlocks.js");
 
 function section(key, text) {
   return {
@@ -120,8 +117,12 @@ test("sanitizeStyleContextForGeneration redacts source entities before writer co
     ["北凉王世子"],
   );
 
-  const block = buildStyleEngineBlock(sanitized);
-  assert.match(block, /\[source-entity\]/);
-  assert.doesNotMatch(block, /北凉王世子/);
-  assert.doesNotMatch(block, /徐凤年/);
+  // 净化后的写作指引以前会被 runtimeContextBlocks.buildStyleEngineBlock 包成
+  // 一段喂给写手；现在写手拿的是原始 contract，源作实体改由生成后的
+  // detectForbiddenStyleEntities 检出并触发整章重写（见 chapterRuntimePipeline）。
+  // 那一段包装没了，但净化文本本身仍必须是脱敏的——它是检测那一路的依据。
+  const guidance = sanitized.sanitizedGenerationProfile.writingGuidance.join("\n");
+  assert.match(guidance, /\[source-entity\]/);
+  assert.doesNotMatch(guidance, /北凉王世子/);
+  assert.doesNotMatch(guidance, /徐凤年/);
 });

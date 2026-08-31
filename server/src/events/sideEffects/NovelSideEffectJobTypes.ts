@@ -13,7 +13,12 @@ export type NovelSideEffectJobStatus = "pending" | "running" | "succeeded" | "fa
 
 export interface CharacterVolumeRebuildPayload {
   novelId: string;
-  sourceType: "volume_projection";
+  /**
+   * 两种来源标注优先级相同，区别只在来源标注上：卷结构变更投影用
+   * `volume_projection`；拆章后的重投影（含它失败后的队列兜底）用
+   * `rebuild_projection`，兜底不应该把来源改写成另一种。
+   */
+  sourceType: "volume_projection" | "rebuild_projection";
 }
 
 export interface CharacterPostDraftEnrichmentPayload {

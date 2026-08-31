@@ -122,6 +122,8 @@ test("gateway delegates novel theme world generation through novel world service
     temperature: 0.4,
     storyMacroContext: undefined,
     bookContractContext: undefined,
+    // 快速启动才会开的「只准备开篇世界切片」开关，这一趟没传。
+    openingOnly: undefined,
   }]);
 });
 

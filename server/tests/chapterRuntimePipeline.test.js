@@ -421,9 +421,12 @@ test("runPipelineChapterWithRuntime escalates patch failures to heavy repair and
       escalationReason: null,
     },
   });
+  // 文本类 prompt 走流式：runTextPrompt 用 llm.stream 把增量喂给 liveSession。
   promptRunner.setPromptRunnerLLMFactoryForTests(async () => ({
-    invoke: async () => ({
-      content: "rewritten chapter after safe full repair",
+    stream: async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { content: "rewritten chapter after safe full repair" };
+      },
     }),
   }));
 
@@ -631,9 +634,12 @@ test("runPipelineChapterWithRuntime escalates short patch targets to heavy repai
       escalationReason: null,
     },
   });
+  // 文本类 prompt 走流式：runTextPrompt 用 llm.stream 把增量喂给 liveSession。
   promptRunner.setPromptRunnerLLMFactoryForTests(async () => ({
-    invoke: async () => ({
-      content: "rewritten chapter after short patch target",
+    stream: async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { content: "rewritten chapter after short patch target" };
+      },
     }),
   }));
 
@@ -710,7 +716,7 @@ test("runPipelineChapterWithRuntime defers acceptance gate unavailable risk with
     throw new Error("patch repair should not run for acceptance gate unavailable risk");
   };
   promptRunner.setPromptRunnerLLMFactoryForTests(async () => ({
-    invoke: async () => {
+    stream: async () => {
       throw new Error("heavy repair should not run for acceptance gate unavailable risk");
     },
   }));
@@ -795,9 +801,12 @@ test("runPipelineChapterWithRuntime forces full rewrite when style source entiti
     patchRepairCalled = true;
     throw new Error("patch repair should not run for style source leakage");
   };
+  // 文本类 prompt 走流式：runTextPrompt 用 llm.stream 把增量喂给 liveSession。
   promptRunner.setPromptRunnerLLMFactoryForTests(async () => ({
-    invoke: async () => ({
-      content: "clean rewritten chapter with transferable pacing only",
+    stream: async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { content: "clean rewritten chapter with transferable pacing only" };
+      },
     }),
   }));
 

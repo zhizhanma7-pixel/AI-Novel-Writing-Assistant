@@ -423,7 +423,10 @@ body {
   .mobile-route-story-modes,
   .mobile-route-titles,
   .mobile-route-prompt-workbench,
-  .mobile-route-model-routes,
+  .mobile-route-settings-models,
+  .mobile-route-settings-director,
+  .mobile-route-settings-knowledge,
+  .mobile-route-settings-maintenance,
   .mobile-route-settings,
   .mobile-route-worlds,
   .mobile-route-world-generator,
@@ -453,7 +456,10 @@ body {
   .mobile-route-story-modes,
   .mobile-route-titles,
   .mobile-route-prompt-workbench,
-  .mobile-route-model-routes,
+  .mobile-route-settings-models,
+  .mobile-route-settings-director,
+  .mobile-route-settings-knowledge,
+  .mobile-route-settings-maintenance,
   .mobile-route-settings,
   .mobile-route-worlds,
   .mobile-route-world-generator,
@@ -615,7 +621,7 @@ body {
   .mobile-route-worlds > .flex:first-child,
   .mobile-route-base-characters > .flex:first-child,
   .mobile-route-style-engine > .flex:first-child,
-  .mobile-route-model-routes .flex.items-center.justify-between,
+  .mobile-route-settings-models .flex.items-center.justify-between,
   .mobile-route-settings .flex.items-center.justify-between {
     align-items: stretch;
     flex-direction: column;
@@ -727,7 +733,7 @@ body {
   .mobile-route-genres .rounded-xl.border.bg-card .rounded-xl.border.bg-card,
   .mobile-route-story-modes .rounded-xl.border.bg-card .rounded-xl.border.bg-card,
   .mobile-route-titles .rounded-xl.border.bg-card .rounded-xl.border.bg-card,
-  .mobile-route-model-routes .rounded-xl.border.bg-card .rounded-xl.border.bg-card,
+  .mobile-route-settings-models .rounded-xl.border.bg-card .rounded-xl.border.bg-card,
   .mobile-route-settings .rounded-xl.border.bg-card .rounded-xl.border.bg-card,
   .mobile-route-worlds .rounded-xl.border.bg-card .rounded-xl.border.bg-card,
   .mobile-route-world-generator .rounded-xl.border.bg-card .rounded-xl.border.bg-card,
@@ -757,7 +763,7 @@ body {
     min-width: 0;
   }
 
-  .mobile-route-model-routes .grid.md\:grid-cols-4,
+  .mobile-route-settings-models .grid.md\:grid-cols-4,
   .mobile-route-settings .grid.md\:grid-cols-2,
   .mobile-route-settings .grid.md\:grid-cols-3,
   .mobile-route-settings .grid.md\:grid-cols-4,
@@ -791,7 +797,7 @@ body {
     padding: 1rem;
   }
 
-  .mobile-route-model-routes .flex.items-center.justify-end,
+  .mobile-route-settings-models .flex.items-center.justify-end,
   .mobile-route-settings .flex.items-center.justify-end,
   .mobile-route-world-workspace .flex.items-center.justify-end,
   .mobile-route-world-generator .flex.justify-end,
@@ -800,7 +806,7 @@ body {
     justify-content: stretch;
   }
 
-  .mobile-route-model-routes .flex.items-center.justify-end > *,
+  .mobile-route-settings-models .flex.items-center.justify-end > *,
   .mobile-route-settings .flex.items-center.justify-end > *,
   .mobile-route-world-workspace .flex.items-center.justify-end > *,
   .mobile-route-world-generator .flex.justify-end > *,
@@ -815,7 +821,7 @@ body {
   }
 
   .mobile-route-style-engine [role="dialog"],
-  .mobile-route-model-routes [role="dialog"],
+  .mobile-route-settings-models [role="dialog"],
   .mobile-route-settings [role="dialog"],
   .mobile-route-story-modes [role="dialog"],
   .mobile-route-genres [role="dialog"],

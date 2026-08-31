@@ -438,7 +438,7 @@ test("continue_existing from chapter records the production handoff without auto
   assert.equal(checkpointInput.seedPayload.directorSession.runMode, "auto_to_ready");
 });
 
-test("continue_existing chapter takeover does not reuse the requested auto execution range", async () => {
+test("continue_existing chapter takeover clamps the requested range to the next chapter", async () => {
   let preparedInput = null;
   let bootstrapInput = null;
   let checkpointInput = null;
@@ -493,7 +493,13 @@ test("continue_existing chapter takeover does not reuse the requested auto execu
   });
 
   assert.equal(preparedInput, null);
-  assert.equal(bootstrapInput.seedPayload.autoExecutionPlan, undefined);
+  // 请求的是 1-10，但前两章已完成：起点夹到下一可执行章（3），作者给的终点保留。
+  // 整个丢掉计划会连 endOrder 一起丢，等于忽略作者划定的范围。
+  assert.deepEqual(bootstrapInput.seedPayload.autoExecutionPlan, {
+    mode: "chapter_range",
+    startOrder: 3,
+    endOrder: 10,
+  });
   assert.equal(checkpointInput.checkpointType, "production_experience_required");
 });
 

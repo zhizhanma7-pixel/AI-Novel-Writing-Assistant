@@ -4,6 +4,9 @@ require("../dist/app.js");
 const { NovelDirectorService } = require("../dist/services/novel/director/NovelDirectorService.js");
 const { NovelDirectorConfirmRuntime } = require("../dist/services/novel/director/runtime/novelDirectorConfirmRuntime.js");
 const { prisma } = require("../dist/db/prisma.js");
+const {
+  NovelCreateResourceRecommendationService,
+} = require("../dist/services/novel/NovelCreateResourceRecommendationService.js");
 
 function buildDirectorInput(overrides = {}) {
   return {
@@ -24,6 +27,8 @@ function buildDirectorInput(overrides = {}) {
       whyItFits: "It keeps the workflow concrete and easy for beginners to follow.",
       toneKeywords: ["guided", "clear", "completion"],
       targetChapterCount: 60,
+      // 候选里已经带了平台，确认时就不用再去调平台推荐（同样要 API Key）。
+      recommendedWritingPlatform: "fanqie_free",
     },
     workflowTaskId: "task_dedup_demo",
     runMode: "auto_to_ready",
@@ -273,11 +278,22 @@ test("confirm runtime creates the novel through the standard runtime node", asyn
     calls.push(["updateNovel", where.id, data.creationExperience]);
     return buildNovel(where.id);
   };
+  // 建书前会先定题材基底 / 推进模式，没给全就调 AI 推荐——测试环境没有 API Key。
+  // 这条用例测的是确认去重，基底怎么来的不在范围内，直接给一份定好的。
+  const originalResolveRequired = NovelCreateResourceRecommendationService.prototype.resolveRequired;
+  NovelCreateResourceRecommendationService.prototype.resolveRequired = async () => ({
+    genreId: "genre_test",
+    primaryStoryModeId: "story_mode_primary_test",
+    secondaryStoryModeId: "story_mode_secondary_test",
+    recommendation: null,
+    promptBlock: "",
+  });
   let result;
   try {
     result = await runtime.confirmCandidate(input);
   } finally {
     prisma.novel.update = originalNovelUpdate;
+    NovelCreateResourceRecommendationService.prototype.resolveRequired = originalResolveRequired;
   }
 
   assert.equal(result.novel.id, "novel_created_demo");

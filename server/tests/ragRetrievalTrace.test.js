@@ -72,6 +72,9 @@ test("RagRetrievalTracer writes sampled trace summaries without chunk text", asy
       vector: 4,
       keyword: 3,
       fused: 5,
+      // 这一趟没走重排，两个计数位保持 0——它们是 tracer 的固定字段。
+      rerankerInput: 0,
+      rerankerOutput: 0,
       final: 1,
     });
     const timings = JSON.parse(captured.timingsJson);

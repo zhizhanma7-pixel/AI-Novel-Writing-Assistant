@@ -2,7 +2,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { runDirectorStructuredOutlinePhase } = require("../dist/services/novel/director/phases/novelDirectorPipelinePhases.js");
+const {
+  buildCharacterDynamicsRebuildRecoveryKey,
+} = require("../dist/services/novel/director/phases/novelDirectorStructuredOutlinePhase.js");
 const { prisma } = require("../dist/db/prisma.js");
+const {
+  novelSideEffectJobService,
+} = require("../dist/events/sideEffects/index.js");
 
 function createChapter(id, order, title) {
   return {
@@ -243,6 +249,9 @@ test("runDirectorStructuredOutlinePhase persists chapter detail after each compl
     novelContextService: {
       listChapters: async () => lastSyncedWorkspace.volumes[0].chapters.map(mapWorkspaceChapterToExecution),
       updateNovel: async () => undefined,
+      // 收尾时会读作品的 creationExperience 决定要不要接着跑简版量产；
+      // 这两条用例不走那条路，给 null 就是「没有 simple 标记」。
+      getNovelById: async () => null,
     },
     characterDynamicsService: {
       rebuildDynamics: async (novelId, options) => {
@@ -452,6 +461,9 @@ test("runDirectorStructuredOutlinePhase resumes from the next incomplete chapter
     novelContextService: {
       listChapters: async () => lastSyncedWorkspace.volumes[0].chapters.map(mapWorkspaceChapterToExecution),
       updateNovel: async () => undefined,
+      // 收尾时会读作品的 creationExperience 决定要不要接着跑简版量产；
+      // 这两条用例不走那条路，给 null 就是「没有 simple 标记」。
+      getNovelById: async () => null,
     },
     characterDynamicsService: {
       rebuildDynamics: async (novelId, options) => {
@@ -515,4 +527,176 @@ test("runDirectorStructuredOutlinePhase resumes from the next incomplete chapter
     novelId: "novel-demo",
     options: { sourceType: "rebuild_projection" },
   }]);
+});
+
+function buildRebuildRecoveryHarness(rebuildDynamics) {
+  const baseWorkspace = {
+    novelId: "novel-demo",
+    workspaceVersion: "v2",
+    source: "volume",
+    activeVersionId: "version-1",
+    derivedOutline: "",
+    derivedStructuredOutline: "",
+    readiness: {},
+    strategyPlan: null,
+    critiqueReport: null,
+    beatSheets: [createBeatSheet()],
+    rebalanceDecisions: [],
+    volumes: [{
+      id: "volume-1",
+      sortOrder: 1,
+      title: "Volume 1",
+      summary: "",
+      openingHook: "",
+      mainPromise: "",
+      primaryPressureSource: "",
+      coreSellingPoint: "",
+      escalationMode: "",
+      protagonistChange: "",
+      midVolumeRisk: "",
+      climax: "",
+      payoffType: "",
+      nextVolumeHook: "",
+      resetPoint: "",
+      openPayoffs: [],
+      status: "draft",
+      chapters: [
+        { ...createChapter("chapter-1", 1, "Chapter 1"), beatKey: "opening" },
+        { ...createChapter("chapter-2", 2, "Chapter 2"), beatKey: "opening" },
+      ],
+    }],
+  };
+  let lastSyncedWorkspace = clone(baseWorkspace);
+  const noopTransaction = async (callback) => callback({
+    chapter: { updateMany: async (input) => ({ count: input.where.id.in.length }) },
+    chapterSummary: { deleteMany: async () => undefined },
+    consistencyFact: { deleteMany: async () => undefined },
+    characterTimeline: { deleteMany: async () => undefined },
+    characterCandidate: { deleteMany: async () => undefined },
+    characterFactionTrack: { deleteMany: async () => undefined },
+    characterRelationStage: { deleteMany: async () => undefined },
+    qualityReport: { deleteMany: async () => undefined },
+    auditReport: { deleteMany: async () => undefined },
+    stateChangeProposal: { deleteMany: async () => undefined },
+    openConflict: { deleteMany: async () => undefined },
+    storyStateSnapshot: { deleteMany: async () => undefined },
+  });
+  const syncWorkspace = (input) => {
+    lastSyncedWorkspace = { ...lastSyncedWorkspace, volumes: clone(input.volumes) };
+    return { creates: [], updates: [], deletes: [] };
+  };
+  return {
+    baseWorkspace,
+    noopTransaction,
+    dependencies: {
+      workflowService: {
+        bootstrapTask: async () => undefined,
+        markTaskRunning: async () => undefined,
+        recordCheckpoint: async () => undefined,
+      },
+      novelContextService: {
+        listChapters: async () => lastSyncedWorkspace.volumes[0].chapters.map(mapWorkspaceChapterToExecution),
+        updateNovel: async () => undefined,
+        getNovelById: async () => null,
+      },
+      characterDynamicsService: { rebuildDynamics },
+      characterPreparationService: {},
+      volumeService: {
+        generateVolumes: async (_novelId, options) => {
+          const workspace = clone(options.draftWorkspace);
+          if (options.scope === "chapter_detail") {
+            applyCompleteChapterDetail(
+              workspace.volumes[0].chapters.find((item) => item.id === options.targetChapterId),
+            );
+          }
+          return workspace;
+        },
+        updateVolumes: async (_novelId, workspace) => clone(workspace),
+        updateVolumesWithOptions: async (_novelId, workspace) => clone(workspace),
+        syncVolumeChapters: async (_novelId, input) => syncWorkspace(input),
+        syncVolumeChaptersWithOptions: async (_novelId, input) => syncWorkspace(input),
+      },
+    },
+    callbacks: {
+      buildDirectorSeedPayload: (_request, novelId, extra) => ({ novelId, ...extra }),
+      markDirectorTaskRunning: async () => undefined,
+    },
+    request: {
+      runMode: "auto_to_execution",
+      provider: "deepseek",
+      model: "deepseek-chat",
+      temperature: 0.7,
+      autoExecutionPlan: { mode: "chapter_range", startOrder: 1, endOrder: 2 },
+      candidate: { workingTitle: "Demo Novel" },
+    },
+  };
+}
+
+test("a failed character dynamics rebuild is handed to the side-effect queue instead of only being logged", async () => {
+  // 重建失败只打日志的话，角色投影会停在旧的章节规划上，而正文照样往下写。
+  // 交给既有队列（退避重试 + 死信）才能自己恢复。
+  const originals = {
+    chapterFindMany: prisma.chapter.findMany,
+    transaction: prisma.$transaction,
+    enqueueJob: novelSideEffectJobService.enqueueJob,
+  };
+  const enqueued = [];
+  const harness = buildRebuildRecoveryHarness(async () => {
+    throw new Error("rebuild exploded");
+  });
+  prisma.chapter.findMany = async () => [{ id: "chapter-1" }, { id: "chapter-2" }];
+  prisma.$transaction = harness.noopTransaction;
+  novelSideEffectJobService.enqueueJob = async (input) => {
+    enqueued.push(input);
+    return { job: null, created: true };
+  };
+
+  try {
+    await runDirectorStructuredOutlinePhase({
+      taskId: "task-rebuild-recovery",
+      novelId: "novel-demo",
+      request: harness.request,
+      baseWorkspace: harness.baseWorkspace,
+      dependencies: harness.dependencies,
+      callbacks: harness.callbacks,
+    });
+  } finally {
+    prisma.chapter.findMany = originals.chapterFindMany;
+    prisma.$transaction = originals.transaction;
+    novelSideEffectJobService.enqueueJob = originals.enqueueJob;
+  }
+
+  assert.equal(enqueued.length, 1, "重建失败必须排一个兜底作业");
+  assert.equal(enqueued[0].jobType, "character.volumeRebuild");
+  assert.equal(enqueued[0].novelId, "novel-demo");
+  // 来源标注要保留成拆章后的重投影，不能被兜底改写成卷结构投影。
+  assert.deepEqual(enqueued[0].payload, {
+    novelId: "novel-demo",
+    sourceType: "rebuild_projection",
+  });
+  // 幂等键要带章节结构指纹：拆章再变一次是一件新的重建，不能被上一次的成功
+  // 记录挡住（成功作业会一直留在表里）。
+  assert.match(enqueued[0].idempotencyKey, /^character\.volumeRebuild:structured_outline:novel-demo:[0-9a-f]{40}$/);
+});
+
+test("the rebuild recovery key changes when the chapter structure changes", () => {
+  // 成功的 side-effect 作业会一直留在表里，幂等键固定就意味着后续重建永远排不
+  // 进去。键必须随卷/章结构变化，拆章改一次就是一件新的重建。
+  const workspaceWith = (chapterOrders) => ({
+    volumes: [{
+      id: "volume-1",
+      sortOrder: 1,
+      chapters: chapterOrders.map((chapterOrder) => ({ chapterOrder })),
+    }],
+  });
+
+  const twoChapters = buildCharacterDynamicsRebuildRecoveryKey("novel-demo", workspaceWith([1, 2]));
+  const threeChapters = buildCharacterDynamicsRebuildRecoveryKey("novel-demo", workspaceWith([1, 2, 3]));
+  const reordered = buildCharacterDynamicsRebuildRecoveryKey("novel-demo", workspaceWith([2, 1]));
+  const otherNovel = buildCharacterDynamicsRebuildRecoveryKey("novel-other", workspaceWith([1, 2]));
+
+  assert.equal(twoChapters, buildCharacterDynamicsRebuildRecoveryKey("novel-demo", workspaceWith([1, 2])));
+  assert.notEqual(twoChapters, threeChapters, "多了一章就是新的重建");
+  assert.notEqual(twoChapters, reordered, "章节顺序变了也是新的重建");
+  assert.notEqual(twoChapters, otherNovel, "不同作品不能共用一个键");
 });

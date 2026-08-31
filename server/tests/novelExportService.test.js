@@ -10,6 +10,9 @@ test("buildExportContent uses novel title plus timestamp as export filename", as
   prisma.novel.findUnique = async () => ({
     title: "霓虹档案 / Neon Archive",
     description: "都市异能悬疑",
+    // 导出现在也认短篇形态，select 里带上了这两项，假数据必须给全。
+    narrativeForm: "serial",
+    shortStorySegments: [],
     chapters: [
       {
         order: 1,

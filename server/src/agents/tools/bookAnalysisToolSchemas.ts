@@ -133,6 +133,9 @@ export const qualityDebtChapterAttributionSchema = z.object({
   primaryRootCause: z.enum(["A", "B", "D", "E", "unknown"]),
 });
 
+/** 工具实现要用的行类型；类型推导留在 schema 模块，工具文件不碰 zod。 */
+export type QualityDebtChapterAttribution = z.infer<typeof qualityDebtChapterAttributionSchema>;
+
 export const analyzeQualityDebtAttributionOutputSchema = z.object({
   novelId: z.string(),
   checkedRange: z.string(),

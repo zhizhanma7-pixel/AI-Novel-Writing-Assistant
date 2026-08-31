@@ -91,7 +91,10 @@ test("normalizeAssessment keeps under-length issue when actual content is still 
   assert.deepEqual(normalized.blockingIssues.map((issue) => issue.code), ["length_insufficient"]);
 });
 
-test("normalizeAssessment routes missing obligations to repairable draft obligation gaps", () => {
+test("a soft obligation gap continues with risk even when the model calls it patchable", () => {
+  // payoff_touch 属于软性缺口：漏写但不阻断下一章。模型标了
+  // patchable_obligation_gap 也不能把它升成 repairable，否则局部漏写会
+  // 反复触发修复循环。
   const normalized = normalizeAssessment(createAssessment({
     status: "accepted",
     missingObligations: [{
@@ -103,7 +106,24 @@ test("normalizeAssessment routes missing obligations to repairable draft obligat
     decisionReason: "只需局部补写即可兑现本章义务。",
   }), "字".repeat(3600), 3000);
 
+  assert.equal(normalized.status, "continue_with_risk");
+  assert.equal(normalized.continuePolicy, "continue");
+  assert.equal(normalized.missingObligations[0].kind, "payoff_touch");
+});
+
+test("a hard obligation gap still routes to repairable", () => {
+  // must_hit_now / forbidden_crossing 是硬缺口，必须当章补齐才放行。
+  const normalized = normalizeAssessment(createAssessment({
+    status: "accepted",
+    missingObligations: [{
+      kind: "must_hit_now",
+      summary: "本章必须拿到青铜钥匙。",
+      evidence: "正文没有出现钥匙。",
+    }],
+    repairability: "patchable_obligation_gap",
+    decisionReason: "本章义务未兑现。",
+  }), "字".repeat(3600), 3000);
+
   assert.equal(normalized.status, "repairable");
   assert.equal(normalized.continuePolicy, "repair_once");
-  assert.equal(normalized.missingObligations[0].kind, "payoff_touch");
 });

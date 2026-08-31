@@ -5,6 +5,19 @@ const {
   buildDirectorDisplayState,
 } = require("../dist/services/novel/director/projections/DirectorDisplayStateBuilder.js");
 
+const {
+  WORKFLOW_DISPLAY_STAGES,
+} = require("../../shared/dist/types/directorWorkflowStepCatalog.js");
+
+// 展示阶段会增删（world_setup 就是后加的），下标写死会让每加一个阶段就红一次。
+// 从目录里取，断言的才是"落在了正确的阶段上"这件事本身。
+function stageIndex(key) {
+  const index = WORKFLOW_DISPLAY_STAGES.findIndex((stage) => stage.key === key);
+  assert.ok(index >= 0, `unknown display stage: ${key}`);
+  return index;
+}
+
+
 test("display state maps chapter draft execution into chapter stage and uses fact progress", () => {
   const displayState = buildDirectorDisplayState({
     task: {
@@ -61,11 +74,11 @@ test("display state maps chapter draft execution into chapter stage and uses fac
 
   assert.equal(displayState.stageKey, "chapter_execution");
   assert.equal(displayState.stageLabel, "章节执行");
-  assert.equal(displayState.stepIndex, 5);
+  assert.equal(displayState.stepIndex, stageIndex("chapter_execution"));
   assert.equal(displayState.progressPercent, 45);
   assert.equal(displayState.currentAction, "正在推进第 10 章");
   assert.equal(displayState.nextActionLabel, "继续章节执行");
-  assert.equal(displayState.steps[5].status, "running");
+  assert.equal(displayState.steps[displayState.stepIndex].status, "running");
 });
 
 test("display state keeps running mode when recovery flag exists but live runtime progress is visible", () => {
@@ -165,7 +178,8 @@ test("display state keeps running mode when task is running despite stale approv
   assert.equal(displayState.mode, "running");
   assert.equal(displayState.requiresUserAction, false);
   assert.equal(displayState.isLiveRunning, true);
-  assert.equal(displayState.steps[4].status, "running");
+  assert.equal(displayState.stepIndex, stageIndex("structured_outline"));
+  assert.equal(displayState.steps[displayState.stepIndex].status, "running");
 });
 
 test("display state does not mark succeeded task as completed before facts close", () => {

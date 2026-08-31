@@ -23,7 +23,8 @@ function occurrence(issueCode, patch = {}) {
 }
 
 test("every stable issue code has one valid default policy", () => {
-  assert.equal(DIRECTOR_ISSUE_CATALOG.length, 23);
+  // 计数是道护栏：加了新 issue code 必须顺手确认它的默认处置也补齐了。
+  assert.equal(DIRECTOR_ISSUE_CATALOG.length, 24);
   for (const entry of DIRECTOR_ISSUE_CATALOG) {
     assert.ok(entry.allowedActions.includes(entry.defaultAction), entry.code);
     assert.deepEqual([...entry.allowedActions].sort(), [...DIRECTOR_ISSUE_ACTIONS].sort(), entry.code);

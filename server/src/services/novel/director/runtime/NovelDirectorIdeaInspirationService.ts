@@ -2,10 +2,10 @@ import type {
   DirectorIdeaInspirationRequest,
   DirectorIdeaInspirationsResponse,
 } from "@ai-novel/shared/types/novelDirector";
-import { StructuredOutputError } from "../../../llm/structuredOutput";
-import { runStructuredPrompt } from "../../../prompting/core/promptRunner";
-import { directorIdeaInspirationPrompt } from "../../../prompting/prompts/novel/ideaInspiration.prompts";
-import { buildBookFramingSummary } from "../bookFraming";
+import { StructuredOutputError } from "../../../../llm/structuredOutput";
+import { runStructuredPrompt } from "../../../../prompting/core/promptRunner";
+import { directorIdeaInspirationPrompt } from "../../../../prompting/prompts/novel/ideaInspiration.prompts";
+import { buildBookFramingSummary } from "../../bookFraming";
 
 const IDEA_INSPIRATION_MAX_TOKENS = 1_800;
 const IDEA_INSPIRATION_RETRY_TEMPERATURE = 0.25;

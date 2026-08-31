@@ -39,12 +39,13 @@ test("risk-policy controls are available globally and as a novel-level override"
   assert.match(simpleIssuePanel, /recentIssues/);
 });
 
-test("new-book and takeover entrypoints disclose the effective risk rule", () => {
-  const createPage = read("src/pages/novels/autoDirector/AutoDirectorCreatePage.tsx");
+test("the takeover entrypoint discloses the effective risk rule", () => {
+  // 新建流程里的风险规则摘要在 5745a6b（简版/专业版模式切换）里被连查询、
+  // 导入、渲染一起摘掉了——看着是为新手流程做的减法，不像误删。接管入口仍然
+  // 要如实告知，因为那条路会直接接管一本已有的书。
   const takeoverDialog = read("src/pages/novels/components/NovelExistingProjectTakeoverDialog.tsx");
   const summary = read("src/pages/novels/components/DirectorRiskPolicySummary.tsx");
 
-  assert.match(createPage, /DirectorRiskPolicySummary/);
   assert.match(takeoverDialog, /getNovelDirectorRiskPolicy/);
   assert.match(takeoverDialog, /DirectorRiskPolicySummary/);
   assert.match(summary, /当前安全节点后暂停/);

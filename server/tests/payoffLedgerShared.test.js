@@ -174,6 +174,9 @@ test("buildPayoffLedgerResponse orders items by risk and computes summary counts
       ledgerKey: "overdue",
       title: "黑市账户异常",
       currentStatus: "overdue",
+      // 必须真的走过窗口末尾（默认 6 > 当前第 5 章）才算逾期：窗口内的
+      // overdue 会被归到 pending，好让它指导当前章而不是立刻逼重规划。
+      targetEndChapterOrder: 4,
       updatedAt: "2026-04-05T10:00:04.000Z",
     }),
   ], 5);

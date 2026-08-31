@@ -32,7 +32,7 @@ test("candidate workflow persists the resolved production foundation for recover
 });
 
 test("idea inspiration prompt treats readable creation foundations as fixed constraints", () => {
-  const service = read("src/services/novel/director/NovelDirectorIdeaInspirationService.ts");
+  const service = read("src/services/novel/director/runtime/NovelDirectorIdeaInspirationService.ts");
   const prompt = read("src/prompting/prompts/novel/ideaInspiration.prompts.ts");
   const route = read("src/services/novel/director/http/novelDirector.ts");
 
@@ -44,7 +44,7 @@ test("idea inspiration prompt treats readable creation foundations as fixed cons
 });
 
 test("idea inspirations bound creative sampling and retry with the original context", () => {
-  const service = read("src/services/novel/director/NovelDirectorIdeaInspirationService.ts");
+  const service = read("src/services/novel/director/runtime/NovelDirectorIdeaInspirationService.ts");
   const prompt = read("src/prompting/prompts/novel/ideaInspiration.prompts.ts");
   const schema = read("src/prompting/prompts/novel/ideaInspiration.promptSchemas.ts");
   const loaders = read("src/prompting/registry/promptAssetLoaderEntries.ts");

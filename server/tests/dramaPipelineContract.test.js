@@ -9,8 +9,11 @@ function clearDramaModules() {
     if (
       key.includes("\\dist\\services\\drama\\")
       || key.includes("/dist/services/drama/")
-      || key.includes("\\dist\\services\\image\\provider.js")
-      || key.includes("/dist/services/image/provider.js")
+      // 整个 image 子树都要清：keyframe 现在走 image/runtime/runner.js，
+      // 它在加载时就把 provider 绑成了本地变量，只清 provider.js 桩子打不中，
+      // 会去调真实 OpenAI 并报「API key 未配置」。
+      || key.includes("\\dist\\services\\image\\")
+      || key.includes("/dist/services/image/")
       || key.includes("\\dist\\db\\prisma.js")
       || key.includes("/dist/db/prisma.js")
       || key.includes("\\dist\\prompting\\core\\promptRunner.js")

@@ -36,6 +36,45 @@ import {
 import { runDirectorTrackedStep } from "../projections/directorProgressTracker";
 import type { DirectorPhaseCallbacks, DirectorPhaseDependencies } from "./novelDirectorPhaseTypes";
 import { resetDirectorDownstreamChapterState } from "../recovery/novelDirectorDownstreamReset";
+import { createHash } from "node:crypto";
+import { novelSideEffectJobService } from "../../../../events/sideEffects";
+
+/**
+ * 角色动态重建失败后的兜底：把它排进既有的 side-effect 队列。
+ *
+ * 那条队列自带退避重试和死信，比在这里原地重试稳。幂等键要带上章节结构指纹——
+ * 拆章再变一次就是一件新的重建，不能被上一次成功的记录挡住（成功的作业会一直
+ * 留在表里，固定键会让后续重建永远排不进去）。
+ */
+export function buildCharacterDynamicsRebuildRecoveryKey(
+  novelId: string,
+  workspace: VolumePlanDocument,
+): string {
+  const signature = createHash("sha1")
+    .update(JSON.stringify(workspace.volumes.map((volume) => [
+      volume.id,
+      volume.sortOrder,
+      volume.chapters.map((chapter) => chapter.chapterOrder),
+    ])))
+    .digest("hex");
+  return `character.volumeRebuild:structured_outline:${novelId}:${signature}`;
+}
+
+async function enqueueCharacterDynamicsRebuildRecovery(input: {
+  novelId: string;
+  taskId: string;
+  workspace: VolumePlanDocument;
+}): Promise<void> {
+  await novelSideEffectJobService.enqueueJob({
+    novelId: input.novelId,
+    jobType: "character.volumeRebuild",
+    idempotencyKey: buildCharacterDynamicsRebuildRecoveryKey(input.novelId, input.workspace),
+    payload: {
+      novelId: input.novelId,
+      sourceType: "rebuild_projection",
+    },
+  });
+}
 
 function buildChapterOrderRangeLabel(startOrder: number, endOrder: number): string {
   return startOrder === endOrder ? `第 ${startOrder} 章` : `第 ${startOrder}-${endOrder} 章`;
@@ -497,6 +536,32 @@ export async function runDirectorStructuredOutlinePhase(input: {
     emitEvent: false,
     syncPayoffLedger: false,
   });
+  // 拆章刚落库，角色动态里的 plannedChapterOrders / isCoreInVolume /
+  // volumeResponsibility 全都基于旧的章节规划，必须按新结构重投影一次。
+  // 上面那次同步是 emitEvent: false，事件驱动的 character.volumeRebuild
+  // side-effect job 接不上，所以这里只能显式重建，不能靠事件兜底。
+  await dependencies.characterDynamicsService.rebuildDynamics(novelId, {
+    sourceType: "rebuild_projection",
+  }).catch(async (error) => {
+    console.warn(
+      `[director.structured_outline] event=character_dynamics_rebuild_failed taskId=${taskId} novelId=${novelId} error=${JSON.stringify(error instanceof Error ? error.message : String(error))}`,
+    );
+    // 只记一行日志是不够的：投影会停在旧的章节规划上，而正文执行照样往下跑，
+    // 角色的 plannedChapterOrders / isCoreInVolume 会一路错到成稿。交给既有的
+    // side-effect 队列重试（退避 + 死信），至少能自己恢复。
+    // 幂等键带上章节结构指纹：拆章再变一次就是一件新的重建，不能被上一次的
+    // 成功记录挡住。
+    await enqueueCharacterDynamicsRebuildRecovery({
+      novelId,
+      taskId,
+      workspace: persistedOutlineWorkspace,
+    }).catch((enqueueError) => {
+      console.warn(
+        `[director.structured_outline] event=character_dynamics_rebuild_recovery_enqueue_failed taskId=${taskId} novelId=${novelId} error=${JSON.stringify(enqueueError instanceof Error ? enqueueError.message : String(enqueueError))}`,
+      );
+    });
+  });
+
   const syncCursor = resolveStructuredOutlineRecoveryCursor({
     workspace: persistedOutlineWorkspace,
     plan: detailPlan,
