@@ -118,3 +118,32 @@ export const SKILL_PACKAGE_IGNORED_EXTENSIONS = [
   ".py", ".rb", ".pl", ".js", ".mjs", ".cjs", ".ts",
   ".exe", ".dll", ".so", ".dylib", ".bin",
 ] as const;
+
+/** 调用方读进来的包内文件；`path` 相对包根。导入/导出接口的传输单元。 */
+export interface SkillPackageFile {
+  path: string;
+  content: string;
+}
+
+/**
+ * 导入前的预览结果。
+ *
+ * 放在 shared 而不是服务端：它是导入接口的返回体，界面要按它逐项展示给作者确认，
+ * 两端各写一份迟早对不上。
+ */
+export interface SkillPackagePreview {
+  name: string;
+  description: string;
+  category: string | null;
+  tags: string[];
+  applicableGenres: string[];
+  applicableTasks: string[];
+  /** 四维规则各自的字数，用来一眼看出哪一维是空的。 */
+  ruleLengths: Record<SkillRuleSectionKey, number>;
+  attachmentCount: number;
+  /** 原文字节数，与服务端的体积上限对照。 */
+  sizeBytes: number;
+  /** 认不出的 frontmatter 字段名；原值随包留存。 */
+  unknownFields: string[];
+  warnings: SkillPackageWarning[];
+}

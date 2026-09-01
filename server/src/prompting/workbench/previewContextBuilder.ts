@@ -16,6 +16,7 @@ import {
 import type { CreationIntentInterpretation, ShortStoryPlanContract } from "@ai-novel/shared/types/creationStudio";
 import { createContextBlock } from "../core/contextBudget";
 import type { WritingPlatformSnapshot } from "@ai-novel/shared/types/writingPlatform";
+import type { MatchedSkill } from "@ai-novel/shared/types/styleEngine";
 
 type UnknownPromptAsset = PromptAsset<unknown, unknown, unknown>;
 export type PromptWorkbenchPreviewDb = Pick<PrismaClient, "novel" | "chapter">;
@@ -189,6 +190,20 @@ export async function prepareWorkbenchPreviewExecutionContext(input: {
     };
   }
 
+  // 自动命中的写法：预览的意义就在于让作者确认「我导入的那套写法真的会被带进去吗」，
+  // 所以这里查真的，不造样例。
+  //
+  // 用动态 import 而不是顶层导入：本模块的数据访问一律走注入进来的 `db`，
+  // 匹配器却直连 prisma；顶层引它会把 prisma 拖进这个模块的加载期，
+  // 正是 docs 里记着的那类加载顺序问题。查不到就当没有，预览不该因此打不开。
+  let matchedSkills: MatchedSkill[] = [];
+  try {
+    const { skillMatcherService } = await import("../../services/skillPackage/SkillMatcherService");
+    matchedSkills = await skillMatcherService.matchForAgent({ agent: "writer" });
+  } catch (error) {
+    console.warn("[promptWorkbench] 预览时取自动命中的写法失败，按没有处理。", error);
+  }
+
   if (isAuditPreviewPrompt(asset)) {
     return {
       executionContext: {
@@ -211,7 +226,7 @@ export async function prepareWorkbenchPreviewExecutionContext(input: {
       metadata: {
         ...(executionContext.metadata ?? {}),
         chapterBlockMode: "full",
-        chapterWriteContext: buildPreviewChapterWriteContext({ novel, chapter }),
+        chapterWriteContext: buildPreviewChapterWriteContext({ novel, chapter, matchedSkills }),
         extraContextBlocks: [createContextBlock({
           id: "writing_platform",
           group: "writing_platform",

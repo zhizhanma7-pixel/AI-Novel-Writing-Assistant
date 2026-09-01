@@ -2,6 +2,7 @@ import type {
   ChapterWriteContext,
   GenerationContextPackage,
 } from "@ai-novel/shared/types/chapterRuntime";
+import type { MatchedSkill } from "@ai-novel/shared/types/styleEngine";
 import {
   buildBookContractContext,
   buildChapterWriteContext,
@@ -216,6 +217,7 @@ function buildPreviewStateSnapshot(input: {
 function buildPreviewGenerationContextPackage(input: {
   novel: PreviewNovelRow;
   chapter: PreviewChapterRow;
+  matchedSkills?: MatchedSkill[];
 }): GenerationContextPackage {
   const { chapter, novel } = input;
   const characters = buildRuntimeCharacters(Array.isArray(novel.characters) ? novel.characters : []);
@@ -291,6 +293,10 @@ function buildPreviewGenerationContextPackage(input: {
       globalAntiAiRuleIds: [],
       styleAntiAiRuleIds: [],
       sanitizedGenerationProfile: null,
+      // 自动命中的写法照实带进预览。这里不像上面的写法契约那样造样例数据：
+      // 作者打开预览就是想确认「我导入的那套写法真的会被带进去吗」，
+      // 给个假的等于没回答这个问题。
+      matchedSkills: input.matchedSkills ?? [],
     },
     characterDynamics: null,
     characterMindStates: [],
@@ -331,9 +337,15 @@ function buildPreviewGenerationContextPackage(input: {
 export function buildPreviewChapterWriteContext(input: {
   novel: PreviewNovelRow;
   chapter: PreviewChapterRow;
+  /** 由调用方查好后传进来；这一层保持纯函数，不自己碰数据库。 */
+  matchedSkills?: MatchedSkill[];
 }): ChapterWriteContext {
   const { chapter, novel } = input;
-  const contextPackage = buildPreviewGenerationContextPackage({ novel, chapter });
+  const contextPackage = buildPreviewGenerationContextPackage({
+    novel,
+    chapter,
+    matchedSkills: input.matchedSkills,
+  });
   const bookContract = buildBookContractContext({
     title: novel.title,
     targetAudience: novel.targetAudience,

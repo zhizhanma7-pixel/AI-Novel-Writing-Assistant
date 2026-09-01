@@ -129,3 +129,28 @@ test("no matched skills means no block at all", () => {
   assert.equal(buildMatchedSkillsBlock([]), null);
   assert.equal(buildMatchedSkillsBlock(undefined), null);
 });
+
+test("提示词工坊预览会带上自动命中的写法，而不是永远为空", () => {
+  // 验收要求「预览里能看到 Skill 已被注入」。预览走的是自己拼的合成上下文，
+  // 少接这一路就会永远看不到——块在运行时有、预览里没有，等于验收不了。
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const previewCtx = fs.readFileSync(
+    path.join(__dirname, "../src/prompting/workbench/writerPreviewContext.ts"),
+    "utf8",
+  );
+  const previewBuilder = fs.readFileSync(
+    path.join(__dirname, "../src/prompting/workbench/previewContextBuilder.ts"),
+    "utf8",
+  );
+  assert.match(previewCtx, /matchedSkills: input\.matchedSkills \?\? \[\]/);
+  assert.match(previewBuilder, /matchForAgent\(\{ agent: "writer" \}\)/);
+  // 匹配器直连 prisma，本模块的数据访问走注入的 db；顶层引它会把 prisma
+  // 拖进加载期，那是这个仓库踩过的加载顺序坑。
+  assert.match(previewBuilder, /await import\("\.\.\/\.\.\/services\/skillPackage\/SkillMatcherService"\)/);
+  assert.doesNotMatch(
+    previewBuilder,
+    /^import .*SkillMatcherService/m,
+    "不能在顶层引匹配器",
+  );
+});

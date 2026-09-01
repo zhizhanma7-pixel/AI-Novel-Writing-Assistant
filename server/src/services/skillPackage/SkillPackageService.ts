@@ -2,7 +2,7 @@ import type { StyleProfile } from "@ai-novel/shared/types/styleEngine";
 import {
   SKILL_PACKAGE_SOURCE_TYPE,
   type SkillPackage,
-  type SkillPackageWarning,
+  type SkillPackagePreview,
 } from "@ai-novel/shared/types/skillPackage";
 import { prisma } from "../../db/prisma";
 import { StyleProfileService } from "../styleEngine/StyleProfileService";
@@ -31,22 +31,8 @@ import {
 /** 单个包的原文上限。超过就拒绝，而不是悄悄塞进一行里拖垮查询与实体提取。 */
 export const SKILL_PACKAGE_MAX_BYTES = 256 * 1024;
 
-export interface SkillPackagePreview {
-  name: string;
-  description: string;
-  category: string | null;
-  tags: string[];
-  applicableGenres: string[];
-  applicableTasks: string[];
-  /** 四维规则各自的字数，用来一眼看出哪一维是空的。 */
-  ruleLengths: Record<"narrative" | "character" | "language" | "rhythm", number>;
-  attachmentCount: number;
-  /** 原文字节数，与 `SKILL_PACKAGE_MAX_BYTES` 对照。 */
-  sizeBytes: number;
-  /** 认不出的 frontmatter 字段名；原值随包留存。 */
-  unknownFields: string[];
-  warnings: SkillPackageWarning[];
-}
+// 预览结构是接口返回体，定义在 shared，界面按同一份契约展示。
+export type { SkillPackagePreview };
 
 interface StoredSkillPackage {
   version: 1;

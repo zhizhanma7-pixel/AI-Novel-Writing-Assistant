@@ -39,7 +39,10 @@ const manualProfileSchema = z.object({
   category: z.string().trim().optional(),
   tags: z.array(z.string().trim()).optional(),
   applicableGenres: z.array(z.string().trim()).optional(),
-  sourceType: z.enum(["manual", "from_text", "from_book_analysis", "from_knowledge_document", "from_current_work"]).optional(),
+  sourceType: z.enum(["manual", "from_text", "from_book_analysis", "from_knowledge_document", "from_current_work", "imported_skill"]).optional(),
+  // status 必须在 schema 里：validate 走 zod 默认行为会剥掉未知键，
+  // 少了这一行「停用自动命中」会返回 200 却什么都没改。
+  status: z.enum(["active", "archived"]).optional(),
   sourceRefId: z.string().trim().optional(),
   sourceContent: z.string().optional(),
   extractedFeatures: z.array(z.object({

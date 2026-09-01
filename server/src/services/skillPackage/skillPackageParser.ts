@@ -7,6 +7,7 @@ import {
   SKILL_RULE_SECTIONS,
   type SkillPackage,
   type SkillPackageAttachment,
+  type SkillPackageFile,
   type SkillPackageRules,
   type SkillPackageWarning,
 } from "@ai-novel/shared/types/skillPackage";
@@ -32,11 +33,8 @@ export class SkillPackageParseError extends Error {
   }
 }
 
-/** 调用方读进来的包内文件；`path` 相对包根。 */
-export interface SkillPackageFile {
-  path: string;
-  content: string;
-}
+// 传输单元的定义在 shared，两端共用一份；这里只做转出，调用点不必改导入路径。
+export type { SkillPackageFile };
 
 const SKILL_MANIFEST = "SKILL.md";
 
