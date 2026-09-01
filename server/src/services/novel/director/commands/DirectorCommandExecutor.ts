@@ -195,6 +195,7 @@ export class DirectorCommandExecutor {
           : request.decision === "reject"
           ? await changeProposalReviewService.rejectProposal(request.novelId, request.proposalId, {
               expectedVersion: request.expectedVersion,
+              expectedUpdatedAt: request.expectedUpdatedAt,
               reason: request.reason,
             })
           : request.decision === "replan"
@@ -204,6 +205,7 @@ export class DirectorCommandExecutor {
               })
             : await changeProposalReviewService.approveProposal(request.novelId, request.proposalId, {
                 expectedVersion: request.expectedVersion,
+                expectedUpdatedAt: request.expectedUpdatedAt,
                 itemDecisions: request.itemDecisions,
                 unlistedDecision: request.unlistedDecision,
               });

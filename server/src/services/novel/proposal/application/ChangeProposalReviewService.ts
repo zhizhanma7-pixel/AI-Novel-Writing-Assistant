@@ -23,6 +23,7 @@ import {
 } from "../domain/ProposedChangeValueMapper";
 import {
   assertChangeProposalTransition,
+  assertExpectedProposalUpdatedAt,
   assertExpectedProposalVersion,
 } from "../domain/ChangeProposalStateMachine";
 import { changeProposalArtifactService } from "../infrastructure/ChangeProposalArtifactService";
@@ -115,6 +116,7 @@ export class ChangeProposalReviewService {
     const input = editProposedChangeInputSchema.parse(rawInput);
     const row = await this.findRow(novelId, proposalId);
     assertExpectedProposalVersion(row.version, input.expectedVersion);
+    assertExpectedProposalUpdatedAt(row.updatedAt, input.expectedUpdatedAt);
     if (row.status !== "draft" && row.status !== "pending_review") {
       throw new ChangeProposalError(
         "invalid_transition",
@@ -216,6 +218,7 @@ export class ChangeProposalReviewService {
     const input = reviewChangeProposalInputSchema.parse(rawInput);
     const row = await this.findRow(novelId, proposalId);
     assertExpectedProposalVersion(row.version, input.expectedVersion);
+    assertExpectedProposalUpdatedAt(row.updatedAt, input.expectedUpdatedAt);
     await this.assertReviewableAndFresh(row);
     const byId = decisionMap(input.itemDecisions);
     if (byId) {
@@ -384,6 +387,7 @@ export class ChangeProposalReviewService {
     const input = rejectChangeProposalInputSchema.parse(rawInput);
     const row = await this.findRow(novelId, proposalId);
     assertExpectedProposalVersion(row.version, input.expectedVersion);
+    assertExpectedProposalUpdatedAt(row.updatedAt, input.expectedUpdatedAt);
     assertChangeProposalTransition(row.status as ChangeProposalStatus, "rejected");
     await prisma.$transaction(async (tx) => {
       const updated = await tx.changeProposal.updateMany({

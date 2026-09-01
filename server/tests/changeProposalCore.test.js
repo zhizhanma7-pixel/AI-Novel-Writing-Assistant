@@ -518,6 +518,41 @@ test("Phase 1 ChangeProposal core", async (t) => {
       assert.equal(store.changes.get(created.changes[0].id).userEditedPayloadJson, null);
     });
 
+    await t.test("approving cannot silently ratify an item edited after it was read", async () => {
+      // 「proposal source changed before approval」。
+      //
+      // 审批者读到提案（version 1），看到的是 negotiate。另一个人把这一项改成了
+      // 别的内容——version 不变，只有 updatedAt 变了。审批者带着 expectedVersion: 1
+      // 点批准，乐观锁看的是 version，于是照过，批准的其实是他没看过的内容。
+      //
+      // version 的含义是重新生成的世代号（supersede 时 +1），不该被逐项编辑挪用；
+      // 所以并发守卫另走 expectedUpdatedAt。
+      store = makeStore();
+      const { proposalService, reviewService } = services();
+      const created = await proposalService.createProposal("novel-1", proposalInput());
+      const seenByReviewer = created.updatedAt;
+
+      await reviewService.editProposedChange("novel-1", created.id, created.changes[0].id, {
+        payload: { characterId: "hero", currentGoal: "negotiate" },
+        after: "negotiate",
+      });
+
+      await assert.rejects(
+        reviewService.approveProposal("novel-1", created.id, {
+          expectedVersion: 1,
+          expectedUpdatedAt: seenByReviewer,
+        }),
+        (error) => error.code === "version_conflict",
+        "读过之后被改动，批准必须被挡下",
+      );
+
+      // 不传 expectedUpdatedAt 的老调用方行为不变。
+      const approved = await reviewService.approveProposal("novel-1", created.id, {
+        expectedVersion: 1,
+      });
+      assert.equal(approved.status, "approved");
+    });
+
     await t.test("edited relation after value updates the executable trust score", async () => {
       store = makeStore();
       const { proposalService, reviewService } = services();
@@ -702,6 +737,44 @@ test("Phase 1 ChangeProposal core", async (t) => {
       assert.equal(store.events.at(-1).type, "proposal_superseded");
     });
 
+    await t.test("a rejected proposal can still be regenerated", async () => {
+      // 「reject then regenerate」。驳回不是终点：作者说「这版不行」之后，
+      // 应当能再出一版，而不是把这条线锁死。
+      store = makeStore();
+      const { proposalService, reviewService } = services();
+      const created = await proposalService.createProposal("novel-1", proposalInput());
+      const rejected = await reviewService.rejectProposal("novel-1", created.id, {
+        reason: "方向不对，重来。",
+      });
+      assert.equal(rejected.status, "rejected");
+
+      const regenerated = await proposalService.regenerateProposal("novel-1", created.id, {
+        summary: "第二版。",
+      });
+
+      assert.equal(regenerated.version, 2);
+      assert.equal(regenerated.supersedesId, created.id);
+      assert.equal(store.proposals.get(created.id).status, "superseded");
+      // 新一版从待审开始，不继承上一版的结论——否则作者一打开就看到「已驳回」。
+      assert.notEqual(regenerated.status, "rejected");
+      assert.equal(regenerated.changes.length, created.changes.length);
+    });
+
+    await t.test("a regenerated proposal leaves the superseded one unreviewable", async () => {
+      // 「stale proposal」的一种：旧信封还开在另一个标签页里，
+      // 在那儿点批准不能生效，否则两版会各自往下走。
+      store = makeStore();
+      const { proposalService, reviewService } = services();
+      const created = await proposalService.createProposal("novel-1", proposalInput());
+      await proposalService.regenerateProposal("novel-1", created.id, { summary: "第二版。" });
+
+      await assert.rejects(
+        reviewService.approveProposal("novel-1", created.id),
+        (error) => error.code === "invalid_transition" || error.code === "version_conflict",
+        "已被取代的提案不能再批准",
+      );
+    });
+
     await t.test("approve, partial approve, reject, edit, and execute APIs are registered", () => {
       const routes = [];
       const router = {
@@ -720,4 +793,49 @@ test("Phase 1 ChangeProposal core", async (t) => {
   } finally {
     restorePrismaHarness();
   }
+});
+
+test("并发守卫贯穿审批的整条链路，不止服务层", () => {
+  // 审批走命令队列：路由收到 expectedUpdatedAt → 命令载荷 → 执行器 → 审批服务。
+  // 中间任何一环没带上，排队期间的改动就查不出来——审批者点「批准」时看到的那一版，
+  // 到真正执行时可能已经不是它了。这条链断在哪都是静默失效，所以逐段钉住。
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const read = (relative) => fs.readFileSync(path.join(__dirname, "..", relative), "utf8");
+
+  const routes = read("src/modules/novel/proposal/http/novelChangeProposalRoutes.ts");
+  const payload = read("src/services/novel/director/commands/DirectorCommandServiceHelpers.ts");
+  const executor = read("src/services/novel/director/commands/DirectorCommandExecutor.ts");
+  const reviewService = read("src/services/novel/proposal/application/ChangeProposalReviewService.ts");
+
+  assert.match(routes, /expectedUpdatedAt: req\.body\.expectedUpdatedAt/);
+  assert.match(payload, /expectedUpdatedAt\?: string;/);
+  assert.match(executor, /expectedUpdatedAt: request\.expectedUpdatedAt/);
+  // 审批、部分审批、驳回、逐项编辑四个入口都要查。
+  assert.equal(
+    (reviewService.match(/assertExpectedProposalUpdatedAt\(/g) ?? []).length,
+    3,
+    "三个校验点都要带上并发守卫",
+  );
+});
+
+test("时间戳按毫秒比较，不比字符串", () => {
+  // DTO 里是 ISO 字符串，数据库里是 Date，两边序列化格式不必一致。
+  // 直接比字符串会在格式差一位（毫秒补零、时区写法）时误判成冲突。
+  const {
+    assertExpectedProposalUpdatedAt,
+  } = require("../dist/services/novel/proposal/domain/ChangeProposalStateMachine.js");
+
+  const at = new Date("2026-09-01T10:00:00.000Z");
+  assert.doesNotThrow(() => assertExpectedProposalUpdatedAt(at, "2026-09-01T10:00:00.000Z"));
+  assert.doesNotThrow(() => assertExpectedProposalUpdatedAt(at, "2026-09-01T18:00:00.000+08:00"));
+  assert.doesNotThrow(() => assertExpectedProposalUpdatedAt(at, undefined), "不传就不查，老调用方不受影响");
+  assert.throws(
+    () => assertExpectedProposalUpdatedAt(at, "2026-09-01T10:00:01.000Z"),
+    (error) => error.code === "version_conflict",
+  );
+  assert.throws(
+    () => assertExpectedProposalUpdatedAt(at, "不是时间"),
+    (error) => error.code === "version_conflict",
+  );
 });
