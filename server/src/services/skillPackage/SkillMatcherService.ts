@@ -6,6 +6,7 @@ import type {
   StyleBindingAgent,
 } from "@ai-novel/shared/types/styleEngine";
 import { prisma } from "../../db/prisma";
+import { extractSkillSupplementalInstructions } from "./skillPackageParser";
 
 /**
  * 按任务自动命中写法（Phase 4 / S3）。
@@ -133,7 +134,8 @@ export class SkillMatcherService {
       // 解析层明确允许没有四个中文小节的自由正文，只留一条 empty_rules 告警，
       // 全文进 analysisMarkdown。要是这里只认四维 summary，那种包就成了
       // 「导入成功、显示正常、永远不生效」——比读不进来更糟。
-      const guidance = ruleSummary || truncateGuidance(row.analysisMarkdown);
+      const supplemental = truncateGuidance(extractSkillSupplementalInstructions(row.analysisMarkdown ?? ""));
+      const guidance = [ruleSummary, supplemental].filter(Boolean).join("\n");
       if (!guidance) {
         // 四维空、正文也空，那是真没东西可带。
         continue;

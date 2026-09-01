@@ -206,6 +206,39 @@ future_field: 保留我
   assert.deepEqual(reparsed.attachments, original.attachments);
 });
 
+test("free instructions and custom sections survive beside four-dimensional rules", () => {
+  const original = parseSkillPackage([manifest(`---
+name: 混合写法
+---
+
+所有场景都要先写动作，再写解释。
+
+## 叙事规则
+
+视角不跳出主角。
+
+## 自定义补充
+
+避免连续三个同长度段落。
+`)]);
+  const reparsed = parseSkillPackage(serializeSkillPackage(original));
+  assert.match(reparsed.instructions, /所有场景都要先写动作/);
+  assert.match(reparsed.instructions, /## 自定义补充/);
+  assert.match(reparsed.instructions, /避免连续三个同长度段落/);
+  assert.equal(reparsed.rules.narrative, "视角不跳出主角。");
+});
+
+test("unsafe and duplicate package paths are rejected at the server boundary", () => {
+  assert.throws(
+    () => parseSkillPackage([manifest(FULL_MANIFEST), { path: "../secret.md", content: "x" }]),
+    (error) => error.code === "unsafe_path",
+  );
+  assert.throws(
+    () => parseSkillPackage([manifest(FULL_MANIFEST), { path: "skill.md", content: "duplicate" }]),
+    (error) => error.code === "duplicate_path",
+  );
+});
+
 test("windows line endings and nested paths do not break parsing", () => {
   const skill = parseSkillPackage([
     { path: ".\\SKILL.md", content: "---\r\nname: 测试\r\n---\r\n\r\n## 叙事规则\r\n\r\n内容\r\n" },

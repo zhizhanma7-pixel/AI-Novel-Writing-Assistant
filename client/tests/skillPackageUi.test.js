@@ -110,6 +110,18 @@ test("导出的字节是合法 ZIP：签名、CRC、中央目录都对得上", a
   assert.equal(view.getUint16(6, true) & 0x0800, 0x0800, "UTF-8 标志位");
 });
 
+test("ZIP 内容损坏会被 CRC 拒绝，危险路径在写入前被拒绝", async () => {
+  const bytes = buildSkillPackageZip([{ path: "SKILL.md", content: "abc" }], "pkg");
+  const damaged = bytes.slice();
+  const nameLength = new DataView(damaged.buffer).getUint16(26, true);
+  damaged[30 + nameLength] ^= 0xff;
+  await assert.rejects(() => readSkillPackageZip(damaged), /内容损坏/);
+  assert.throws(
+    () => buildSkillPackageZip([{ path: "../SKILL.md", content: "x" }], "pkg"),
+    /不安全的路径/,
+  );
+});
+
 test("不是 ZIP 的内容返回 null，交给目录路径处理", async () => {
   assert.equal(await readSkillPackageZip(new TextEncoder().encode("不是 zip")), null);
   assert.equal(await readSkillPackageZip(new Uint8Array(4)), null);

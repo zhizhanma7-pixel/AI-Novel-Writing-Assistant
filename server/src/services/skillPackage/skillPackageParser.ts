@@ -67,6 +67,31 @@ function normalizePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
 }
 
+function validateAndNormalizeFiles(files: SkillPackageFile[]): SkillPackageFile[] {
+  const seen = new Set<string>();
+  return files.map((file) => {
+    const raw = file.path.replace(/\\/g, "/");
+    const relative = raw.replace(/^(?:\.\/)+/, "");
+    const segments = relative.split("/");
+    if (
+      !relative
+      || raw.includes("\0")
+      || raw.startsWith("/")
+      || /^[a-zA-Z]:/.test(raw)
+      || segments.some((segment) => segment === "." || segment === "..")
+    ) {
+      throw new SkillPackageParseError("unsafe_path", `包内路径不安全：${file.path}`);
+    }
+    const path = normalizePath(relative);
+    const identity = path.toLocaleLowerCase("en-US");
+    if (seen.has(identity)) {
+      throw new SkillPackageParseError("duplicate_path", `包内路径重复：${path}`);
+    }
+    seen.add(identity);
+    return { ...file, path };
+  });
+}
+
 function isIgnoredFile(path: string): boolean {
   const lower = normalizePath(path).toLowerCase();
   return SKILL_PACKAGE_IGNORED_EXTENSIONS.some((ext) => lower.endsWith(ext));
@@ -145,6 +170,34 @@ function splitRuleSections(body: string): SkillPackageRules {
   return rules;
 }
 
+export function extractSkillSupplementalInstructions(body: string): string {
+  const headingPattern = /^##\s+(.+?)\s*$/gm;
+  const headings: { title: string; start: number; end: number }[] = [];
+  let match: RegExpExecArray | null = headingPattern.exec(body);
+  while (match) {
+    headings.push({ title: match[1].trim(), start: match.index, end: match.index + match[0].length });
+    match = headingPattern.exec(body);
+  }
+  const pieces: string[] = [];
+  const preamble = body.slice(0, headings[0]?.start ?? body.length).trim();
+  if (preamble) pieces.push(preamble);
+  for (const [index, heading] of headings.entries()) {
+    if (SKILL_RULE_SECTIONS.some((section) => section.heading === heading.title)) continue;
+    const nextStart = headings[index + 1]?.start ?? body.length;
+    pieces.push(body.slice(heading.start, nextStart).trim());
+  }
+  return pieces.filter(Boolean).join("\n\n");
+}
+
+function mergeSkillRuleSections(instructions: string, rules: SkillPackageRules): string {
+  const supplemental = extractSkillSupplementalInstructions(instructions);
+  const sections = SKILL_RULE_SECTIONS.map((section) => {
+    const content = rules[section.key].trim();
+    return content ? `## ${section.heading}\n\n${content}` : "";
+  }).filter(Boolean);
+  return [supplemental, ...sections].filter(Boolean).join("\n\n");
+}
+
 function resolveApplicableTasks(
   value: string | undefined,
   warnings: SkillPackageWarning[],
@@ -188,6 +241,7 @@ function resolveApplicableTasks(
 
 /** 把一组包内文件解析成规范化的 Skill 包。 */
 export function parseSkillPackage(files: SkillPackageFile[]): SkillPackage {
+  files = validateAndNormalizeFiles(files);
   const warnings: SkillPackageWarning[] = [];
   const manifest = files.find((file) => normalizePath(file.path) === SKILL_MANIFEST);
   if (!manifest) {
@@ -297,15 +351,7 @@ export function serializeSkillPackage(skill: SkillPackage): SkillPackageFile[] {
   }
   front.push("---");
 
-  const sections = SKILL_RULE_SECTIONS
-    .map((section) => {
-      const content = skill.rules[section.key].trim();
-      return content ? `## ${section.heading}\n\n${content}` : "";
-    })
-    .filter(Boolean);
-
-  // 有小节就用小节重建正文；否则原样写回 instructions，保住只写了自由说明的包。
-  const body = sections.length > 0 ? sections.join("\n\n") : skill.instructions.trim();
+  const body = mergeSkillRuleSections(skill.instructions, skill.rules);
 
   return [
     { path: SKILL_MANIFEST, content: `${front.join("\n")}\n\n${body}\n` },

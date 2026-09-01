@@ -8,6 +8,9 @@ const { StyleBindingService } = require("../dist/services/styleEngine/StyleBindi
 const {
   buildMatchedSkillsBlock,
 } = require("../dist/prompting/prompts/novel/context/chapterContextBlocks.js");
+const {
+  buildPlannerStyleEngineSummary,
+} = require("../dist/services/planner/plannerContextHelpers.js");
 
 /**
  * 自动命中的写法必须在**真实正文链**上生效，不只是在独立 Matcher 上。
@@ -145,4 +148,41 @@ test("已人工绑定的资产不会在任何一层被再标成自动命中", as
     prisma.styleBinding.findMany = originals.bindingFindMany;
     prisma.styleProfile.findMany = originals.profileFindMany;
   }
+});
+
+test("planner 与 reviewer 都消费自动命中的写法，而不只是声明支持", async () => {
+  const matchedSkills = [{
+    styleProfileId: "skill-1",
+    name: "悬念规划",
+    description: "控制信息差",
+    matchedTask: "planner",
+    ruleSummary: "每章只揭示一个关键答案。",
+  }];
+  const summary = buildPlannerStyleEngineSummary({
+    matchedBindings: [],
+    matchedSkills,
+    compiledBlocks: null,
+    antiAiRules: [],
+    sanitizedGenerationProfile: null,
+  });
+  assert.match(summary, /每章只揭示一个关键答案/);
+
+  for (const file of ["StyleDetectionService.ts", "StyleRewriteService.ts"]) {
+    const source = fs.readFileSync(path.join(__dirname, `../src/services/styleEngine/${file}`), "utf8");
+    assert.match(source, /buildMatchedSkillGuidanceText\(resolved\.context\.matchedSkills\)/,
+      `${file} 声明 reviewer 命中却没有把规则交给 prompt`);
+  }
+});
+
+test("自动命中同时保留四维规则和自由补充说明", async () => {
+  await withNoBindings([skillRow("mixed", ["writer"], {
+    analysisMarkdown: "通用说明。\n\n## 叙事规则\n旧规则\n\n## 自定义补充\n补充约束。",
+  })], async () => {
+    const context = await new StyleBindingService().resolveForGeneration({ agent: "writer" });
+    const guidance = context.matchedSkills[0].ruleSummary;
+    assert.match(guidance, /mixed 的叙事规则/);
+    assert.match(guidance, /通用说明/);
+    assert.match(guidance, /补充约束/);
+    assert.doesNotMatch(guidance, /旧规则/, "旧的已识别小节不能与当前规则重复注入");
+  });
 });

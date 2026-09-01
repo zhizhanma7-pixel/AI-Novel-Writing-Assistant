@@ -66,6 +66,10 @@ export const skillPackageWarningSchema = z.object({
     "empty_rules",
     /** 声明的任务类型合法，但当前没有对应环节会触发自动命中。 */
     "inert_task_type",
+    /** 写法包可跨作品复用，提示作者不要把剧情事实当成写法。 */
+    "story_state_scope_warning",
+    /** 检测到可能来自原作的实体名称，生成时会进入遮蔽清单。 */
+    "source_entities_detected",
   ]),
   message: z.string(),
   field: z.string().nullable().default(null),

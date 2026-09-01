@@ -29,7 +29,7 @@ future_field: 保留我
 function packageFiles() {
   return [
     { path: "SKILL.md", content: MANIFEST },
-    { path: "references/背景.md", content: "参考资料：某本书里的沈砚。" },
+    { path: "references/背景.md", content: "参考资料：《寒江雪》里的沈砚。" },
   ];
 }
 
@@ -46,6 +46,10 @@ test("preview reports what will take effect without writing anything", () => {
   // 认不出的字段名如实列出；原值随包留存。
   assert.deepEqual(preview.unknownFields, ["future_field"]);
   assert.ok(preview.sizeBytes > 0);
+  assert.ok(preview.warnings.some((warning) => warning.code === "story_state_scope_warning"));
+  assert.ok(preview.warnings.some((warning) => (
+    warning.code === "source_entities_detected" && /寒江雪/.test(warning.message)
+  )), "预览必须把检测到的源作实体摆给作者看");
 });
 
 test("an oversized package is refused instead of being squeezed into one row", () => {
@@ -210,6 +214,7 @@ test("编辑过的资产导出的是当前值，不是当初导入的那个包",
 
     assert.match(manifest, /改过的名字/);
     assert.match(manifest, /改过的叙事规则。/);
+    assert.match(manifest, /改过的说明正文/, "规则存在时也不能吞掉编辑后的自由说明");
     assert.doesNotMatch(manifest, /慢热恋爱节奏/, "导出的还是导入前的旧名称");
     assert.doesNotMatch(manifest, /推进靠距离变化。/, "导出的还是导入前的旧规则");
 

@@ -4,6 +4,7 @@ import { runStructuredPrompt } from "../../prompting/core/promptRunner";
 import { styleDetectionPrompt } from "../../prompting/prompts/style/style.prompts";
 import {
   buildFullStyleContractText,
+  buildMatchedSkillGuidanceText,
   buildStyleContractMetaText,
   inferStyleIssueCategory,
   inferStyleViolationSource,
@@ -49,6 +50,7 @@ export class StyleDetectionService {
     const contract = resolved.context.compiledBlocks?.contract ?? null;
     const styleContractText = [
       buildFullStyleContractText(contract),
+      buildMatchedSkillGuidanceText(resolved.context.matchedSkills),
       buildAntiAiRuleDirectiveText(extraPreviewRules),
     ].filter(Boolean).join("\n\n");
     const styleContractMetaText = buildStyleContractMetaText(contract);

@@ -271,3 +271,7 @@ export function sanitizeMatchedSkillsForGeneration(
       : null,
   };
 }
+
+export function extractStyleSourceEntities(text: string): string[] {
+  return extractEntityCandidates(text);
+}

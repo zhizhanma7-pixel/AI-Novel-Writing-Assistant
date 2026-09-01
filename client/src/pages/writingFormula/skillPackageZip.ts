@@ -19,6 +19,22 @@ const EOCD_SIG = 0x06054b50;
 const UTF8_FLAG = 0x0800;
 const METHOD_STORED = 0;
 const METHOD_DEFLATE = 8;
+const ENCRYPTED_FLAG = 0x0001;
+const MAX_ZIP_ENTRIES = 200;
+const MAX_ZIP_UNCOMPRESSED_BYTES = 512 * 1024;
+
+function assertSafeArchivePath(path: string): void {
+  const normalized = path.replace(/\\/g, "/");
+  if (
+    !normalized
+    || normalized.includes("\0")
+    || normalized.startsWith("/")
+    || /^[a-zA-Z]:/.test(normalized)
+    || normalized.split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error(`写法包包含不安全的路径：${path}`);
+  }
+}
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -55,7 +71,17 @@ export function toZipRootName(profileName: string): string {
 export function buildSkillPackageZip(files: SkillPackageFile[], rootName: string): Uint8Array {
   const encoder = new TextEncoder();
   const root = toZipRootName(rootName);
+  if (files.length > MAX_ZIP_ENTRIES) {
+    throw new Error(`写法包文件过多，最多支持 ${MAX_ZIP_ENTRIES} 个文件。`);
+  }
+  const seen = new Set<string>();
   const entries = files.map((file) => {
+    assertSafeArchivePath(file.path);
+    const identity = file.path.replace(/\\/g, "/").toLocaleLowerCase("en-US");
+    if (seen.has(identity)) {
+      throw new Error(`写法包包含重复路径：${file.path}`);
+    }
+    seen.add(identity);
     const name = encoder.encode(`${root}/${file.path}`);
     const data = encoder.encode(file.content);
     return { name, data, crc: crc32(data), offset: 0 };
@@ -135,7 +161,7 @@ function findEndOfCentralDirectory(view: DataView): number | null {
   return null;
 }
 
-async function inflate(bytes: Uint8Array): Promise<Uint8Array> {
+async function inflate(bytes: Uint8Array, maximumBytes: number): Promise<Uint8Array> {
   // 浏览器自带；本项目自己打的包是 stored，走不到这里，只有别人用压缩模式
   // 打的包才需要。运行环境不提供时如实抛错，不假装读成功。
   const Decompression = (globalThis as { DecompressionStream?: typeof DecompressionStream })
@@ -144,7 +170,26 @@ async function inflate(bytes: Uint8Array): Promise<Uint8Array> {
     throw new Error("这个写法包是压缩过的，当前环境读不了；请解开成目录后再导入。");
   }
   const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new Decompression("deflate-raw"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximumBytes) {
+      await reader.cancel();
+      throw new Error("写法包解压后的内容超过安全上限。请精简后再导入。");
+    }
+    chunks.push(value);
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
 }
 
 /**
@@ -163,20 +208,30 @@ export async function readSkillPackageZip(bytes: Uint8Array): Promise<SkillPacka
   }
 
   const count = view.getUint16(eocd + 10, true);
+  if (count > MAX_ZIP_ENTRIES) {
+    throw new Error(`写法包文件过多，最多支持 ${MAX_ZIP_ENTRIES} 个文件。`);
+  }
   let cursor = view.getUint32(eocd + 16, true);
   const decoder = new TextDecoder();
   const files: SkillPackageFile[] = [];
+  const seen = new Set<string>();
+  let totalUncompressed = 0;
 
   for (let index = 0; index < count; index += 1) {
     if (cursor + 46 > view.byteLength || view.getUint32(cursor, true) !== CENTRAL_SIG) {
       return null;
     }
     const method = view.getUint16(cursor + 10, true);
+    const flags = view.getUint16(cursor + 8, true);
+    const expectedCrc = view.getUint32(cursor + 16, true);
     const compressedSize = view.getUint32(cursor + 20, true);
+    const uncompressedSize = view.getUint32(cursor + 24, true);
     const nameLength = view.getUint16(cursor + 28, true);
     const extraLength = view.getUint16(cursor + 30, true);
     const commentLength = view.getUint16(cursor + 32, true);
     const localOffset = view.getUint32(cursor + 42, true);
+    const centralEnd = cursor + 46 + nameLength + extraLength + commentLength;
+    if (centralEnd > view.byteLength) return null;
     const name = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength));
     cursor += 46 + nameLength + extraLength + commentLength;
 
@@ -184,24 +239,37 @@ export async function readSkillPackageZip(bytes: Uint8Array): Promise<SkillPacka
     if (name.endsWith("/")) {
       continue;
     }
-    if (view.getUint32(localOffset, true) !== LOCAL_SIG) {
+    assertSafeArchivePath(name);
+    const identity = name.toLocaleLowerCase("en-US");
+    if (seen.has(identity)) throw new Error(`写法包包含重复路径：${name}`);
+    seen.add(identity);
+    if (flags & ENCRYPTED_FLAG) throw new Error(`写法包里的「${name}」已加密，无法安全读取。`);
+    totalUncompressed += uncompressedSize;
+    if (totalUncompressed > MAX_ZIP_UNCOMPRESSED_BYTES) {
+      throw new Error("写法包解压后的内容超过安全上限。请精简后再导入。");
+    }
+    if (localOffset + 30 > view.byteLength || view.getUint32(localOffset, true) !== LOCAL_SIG) {
       return null;
     }
     // 本地头里的名字长度和扩展长度可能与中央目录不同，数据起点只能按本地头算。
     const dataStart = localOffset + 30
       + view.getUint16(localOffset + 26, true)
       + view.getUint16(localOffset + 28, true);
+    if (dataStart > view.byteLength || dataStart + compressedSize > view.byteLength) return null;
     const raw = bytes.subarray(dataStart, dataStart + compressedSize);
 
-    let content: string;
+    let data: Uint8Array;
     if (method === METHOD_STORED) {
-      content = decoder.decode(raw);
+      data = raw;
     } else if (method === METHOD_DEFLATE) {
-      content = decoder.decode(await inflate(raw));
+      data = await inflate(raw, Math.min(uncompressedSize, MAX_ZIP_UNCOMPRESSED_BYTES));
     } else {
       throw new Error(`写法包里的「${name}」用了读不了的压缩方式，请解开成目录后再导入。`);
     }
-    files.push({ path: name, content });
+    if (data.byteLength !== uncompressedSize || crc32(data) !== expectedCrc) {
+      throw new Error(`写法包里的「${name}」内容损坏，请重新获取后再导入。`);
+    }
+    files.push({ path: name, content: decoder.decode(data) });
   }
 
   return files;

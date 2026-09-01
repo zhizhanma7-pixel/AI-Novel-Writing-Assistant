@@ -6,6 +6,7 @@ import {
 } from "@ai-novel/shared/types/skillPackage";
 import { prisma } from "../../db/prisma";
 import { StyleProfileService } from "../styleEngine/StyleProfileService";
+import { extractStyleSourceEntities } from "../styleEngine/styleGenerationSanitizer";
 import {
   parseSkillPackage,
   serializeSkillPackage,
@@ -47,6 +48,25 @@ function measureBytes(files: SkillPackageFile[]): number {
 }
 
 function buildPreview(skill: SkillPackage, sizeBytes: number): SkillPackagePreview {
+  const sourceEntities = extractStyleSourceEntities([
+    skill.frontmatter.name,
+    skill.frontmatter.description,
+    skill.instructions,
+    ...skill.attachments.map((attachment) => attachment.content),
+  ].join("\n"));
+  const warnings = [
+    ...skill.warnings,
+    {
+      code: "story_state_scope_warning" as const,
+      message: "写法包会跨作品复用，请确认其中只包含写作方法，不包含某本书的具体角色、事件或结局。",
+      field: null,
+    },
+    ...(sourceEntities.length > 0 ? [{
+      code: "source_entities_detected" as const,
+      message: `检测到可能来自原作的名称：${sourceEntities.join("、")}。生成时会按写法消毒规则遮蔽这些名称。`,
+      field: null,
+    }] : []),
+  ];
   return {
     name: skill.frontmatter.name,
     description: skill.frontmatter.description,
@@ -63,7 +83,7 @@ function buildPreview(skill: SkillPackage, sizeBytes: number): SkillPackagePrevi
     attachmentCount: skill.attachments.length,
     sizeBytes,
     unknownFields: Object.keys(skill.unknownFrontmatter),
-    warnings: skill.warnings,
+    warnings,
   };
 }
 

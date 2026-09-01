@@ -2,7 +2,10 @@ import type { StoryMacroPlan } from "@ai-novel/shared/types/storyMacro";
 import type { ResolvedStyleContext } from "@ai-novel/shared/types/styleEngine";
 import type { PayoffLedgerResponse } from "@ai-novel/shared/types/payoffLedger";
 import { isPayoffOverdueAtChapter } from "../payoff/payoffLedgerShared";
-import { buildPlannerStyleContractSummaryText } from "../styleEngine/styleContractText";
+import {
+  buildMatchedSkillGuidanceText,
+  buildPlannerStyleContractSummaryText,
+} from "../styleEngine/styleContractText";
 import { buildStoryModePromptBlock, normalizeStoryModeOutput } from "../storyMode/storyModeProfile";
 import { characterDynamicsQueryService } from "../novel/dynamics/CharacterDynamicsQueryService";
 
@@ -234,9 +237,10 @@ export function buildPlannerCharacterDynamicsContext(overview: PlannerCharacterD
 
 export function buildPlannerStyleEngineSummary(styleContext: ResolvedStyleContext | null | undefined): string {
   const matchedBindings = styleContext?.matchedBindings ?? [];
+  const matchedSkillText = buildMatchedSkillGuidanceText(styleContext?.matchedSkills);
   const compiled = styleContext?.compiledBlocks;
 
-  if (matchedBindings.length === 0 && !compiled) {
+  if (matchedBindings.length === 0 && !compiled && !matchedSkillText) {
     return "无";
   }
 
@@ -252,6 +256,7 @@ export function buildPlannerStyleEngineSummary(styleContext: ResolvedStyleContex
   return [
     bindingLine,
     sections.length > 0 ? `规划期写法约束：\n${sections.join("\n")}` : "",
+    matchedSkillText ? `自动命中写法约束：\n${matchedSkillText}` : "",
   ].filter(Boolean).join("\n\n") || "无";
 }
 

@@ -109,14 +109,20 @@ export default function SkillPackageImportDialog(props: SkillPackageImportDialog
     if (!fileList || fileList.length === 0) {
       return;
     }
-    const collected = await readSelectedFiles(fileList);
-    setFiles(collected);
-    setPreview(null);
-    if (collected.length === 0) {
-      toast.error("没有读到任何文件，确认选的是写法包所在目录。");
-      return;
+    try {
+      const collected = await readSelectedFiles(fileList);
+      setFiles(collected);
+      setPreview(null);
+      if (collected.length === 0) {
+        toast.error("没有读到任何文件，确认选的是写法包所在目录。");
+        return;
+      }
+      previewMutation.mutate(collected);
+    } catch (error) {
+      setFiles([]);
+      setPreview(null);
+      toast.error(error instanceof Error ? error.message : "这个写法包读不出来。");
     }
-    previewMutation.mutate(collected);
   }
 
   return (
