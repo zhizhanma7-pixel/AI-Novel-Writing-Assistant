@@ -48,7 +48,6 @@ import { DirectorBookAutomationProjectionService } from "../projections/Director
 import { DirectorCommandService } from "../commands/DirectorCommandService";
 import { DirectorTaskSnapshotService } from "../projections/DirectorTaskSnapshotService";
 import { NovelDirectorService } from "../NovelDirectorService";
-import { novelDirectorIdeaInspirationService } from "../NovelDirectorIdeaInspirationService";
 import { novelDirectorIdeaConstellationService } from "../idea/NovelDirectorIdeaConstellationService";
 import { directorPersistedCandidateSchema } from "../runtime/novelDirectorSchemas";
 
@@ -370,6 +369,10 @@ router.post("/tasks", validate({ body: createTaskSchema }), async (req, res, nex
 
 router.post("/idea-inspirations", validate({ body: ideaContextRequestSchema }), async (req, res, next) => {
   try {
+    // 按需引入，不放在顶层：这条链会一路拉起 marketRadarService，
+    // 而那也是个在模块加载期就构造的单例。静态引入会让本模块在导入图里的位置
+    // 决定它何时被构造——文件一挪位置，全量跑测试就会冒出与本功能无关的偶发失败。
+    const { novelDirectorIdeaInspirationService } = await import("../idea/NovelDirectorIdeaInspirationService");
     const data = await novelDirectorIdeaInspirationService.generate(
       req.body as DirectorIdeaInspirationRequest,
     ) as DirectorIdeaInspirationsResponse;
