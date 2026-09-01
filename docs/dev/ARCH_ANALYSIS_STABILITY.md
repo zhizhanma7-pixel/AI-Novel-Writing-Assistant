@@ -55,28 +55,46 @@ version，因此 `expectedVersion` **只能发现"信封状态变了"，发现�
 
 ---
 
-## §2 Story consistency（6 条）
+## §2 Story consistency（6 条）—— T4 已做
 
-这一组最难，因为它测的不是某个函数，而是**跨章的语义一致性**——需要真实的
-多章数据和一次真实的生成/审校往返。
+盘完之后，这一组比预想的清楚：**五条的判定集中在一个纯函数
+`server/src/services/state/stateConflictDetection.ts` 与时间线检查器里**，
+不需要跑真实生成链。此前担心的「必须多章真实往返」只对最后一条成立。
 
-| 场景 | 相关实现 | 现状判断 |
+| 场景 | 判定在哪 | 结果 |
 | --- | --- | --- |
-| approved vs actual diff | Chapter Execution Divergence（2C） | 有实现，需专门用例 |
-| hidden knowledge | `timelineConstraintLayer` | 有相关代码，覆盖度未核实 |
-| relationship drift | 角色动态 / `characterDynamics` | 有实现，未见针对性用例 |
-| timeline conflict | 时间线约束层 | **关键词无命中**，需人工确认 |
-| world rule conflict | 世界设定 | 关键词命中的是 setup 状态，非冲突检测 |
-| foreshadowing early resolution | 伏笔账本 `payoffLedger` | 有实现，未见针对性用例 |
+| approved vs actual diff | 章节偏离（2C） | **已覆盖**，`chapterDivergence*.test.js` |
+| hidden knowledge | `information_regression` | **本轮补测**，并修出一个真 bug（见下） |
+| relationship drift | `relation_jump`（阈值 35 / 60） | **本轮补测** |
+| timeline conflict | `timeline-checker` 的 `timeline_regression` | **已覆盖**，六种问题类型都有测试 |
+| world rule conflict | —— | **没有实现**，见下 |
+| foreshadowing early resolution | `foreshadow_missing_setup` | **本轮补测**，并修出一个真 bug |
 
-**结论：这一组的覆盖状况我还没有可靠结论。** 关键词检索只能证明"有文件提到
-这个词"，证明不了"这个场景被测过"。进入实现前必须逐个读实现与现有用例，
-不能按上表直接排期。
+### 补测时修掉的两个真 bug
 
-**规模判断**：这六条如果都要真实数据往返，成本可能超过前五条之和。建议先做
-一次可行性切分——哪些能用构造的固定数据（fixture）测，哪些必须跑真实生成链。
+两处都是**子串匹配没有先判否定**：
 
----
+- `rankInformationStatus`：`"unknown"` 里含有 `"known"`，于是被判成「已知」
+  （最高档）。结果是「已知的事又变回未知」——也就是 hidden knowledge 这条场景
+  本身——**一条都报不出来**，且毫无征兆。`"未公开"` 含 `"公开"`，同一个坑。
+- `rankForeshadowStatus`：`"unresolved"` 含 `"resolved"`、`"incomplete"` 含
+  `"complete"`、`"未兑现"` 含 `"兑现"`。判成最高档会同时造成假警报
+  （没铺垫却报「提前兑现」）和漏报（真的从已兑现退回时反而不报）。
+
+这两个 bug 说明了 Phase 6 的价值：实现看着都在，跑起来也不报错，
+但核心判定一直是反的。
+
+### world rule conflict：没有实现
+
+世界规则目前只作为**提示词上下文**存在（`worldRulesText` 喂给角色生成等），
+**没有任何检测器**判断某一章是否违反了已确立的世界规则。
+
+没有在本阶段补：Phase 6 的定位是「不新增能力，只回答已有能力在坏情况下
+表现如何」，现造一个检测器超出这个范围，而且它需要先定义「世界规则」的
+可判定形式（现在是自由文本），那是设计问题不是测试问题。
+
+**建议**：作为独立条目排进后续版本。最接近的现成机制是时间线检查器的
+`state_conflict`（本章状态变化与既有确认状态冲突），可以作为起点。
 
 ## §3 Import（6 条）
 
