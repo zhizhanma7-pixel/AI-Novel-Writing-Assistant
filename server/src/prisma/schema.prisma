@@ -1690,6 +1690,7 @@ model StyleProfile {
   category           String?
   tagsJson           String?
   applicableGenresJson String?
+  applicableTasksJson  String?
   sourceType         String
   sourceRefId        String?
   sourceContent      String?

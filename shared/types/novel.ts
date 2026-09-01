@@ -210,18 +210,28 @@ export interface NovelAutoDirectorTaskSummary {
   updatedAt: string;
 }
 
-export type ModelRouteTaskType =
-  | "planner"
-  | "writer"
-  | "review"
-  | "light_review"
-  | "critical_review"
-  | "repair"
-  | "replan"
-  | "state_resolution"
-  | "summary"
-  | "fact_extraction"
-  | "chat";
+/**
+ * 模型路由的任务类型取值域。
+ *
+ * 常量与类型放在一起，服务端 `modelRouter` 直接复用这一份：取值域此前只存在于
+ * server，跨端复用（如 Skill 包的 applicableTasks）只能另抄一份字符串，抄错了
+ * 编译期也发现不了。
+ */
+export const MODEL_ROUTE_TASK_TYPES = [
+  "planner",
+  "writer",
+  "review",
+  "light_review",
+  "critical_review",
+  "repair",
+  "replan",
+  "state_resolution",
+  "summary",
+  "fact_extraction",
+  "chat",
+] as const;
+
+export type ModelRouteTaskType = (typeof MODEL_ROUTE_TASK_TYPES)[number];
 
 export interface Novel {
   id: string;
