@@ -1,7 +1,7 @@
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
 import { runTextPrompt } from "../../prompting/core/promptRunner";
 import { styleRewritePrompt } from "../../prompting/prompts/style/style.prompts";
-import { buildWriterStyleContractText } from "./styleContractText";
+import { buildMatchedSkillGuidanceText, buildWriterStyleContractText } from "./styleContractText";
 import { StyleRuntimeResolver } from "./StyleRuntimeResolver";
 import { buildAntiAiRuleDirectiveText, listPreviewAntiAiRules } from "./antiAiPreviewRules";
 
@@ -43,6 +43,7 @@ export class StyleRewriteService {
     )).join("\n\n");
     const styleContractText = [
       buildWriterStyleContractText(resolved.context.compiledBlocks?.contract ?? null),
+      buildMatchedSkillGuidanceText(resolved.context.matchedSkills),
       buildAntiAiRuleDirectiveText(extraPreviewRules),
     ].filter(Boolean).join("\n\n");
 

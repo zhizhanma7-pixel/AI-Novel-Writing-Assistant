@@ -15,6 +15,10 @@ import type {
   StyleTemplate,
 } from "@ai-novel/shared/types/styleEngine";
 import type { CompiledStylePromptBlocks } from "@ai-novel/shared/types/styleEngine";
+import type {
+  SkillPackageFile,
+  SkillPackagePreview,
+} from "@ai-novel/shared/types/skillPackage";
 import type { UnifiedTaskDetail } from "@ai-novel/shared/types/task";
 import { apiClient } from "./client";
 
@@ -323,5 +327,35 @@ export async function rewriteStyleIssues(payload: {
   temperature?: number;
 }) {
   const { data } = await apiClient.post<ApiResponse<{ content: string }>>("/style-detection/rewrite", payload);
+  return data;
+}
+
+/**
+ * 写法包（Skill）导入/导出。
+ *
+ * 三个接口都走同一份 shared 契约：`SkillPackageFile` 是传输单元，`SkillPackagePreview`
+ * 是导入前给作者确认的结构。导入分两步（先预览再确认），是因为包里可能带认不出的
+ * 字段或被忽略的脚本，这些必须先摆到作者面前，不能读进去就直接落库。
+ */
+export async function previewSkillPackage(files: SkillPackageFile[]) {
+  const { data } = await apiClient.post<ApiResponse<SkillPackagePreview>>(
+    "/style-profiles/skill-package/preview",
+    { files },
+  );
+  return data;
+}
+
+export async function importSkillPackage(payload: { files: SkillPackageFile[]; name?: string }) {
+  const { data } = await apiClient.post<ApiResponse<{
+    profile: StyleProfile;
+    preview: SkillPackagePreview;
+  }>>("/style-profiles/skill-package/import", payload);
+  return data;
+}
+
+export async function exportSkillPackage(styleProfileId: string) {
+  const { data } = await apiClient.get<ApiResponse<{ files: SkillPackageFile[] }>>(
+    `/style-profiles/${styleProfileId}/skill-package`,
+  );
   return data;
 }

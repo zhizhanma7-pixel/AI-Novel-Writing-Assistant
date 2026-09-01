@@ -508,6 +508,17 @@ export const chapterWriteContextSchema = z.object({
   previousChapterTail: z.string().nullable().optional(),
   openingAntiRepeatHint: z.string(),
   styleContract: runtimeStyleContractSchema.nullable().optional(),
+  /**
+   * 按当前环节自动命中的写法。与 styleContract（人工绑定编译出来的契约）分开，
+   * 提示词预览才能说清某一条是自动带进来的还是作者自己绑的。
+   */
+  matchedSkills: z.array(z.object({
+    styleProfileId: z.string(),
+    name: z.string(),
+    description: z.string().default(""),
+    matchedTask: z.string(),
+    ruleSummary: z.string(),
+  })).optional(),
   styleConstraints: z.array(z.string()).default([]),
   continuationConstraints: z.array(z.string()).default([]),
   ragFacts: z.array(z.string()).default([]),

@@ -216,6 +216,37 @@ function buildChapterBoundaryContextBlock(writeContext: ChapterWriteContext): Pr
   });
 }
 
+/** 自动命中的写法在写手上下文里的优先级：低于人工绑定的写法契约（74）。 */
+export const MATCHED_SKILLS_BLOCK_PRIORITY = 73;
+
+/**
+ * 把自动命中的写法渲染成独立的上下文块。
+ *
+ * 单独成块而不是并进写法契约：验收要求提示词预览能看出某一条是自动带进来的。
+ * 优先级低于人工绑定，预算不够时先丢它——作者自己绑的不该被自动命中挤掉。
+ */
+export function buildMatchedSkillsBlock(
+  matchedSkills: ChapterWriteContext["matchedSkills"],
+): PromptContextBlock | null {
+  const skills = matchedSkills ?? [];
+  if (skills.length === 0) {
+    return null;
+  }
+  return createContextBlock({
+    id: "matched_skills",
+    group: "matched_skills",
+    priority: MATCHED_SKILLS_BLOCK_PRIORITY,
+    required: false,
+    allowSummary: true,
+    content: [
+      "Matched writing skills (auto-selected for this task, not manually bound):",
+      ...skills.map((skill) => (
+        `- ${skill.name}${skill.description ? `（${skill.description}）` : ""}\n${skill.ruleSummary}`
+      )),
+    ].join("\n\n"),
+  });
+}
+
 export function buildChapterWriterContextBlocks(
   writeContext: ChapterWriteContext,
   options: ChapterWriterBlockOptions = {},
@@ -503,6 +534,7 @@ export function buildChapterWriterContextBlocks(
         content: buildWriterStyleContractText(writeContext.styleContract),
       })
       : null,
+    buildMatchedSkillsBlock(writeContext.matchedSkills),
     includeContinuationConstraints
       ? createContextBlock({
         id: "continuation_constraints",

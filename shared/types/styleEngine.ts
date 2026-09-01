@@ -6,6 +6,12 @@ export type StyleSourceType =
   | "from_book_analysis"
   | "from_knowledge_document"
   | "from_current_work"
+  /**
+   * 由 Skill 包导入。整包原文（含 references / templates / examples）保留在
+   * `sourceContent` 里：既保证导出能无损还原，也让包里示例携带的源作实体
+   * 自动进入脱敏候选。
+   */
+  | "imported_skill"
   /** 由 SillyTavern preset 导入。原始 JSON 保留在 `sourceContent` 里可回溯。 */
   | "from_sillytavern_preset"
   /**
@@ -287,6 +293,11 @@ export interface StyleProfile {
   category?: string | null;
   tags: string[];
   applicableGenres: string[];
+  /**
+   * 参与「按章节任务自动命中」的任务类型；空表示不参与，仍可人工绑定。
+   * 取值域复用 `ModelRouteTaskType`，不自造词汇。
+   */
+  applicableTasks: string[];
   sourceType: StyleSourceType;
   sourceRefId?: string | null;
   sourceContent?: string | null;
@@ -621,6 +632,22 @@ export interface StyleRecommendationResult {
   recommendedAt: string;
 }
 
+/**
+ * 按任务自动命中的写法（Skill）。
+ *
+ * 与 `matchedBindings` 分开放，不合并进写法契约：验收要求提示词预览能看出
+ * 「这一条是自动命中的」而不是人工绑定的。合进去就分不出来了。
+ */
+export interface MatchedSkill {
+  styleProfileId: string;
+  name: string;
+  description: string;
+  /** 命中依据的任务类型，用来在预览里说明为什么它会出现。 */
+  matchedTask: string;
+  /** 参与生成的规则摘要；附件与原文不进提示词。 */
+  ruleSummary: string;
+}
+
 export interface ResolvedStyleContext {
   matchedBindings: StyleBinding[];
   compiledBlocks: CompiledStylePromptBlocks | null;
@@ -633,6 +660,8 @@ export interface ResolvedStyleContext {
   globalAntiAiRuleIds: string[];
   styleAntiAiRuleIds: string[];
   sanitizedGenerationProfile?: StyleSanitizedGenerationProfile | null;
+  /** 按当前环节自动命中的写法；人工绑定走 `matchedBindings`，两者不混。 */
+  matchedSkills?: MatchedSkill[];
 }
 
 export interface StyleSanitizedGenerationProfile {

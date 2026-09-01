@@ -36,6 +36,10 @@ export interface LandingProfileItem {
   bindingCount: number;
   updatedAtLabel: string;
   isStarter: boolean;
+  /** active 之外的状态不再参与自动命中与推荐；资产本身仍在，手动绑定照旧生效。 */
+  autoMatchEnabled: boolean;
+  /** 声明了哪些环节会自动命中；为空表示这条写法只能手动绑。 */
+  applicableTasks: string[];
 }
 
 interface BuildLandingProfileItemsParams {
@@ -201,6 +205,8 @@ export function buildLandingProfileItems(params: BuildLandingProfileItemsParams)
         bindingCount: bindingCountByProfileId[profile.id] ?? 0,
         updatedAtLabel: formatUpdatedAtLabel(profile.updatedAt),
         isStarter: isStarterStyleProfile(profile),
+        autoMatchEnabled: profile.status === "active",
+        applicableTasks: profile.applicableTasks,
       };
     });
 }

@@ -16,6 +16,7 @@ import {
   deleteStyleBinding,
   deleteStyleProfile,
   detectStyleIssues,
+  exportSkillPackage,
   extractStyleFeaturesFromText,
   getAntiAiRules,
   getStyleBindings,
@@ -25,17 +26,20 @@ import {
   testWriteWithStyleProfile,
   updateStyleProfile,
 } from "@/api/styleEngine";
+import { toast } from "@/components/ui/toast";
 import { useLLMStore } from "@/store/llmStore";
 import WritingFormulaAdvancedWorkspace from "./components/WritingFormulaAdvancedWorkspace";
 import WritingFormulaBookStyleFlow from "./components/WritingFormulaBookStyleFlow";
 import WritingFormulaCleanPanel from "./components/WritingFormulaCleanPanel";
 import WritingFormulaCreateDialog from "./components/WritingFormulaCreateDialog";
+import SkillPackageImportDialog from "./components/SkillPackageImportDialog";
 import WritingFormulaLanding from "./components/WritingFormulaLanding";
 import WritingFormulaWorkbenchPanel from "./components/WritingFormulaWorkbenchPanel";
 import {
   useWritingFormulaCreateFlow,
 } from "./useWritingFormulaCreateFlow";
 import { useWritingFormulaDialogFocus, type WritingFormulaDialogFocusIntent } from "./useWritingFormulaDialogFocus";
+import { buildSkillPackageDownload } from "./skillPackageZip";
 import { buildLandingProfileItems } from "./writingFormulaLandingItems";
 import {
   buildProfileFeaturesFromDraft,
@@ -55,6 +59,44 @@ export default function WritingFormulaPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const editorDialogRef = useRef<HTMLDivElement | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [skillPackageDialogOpen, setSkillPackageDialogOpen] = useState(false);
+
+  // 导出写法包：取回包内文件后在浏览器里直接落盘。ZIP 是自己拼的（stored 模式），
+  // 没有引第三方库；解开就是一个同构的写法包目录。
+  const exportSkillPackageMutation = useMutation({
+    mutationFn: async (profileId: string) => {
+      const response = await exportSkillPackage(profileId);
+      const profileName = profiles.find((item) => item.id === profileId)?.name ?? "skill";
+      return buildSkillPackageDownload(response.data?.files ?? [], profileName);
+    },
+    onSuccess: (download) => {
+      const url = URL.createObjectURL(new Blob([download.bytes as BlobPart], { type: download.mimeType }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = download.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success(`已导出 ${download.fileName}`);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "导出失败。");
+    },
+  });
+
+  // 停用/恢复自动命中。status 目前只 gate 两处——SkillMatcherService 与
+  // StyleRecommendationService，所以停用只是「不再被自动带进提示词、不再被推荐」，
+  // 资产本身留着，已有的手动绑定照旧生效。按钮文案按这个语义写。
+  const toggleAutoMatchMutation = useMutation({
+    mutationFn: (input: { profileId: string; enabled: boolean }) =>
+      updateStyleProfile(input.profileId, { status: input.enabled ? "active" : "archived" }),
+    onSuccess: async (_response, input) => {
+      await refreshStyleData();
+      toast.success(input.enabled ? "已恢复自动命中。" : "已停用自动命中，手动绑定不受影响。");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "改不动这条写法的状态。");
+    },
+  });
   const [message, setMessage] = useState("");
   const [activeWorkspaceDialog, setActiveWorkspaceDialog] = useState<WorkspaceDialog>(
     searchParams.get("profileId") ? "editor" : null,
@@ -528,6 +570,15 @@ export default function WritingFormulaPage() {
 
       <WritingFormulaLanding
         onOpenCreate={() => setCreateDialogOpen(true)}
+        onOpenSkillPackageImport={() => setSkillPackageDialogOpen(true)}
+        onExportProfile={(profileId) => exportSkillPackageMutation.mutate(profileId)}
+        exportPendingProfileId={exportSkillPackageMutation.isPending
+          ? exportSkillPackageMutation.variables ?? null
+          : null}
+        onToggleAutoMatch={(profileId, enabled) => toggleAutoMatchMutation.mutate({ profileId, enabled })}
+        autoMatchPendingProfileId={toggleAutoMatchMutation.isPending
+          ? toggleAutoMatchMutation.variables?.profileId ?? null
+          : null}
         onOpenPromptLab={() => navigate("/prompt-workbench?experience=writing")}
         onSelectProfile={setSelectedProfileId}
         onEditProfile={(profileId) => openWorkspaceDialog("editor", profileId)}
@@ -545,6 +596,18 @@ export default function WritingFormulaPage() {
         deletePending={deleteProfileMutation.isPending}
         profileItems={landingProfileItems}
         selectedProfileId={selectedProfileId}
+      />
+
+      <SkillPackageImportDialog
+        open={skillPackageDialogOpen}
+        onOpenChange={setSkillPackageDialogOpen}
+        onImported={(profileId) => {
+          void refreshStyleData();
+          setSelectedProfileId(profileId);
+          // 直接进编辑器：导入进来的写法多半要按自己的书再调一遍，
+          // 停在列表页反而要作者自己再找一次。
+          openWorkspaceDialog("editor", profileId);
+        }}
       />
 
       <WritingFormulaCreateDialog

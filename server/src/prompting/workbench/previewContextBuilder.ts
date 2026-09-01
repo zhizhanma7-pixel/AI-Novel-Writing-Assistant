@@ -16,6 +16,7 @@ import {
 import type { CreationIntentInterpretation, ShortStoryPlanContract } from "@ai-novel/shared/types/creationStudio";
 import { createContextBlock } from "../core/contextBudget";
 import type { WritingPlatformSnapshot } from "@ai-novel/shared/types/writingPlatform";
+import type { MatchedSkill } from "@ai-novel/shared/types/styleEngine";
 
 type UnknownPromptAsset = PromptAsset<unknown, unknown, unknown>;
 export type PromptWorkbenchPreviewDb = Pick<PrismaClient, "novel" | "chapter">;
@@ -189,6 +190,27 @@ export async function prepareWorkbenchPreviewExecutionContext(input: {
     };
   }
 
+  // 自动命中的写法：预览的意义就在于让作者确认「我导入的那套写法真的会被带进去吗」，
+  // 所以走的是正文链同一个入口（resolveForGeneration），而不是单独查一次匹配器。
+  // 单独查会漏掉人工绑定的排除，把已绑定的资产错标成「自动命中」；更要紧的是，
+  // 预览与生产一旦是两条路，预览就不再证明生产的行为。
+  //
+  // 用动态 import 而不是顶层导入：本模块的数据访问一律走注入进来的 `db`，
+  // 写法解析却直连 prisma；顶层引它会把 prisma 拖进这个模块的加载期。
+  // 查不到就当没有，预览不该因此打不开。
+  let matchedSkills: MatchedSkill[] = [];
+  try {
+    const { StyleBindingService } = await import("../../services/styleEngine/StyleBindingService");
+    const resolved = await new StyleBindingService().resolveForGeneration({
+      novelId,
+      chapterId,
+      agent: "writer",
+    });
+    matchedSkills = resolved.matchedSkills ?? [];
+  } catch (error) {
+    console.warn("[promptWorkbench] 预览时解析自动命中的写法失败，按没有处理。", error);
+  }
+
   if (isAuditPreviewPrompt(asset)) {
     return {
       executionContext: {
@@ -211,7 +233,7 @@ export async function prepareWorkbenchPreviewExecutionContext(input: {
       metadata: {
         ...(executionContext.metadata ?? {}),
         chapterBlockMode: "full",
-        chapterWriteContext: buildPreviewChapterWriteContext({ novel, chapter }),
+        chapterWriteContext: buildPreviewChapterWriteContext({ novel, chapter, matchedSkills }),
         extraContextBlocks: [createContextBlock({
           id: "writing_platform",
           group: "writing_platform",

@@ -1,4 +1,5 @@
 import type {
+  MatchedSkill,
   StyleContract,
   StyleContractIssueCategory,
   StyleContractSection,
@@ -6,6 +7,21 @@ import type {
   StyleContractViolationSource,
   StyleDetectionRuleType,
 } from "@ai-novel/shared/types/styleEngine";
+
+export function buildMatchedSkillGuidanceText(
+  matchedSkills: MatchedSkill[] | null | undefined,
+): string {
+  const blocks = (matchedSkills ?? []).map((skill) => {
+    const guidance = skill.ruleSummary.trim();
+    if (!guidance) {
+      return "";
+    }
+    return [`自动命中写法：${skill.name}`, skill.description.trim(), guidance]
+      .filter(Boolean)
+      .join("\n");
+  }).filter(Boolean);
+  return blocks.join("\n\n");
+}
 
 export const WRITER_STYLE_CONTRACT_SECTIONS: StyleContractSectionKey[] = [
   "narrative",

@@ -384,6 +384,7 @@ export function buildChapterWriteContext(input: {
     previousChapterTail: compactText(input.contextPackage.previousChapterTail) || null,
     openingAntiRepeatHint: compactText(input.contextPackage.openingHint, "No recent opening guidance."),
     styleContract: input.contextPackage.styleContext?.compiledBlocks?.contract ?? null,
+    matchedSkills: input.contextPackage.styleContext?.matchedSkills ?? [],
     styleConstraints: summarizeStyleConstraints(input.contextPackage),
     continuationConstraints: summarizeContinuationConstraints(input.contextPackage),
     ragFacts: [],

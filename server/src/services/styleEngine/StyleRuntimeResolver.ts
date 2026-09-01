@@ -119,6 +119,8 @@ export class StyleRuntimeResolver {
     });
 
     return {
+      // 自动命中与其消毒都在 StyleBindingService.resolveForGeneration 里做了：
+      // 正文/规划链是直接调那个方法的，挂在这一层会漏掉它们。
       context,
       antiAiRules: antiAiPolicy.effectiveRules.map((item) => item.rule),
       primaryProfile,

@@ -1,6 +1,7 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import SkillPackageProfileActions from "./SkillPackageProfileActions";
 import { Card, CardContent } from "@/components/ui/card";
 import type { LandingProfileItem } from "../writingFormulaLandingItems";
 
@@ -12,6 +13,11 @@ interface WritingFormulaLandingProps {
   onUseProfileForClean: (profileId: string) => void;
   onDeleteProfile: (profileId: string) => void;
   onOpenPromptLab: () => void;
+  onOpenSkillPackageImport: () => void;
+  onExportProfile: (profileId: string) => void;
+  exportPendingProfileId: string | null;
+  onToggleAutoMatch: (profileId: string, enabled: boolean) => void;
+  autoMatchPendingProfileId: string | null;
   deletePending: boolean;
   profileItems: LandingProfileItem[];
   selectedProfileId: string;
@@ -74,6 +80,11 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
     onUseProfileForClean,
     onDeleteProfile,
     onOpenPromptLab,
+    onOpenSkillPackageImport,
+    onExportProfile,
+    exportPendingProfileId,
+    onToggleAutoMatch,
+    autoMatchPendingProfileId,
     deletePending,
     profileItems,
     selectedProfileId,
@@ -114,6 +125,16 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
               <Badge variant="outline" className="h-6">
                 {profile.sourceTypeLabel}
               </Badge>
+              {profile.applicableTasks.length > 0 && profile.autoMatchEnabled ? (
+                <Badge variant="secondary" className="h-6">
+                  自动命中：{profile.applicableTasks.join("、")}
+                </Badge>
+              ) : null}
+              {profile.autoMatchEnabled ? null : (
+                <Badge variant="outline" className="h-6 text-muted-foreground">
+                  已停用自动命中
+                </Badge>
+              )}
             </div>
             <div className="max-w-3xl text-sm leading-6 text-muted-foreground">
               {truncateText(profile.summaryLine, 120) || "暂无写法摘要。"}
@@ -166,6 +187,15 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
             >
               去 AI 味
             </Button>
+            <SkillPackageProfileActions
+              profileId={profile.id}
+              applicableTasks={profile.applicableTasks}
+              autoMatchEnabled={profile.autoMatchEnabled}
+              autoMatchPending={autoMatchPendingProfileId === profile.id}
+              exportPending={exportPendingProfileId === profile.id}
+              onToggleAutoMatch={onToggleAutoMatch}
+              onExportProfile={onExportProfile}
+            />
             <Button
               type="button"
               size="sm"
@@ -329,6 +359,9 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={onOpenPromptLab}>
                 正文效果实验室
+              </Button>
+              <Button type="button" variant="outline" onClick={onOpenSkillPackageImport}>
+                导入写法包
               </Button>
               <Button type="button" onClick={onOpenCreate}>
                 新建一套写法

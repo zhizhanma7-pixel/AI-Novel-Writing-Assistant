@@ -47,6 +47,7 @@ interface ManualProfileInput {
   category?: string;
   tags?: string[];
   applicableGenres?: string[];
+  applicableTasks?: string[];
   sourceType?: StyleSourceType;
   sourceRefId?: string;
   sourceContent?: string;
@@ -60,6 +61,8 @@ interface ManualProfileInput {
   languageRules?: Record<string, unknown>;
   rhythmRules?: Record<string, unknown>;
   antiAiRuleIds?: string[];
+  /** 省略时用库里的默认值 active。导入外来写法时会显式传 archived，见 SkillPackageService。 */
+  status?: string;
 }
 
 interface LlmInput {
@@ -212,9 +215,12 @@ export class StyleProfileService {
         category: input.category,
         tagsJson: serializeJson(input.tags ?? []),
         applicableGenresJson: serializeJson(input.applicableGenres ?? []),
+        applicableTasksJson: serializeJson(input.applicableTasks ?? []),
         sourceType: input.sourceType ?? "manual",
         sourceRefId: input.sourceRefId,
         sourceContent: input.sourceContent,
+        // 省略时交给库的默认值（active），不写死在这里。
+        ...(input.status ? { status: input.status } : {}),
         extractedFeaturesJson: serializeJson(input.extractedFeatures ?? []),
         extractionPresetsJson: serializeJson(input.extractionPresets ?? []),
         extractionAntiAiRuleKeysJson: serializeJson(input.extractionAntiAiRuleKeys ?? []),

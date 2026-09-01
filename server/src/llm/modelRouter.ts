@@ -1,8 +1,9 @@
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
-import type {
-  ModelRouteRequestProtocol,
-  ModelRouteStructuredResponseFormat,
-  ModelRouteTaskType,
+import {
+  MODEL_ROUTE_TASK_TYPES,
+  type ModelRouteRequestProtocol,
+  type ModelRouteStructuredResponseFormat,
+  type ModelRouteTaskType,
 } from "@ai-novel/shared/types/novel";
 import { prisma } from "../db/prisma";
 import { isBuiltInProvider, PROVIDERS } from "./providers";
@@ -27,19 +28,7 @@ const TASK_TYPE_ALIASES: Partial<Record<TaskType, ModelRouteTaskType>> = {
   fact_extraction: "fact_extraction",
 };
 
-export const MODEL_ROUTE_TASK_TYPES: ModelRouteTaskType[] = [
-  "planner",
-  "writer",
-  "review",
-  "light_review",
-  "critical_review",
-  "repair",
-  "replan",
-  "state_resolution",
-  "summary",
-  "fact_extraction",
-  "chat",
-];
+export { MODEL_ROUTE_TASK_TYPES };
 
 export interface ResolvedModel {
   provider: LLMProvider;

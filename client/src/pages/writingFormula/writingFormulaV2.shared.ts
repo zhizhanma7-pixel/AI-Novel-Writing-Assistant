@@ -85,6 +85,9 @@ export function getStyleProfileOriginLabel(
   if (profile.sourceRefId?.startsWith(AI_STYLE_BRIEF_SOURCE_PREFIX)) {
     return "AI生成";
   }
+  if (profile.sourceType === "imported_skill") {
+    return "写法包导入";
+  }
   if (profile.sourceType === "from_text") {
     return "文本提取";
   }

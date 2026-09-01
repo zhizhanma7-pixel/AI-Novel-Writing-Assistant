@@ -224,3 +224,54 @@ export function detectForbiddenStyleEntities(
     !leakedEntities.some((other) => other !== entity && other.includes(entity))
   ));
 }
+
+/**
+ * 对自动命中的写法（Skill）补一道消毒。
+ *
+ * 为什么要单独一个入口：`sanitizeStyleContextForGeneration` 在 `StyleBindingService`
+ * 里就跑完了，而自动命中是 `StyleRuntimeResolver` 之后才挂上去的，赶不上那一趟。
+ *
+ * 为什么非补不可：同一条写法，人工绑定会经由 `collectProfileText` 进禁用实体提取
+ * 并在契约文本里被遮蔽；自动命中若不补，规则原文就直接进提示词了。而 Skill 恰恰
+ * **是别人的原作**——「推进靠沈砚那种距离变化」这类句子里的人名，正是这套机制要挡的东西。
+ *
+ * `name` 不遮蔽：它是作者自己库里那条资产的名字，预览要靠它说明「这一条为什么会出现」，
+ * 遮掉就没法追溯了。参与生成的 `description` 与 `ruleSummary` 照遮。
+ */
+export function sanitizeMatchedSkillsForGeneration(
+  context: ResolvedStyleContext,
+): ResolvedStyleContext {
+  const matchedSkills = context.matchedSkills ?? [];
+  if (matchedSkills.length === 0) {
+    return context;
+  }
+
+  const skillText = matchedSkills
+    .flatMap((skill) => [skill.name, skill.description, skill.ruleSummary])
+    .filter(Boolean)
+    .join("\n");
+  const existing = context.sanitizedGenerationProfile?.forbiddenEntities ?? [];
+  const forbiddenEntities = Array.from(new Set([
+    ...existing,
+    ...extractEntityCandidates(skillText),
+  ]))
+    .sort((left, right) => right.length - left.length || left.localeCompare(right, "zh-Hans-CN"))
+    .slice(0, MAX_FORBIDDEN_ENTITY_COUNT);
+
+  return {
+    ...context,
+    matchedSkills: matchedSkills.map((skill) => ({
+      ...skill,
+      description: redactForbiddenEntities(skill.description, forbiddenEntities),
+      ruleSummary: redactForbiddenEntities(skill.ruleSummary, forbiddenEntities),
+    })),
+    sanitizedGenerationProfile: context.sanitizedGenerationProfile
+      // 扩过的禁用清单要写回去，`detectForbiddenStyleEntities` 才能在成稿里查这些词。
+      ? { ...context.sanitizedGenerationProfile, forbiddenEntities }
+      : null,
+  };
+}
+
+export function extractStyleSourceEntities(text: string): string[] {
+  return extractEntityCandidates(text);
+}
