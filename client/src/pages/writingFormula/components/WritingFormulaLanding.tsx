@@ -39,15 +39,10 @@ function handleSelectableKeyDown(event: KeyboardEvent<HTMLDivElement>, onSelect:
   onSelect();
 }
 
-function DetailPanel(props: { title: string; description?: string; children: ReactNode }) {
+function DetailPanel(props: { title: string; children: ReactNode }) {
   return (
-    <div className="space-y-3 rounded-2xl border bg-card/80 p-4 shadow-sm">
-      <div className="space-y-1">
-        <div className="text-xs font-semibold tracking-[0.12em] text-muted-foreground">{props.title}</div>
-        {props.description ? (
-          <div className="text-xs leading-6 text-muted-foreground">{props.description}</div>
-        ) : null}
-      </div>
+    <div className="space-y-3 rounded-lg border bg-card/60 p-4">
+      <div className="text-xs font-semibold tracking-[0.12em] text-muted-foreground">{props.title}</div>
       {props.children}
     </div>
   );
@@ -64,9 +59,9 @@ function DetailStatRow(props: { label: string; value: string }) {
 
 function SummaryCard(props: { title: string; summary: string }) {
   return (
-    <div className="rounded-2xl border bg-muted/25 p-3.5">
+    <div className="border-l pl-3">
       <div className="text-sm font-medium text-foreground">{props.title}</div>
-      <div className="mt-2 text-sm leading-6 text-muted-foreground">{props.summary}</div>
+      <div className="mt-1.5 text-sm leading-6 text-muted-foreground">{props.summary}</div>
     </div>
   );
 }
@@ -110,8 +105,8 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
         onKeyDown={(event) => handleSelectableKeyDown(event, () => onSelectProfile(profile.id))}
         className={`rounded-3xl border px-5 py-4 text-left transition duration-200 ${isSelected ? selectedStyle : idleStyle}`}
       >
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex flex-col gap-3">
+          <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <div className="text-base font-semibold text-foreground">{profile.name}</div>
               <Badge variant={profile.isStarter ? "outline" : (isSelected ? "default" : "secondary")} className={badgeClassName}>
@@ -153,7 +148,7 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 xl:justify-end">
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
@@ -199,7 +194,8 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
             <Button
               type="button"
               size="sm"
-              variant="destructive"
+              variant="ghost"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
               disabled={deletePending}
               onClick={(event) => {
                 event.stopPropagation();
@@ -216,7 +212,6 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_280px]">
               <DetailPanel
                 title="读感与定位"
-                description="这一列帮助你快速判断这套写法想写成什么感觉，适合先拿来做哪类项目。"
               >
                 <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 text-sm leading-7 text-slate-700">
                   {profile.description}
@@ -241,7 +236,6 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
               <div className="space-y-4">
                 <DetailPanel
                   title="规则摘要"
-                  description="这里把这套写法真正控制读感的四层规则读出来，方便你在列表里先看懂。"
                 >
                   <div className="grid gap-3 md:grid-cols-2">
                     <SummaryCard title="剧情推进" summary={profile.narrativeSummary} />
@@ -253,7 +247,6 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
 
                 <DetailPanel
                   title="反 AI 约束"
-                  description="这部分决定系统在检测和修正文稿时会优先盯住哪些风险。"
                 >
                   {profile.antiAiFocus.length > 0 || profile.antiAiRuleNames.length > 0 || profile.extractionAntiAiRecommendationCount > 0 ? (
                     <div className="space-y-3">
@@ -292,7 +285,6 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
               <div className="space-y-4">
                 <DetailPanel
                   title="资产概览"
-                  description="这一列主要帮你判断这套写法现在成熟到什么程度。"
                 >
                   <div className="space-y-2">
                     <DetailStatRow label="来源" value={profile.sourceTypeLabel} />
@@ -321,7 +313,6 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
 
                 <DetailPanel
                   title="下一步"
-                  description="三个按钮现在各自只负责一件事，不会再跳到同一块内容里。"
                 >
                   <div className="space-y-2 text-sm leading-6 text-slate-700">
                     <div>编辑设定：维护这套写法本身的说明、规则和反 AI 约束。</div>
@@ -342,25 +333,13 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
       <Card className="overflow-hidden border-primary/10 bg-card shadow-sm">
         <CardContent className="space-y-6 p-5 md:p-7">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-2">
-              <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
-                我的写法资产
-              </Badge>
-              <div className="space-y-2">
-                <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                  先选一套写法，再决定要编辑、应用还是去 AI 味。
-                </h1>
-                <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
-                  首页负责看清你已有的写法资产。展开后会直接展示这套写法的读感定位、规则摘要、反 AI 约束和当前成熟度。
-                </p>
-              </div>
-            </div>
+            <h1 className="text-lg font-semibold tracking-tight text-foreground">我的写法资产</h1>
 
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={onOpenPromptLab}>
+              <Button type="button" variant="ghost" onClick={onOpenPromptLab}>
                 正文效果实验室
               </Button>
-              <Button type="button" variant="outline" onClick={onOpenSkillPackageImport}>
+              <Button type="button" variant="ghost" onClick={onOpenSkillPackageImport}>
                 导入写法包
               </Button>
               <Button type="button" onClick={onOpenCreate}>
@@ -369,9 +348,9 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
             </div>
           </div>
 
-          <div className="rounded-2xl border border-primary/15 bg-primary/[0.045] px-4 py-3 text-sm leading-7 text-muted-foreground">
-            书级默认写法请从小说基础信息进入，由小说来选择要使用的写法资产，再带入后续导演和正文流程。
-          </div>
+          <p className="text-sm leading-6 text-muted-foreground">
+            书级默认写法在小说基础信息里选，不在这里。
+          </p>
 
           {profileItems.length === 0 ? (
             <div className="rounded-3xl border border-dashed bg-muted/20 p-6">
@@ -411,15 +390,12 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-slate-950">可直接改的起步写法</div>
-                      <div className="text-xs leading-6 text-slate-500">
-                        这些预置资产适合先借一套骨架，再按当前项目改成自己的写法。
-                      </div>
                     </div>
                     <Badge variant="secondary" className="bg-slate-100 text-slate-700">
                       {starterProfiles.length} 套
                     </Badge>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3">
                     {starterProfiles.map(renderProfileCard)}
                   </div>
                 </section>

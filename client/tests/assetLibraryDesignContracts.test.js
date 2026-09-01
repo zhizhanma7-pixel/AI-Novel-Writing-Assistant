@@ -40,6 +40,7 @@ const storyModeTreeBrowser = readClientFile("src/pages/storyModes/components/Sto
 const storyModeProfileDetails = readClientFile("src/components/storyModes/StoryModeProfileDetails.tsx");
 const assetTreeNavigator = readClientFile("src/components/assetLibrary/AssetTreeNavigator.tsx");
 const characterPage = readClientFile("src/pages/characters/CharacterLibrary.tsx");
+const writingFormulaPage = readClientFile("src/pages/writingFormula/WritingFormulaPage.tsx");
 const writingFormulaLanding = readClientFile("src/pages/writingFormula/components/WritingFormulaLanding.tsx");
 const writingFormulaWorkbench = readClientFile("src/pages/writingFormula/components/WritingFormulaWorkbenchPanel.tsx");
 const writingFormulaCreateDialog = readClientFile("src/pages/writingFormula/components/WritingFormulaCreateDialog.tsx");
@@ -201,7 +202,12 @@ test("story mode library reuses the tree navigator and keeps mode contracts in t
 });
 
 test("writing formula keeps a compact asset list and reveals the selected profile in place", () => {
-  assert.match(writingFormulaLanding, /先选一套写法，再决定要编辑、应用还是去 AI 味/);
+  // 这里原本钉的是一句带句号的大标题（"先选一套写法，再决定要编辑、应用还是去 AI 味。"）。
+  // 那是落地页口吻，工具页不需要；连同每个面板下面重复解释标题的说明文字一起去掉了。
+  // 改成守住去掉之后的样子，免得又被加回来。
+  assert.match(writingFormulaLanding, /我的写法资产/);
+  assert.doesNotMatch(writingFormulaLanding, /description="/, "面板不要再挂自我解说的说明文字");
+  assert.doesNotMatch(writingFormulaPage, /uppercase tracking-\\[0\\.18em\\]/, "不要营销式眉标");
   assert.match(writingFormulaLanding, /isSelected \? \(/);
   assert.match(writingFormulaLanding, /读感与定位/);
   assert.match(writingFormulaLanding, /规则摘要/);

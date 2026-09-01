@@ -61,6 +61,17 @@ const DOMAIN_STATE_PROPOSAL_APPLIERS: Record<DomainStateProposalType, StatePropo
         message: "Character import proposal references a missing novel.",
       });
     }
+    const duplicate = await tx.character.findFirst({
+      where: { novelId: proposal.novelId, name: payload.name },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new StateProposalDomainError({
+        proposalType: "character_import",
+        reason: "duplicate_character",
+        message: `Character ${payload.name} already exists in this novel.`,
+      });
+    }
     await tx.character.create({
       data: {
         novelId: proposal.novelId,

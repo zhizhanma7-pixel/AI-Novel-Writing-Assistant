@@ -550,10 +550,7 @@ export default function WritingFormulaPage() {
   return (
     <div className="writing-formula-theme flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">Style Engine V2</div>
-          <div className="text-2xl font-semibold tracking-tight text-foreground">写法引擎</div>
-        </div>
+        <div className="text-2xl font-semibold tracking-tight text-foreground">写法引擎</div>
         <OpenInCreativeHubButton bindings={{ styleProfileId: selectedProfileId || null }} label="把这套写法带去创作中枢" />
       </div>
 

@@ -232,6 +232,7 @@ export function registerNovelChangeProposalRoutes(router: Router): void {
           proposalId,
           decision: "approve",
           expectedVersion: req.body.expectedVersion,
+          expectedUpdatedAt: req.body.expectedUpdatedAt,
           itemDecisions: req.body.itemDecisions,
           unlistedDecision: req.body.unlistedDecision,
         });
@@ -266,6 +267,7 @@ export function registerNovelChangeProposalRoutes(router: Router): void {
           proposalId,
           decision: "partial",
           expectedVersion: req.body.expectedVersion,
+          expectedUpdatedAt: req.body.expectedUpdatedAt,
           itemDecisions: req.body.itemDecisions,
           unlistedDecision: req.body.unlistedDecision,
         });
@@ -300,6 +302,7 @@ export function registerNovelChangeProposalRoutes(router: Router): void {
           proposalId,
           decision: "reject",
           expectedVersion: req.body.expectedVersion,
+          expectedUpdatedAt: req.body.expectedUpdatedAt,
           reason: req.body.reason,
         });
         if (queued) {

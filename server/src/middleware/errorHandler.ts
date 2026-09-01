@@ -210,6 +210,20 @@ export function errorHandler(
     error
     && typeof error === "object"
     && "type" in error
+    && (error as { type?: string }).type === "entity.parse.failed"
+  ) {
+    setRequestErrorMessage(res, "请求内容不是有效的 JSON，请检查文件是否完整。");
+    res.status(400).json({
+      success: false,
+      error: "请求内容不是有效的 JSON，请检查文件是否完整。",
+    });
+    return;
+  }
+
+  if (
+    error
+    && typeof error === "object"
+    && "type" in error
     && (error as { type?: string }).type === "entity.too.large"
   ) {
     setRequestErrorMessage(res, "请求体过大，请缩短文本或分段上传。");

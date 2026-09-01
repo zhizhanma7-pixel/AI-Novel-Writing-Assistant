@@ -56,6 +56,20 @@ const config: Config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // xl / 2xl / 3xl 是 Tailwind 默认值（12 / 16 / 24px），不走 --radius。
+        // 全站有约 880 处硬编码用它们，页面因此变成一叠圆乎乎的悬浮盒子。
+        // 在这里统一收到 10–12px，比逐个改 880 个地方可靠，也一次生效。
+        xl: "10px",
+        "2xl": "12px",
+        "3xl": "12px",
+      },
+      boxShadow: {
+        // 扁平：阴影要么没有，要么极淡。Tailwind 默认的 md/lg/xl 在这个界面里
+        // 只会让每个盒子都往前浮一层，层级反而消失。
+        md: "0 1px 2px rgba(0, 0, 0, 0.04)",
+        lg: "0 2px 8px rgba(0, 0, 0, 0.04)",
+        xl: "0 4px 16px rgba(0, 0, 0, 0.05)",
+        "2xl": "0 8px 24px rgba(0, 0, 0, 0.06)",
       },
     },
   },

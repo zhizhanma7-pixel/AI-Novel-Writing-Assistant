@@ -28,7 +28,8 @@
   --border: 214.3 31.8% 91.4%;
   --input: 214.3 31.8% 91.4%;
   --ring: 222.2 84% 4.9%;
-  --radius: 0.75rem;
+  /* 8px。原为 12px，配上到处的描边淡底会显得每块都在飘。 */
+  --radius: 0.5rem;
 }
 
 :root[data-theme="paper"] {
@@ -549,6 +550,7 @@ body {
   .mobile-route-creative-hub,
   .mobile-route-chat-legacy,
   .mobile-route-book-analysis,
+  .mobile-route-market-radar,
   .mobile-route-tasks,
   .mobile-route-auto-director-follow-ups,
   .mobile-route-knowledge,
@@ -582,6 +584,7 @@ body {
   .mobile-route-creative-hub,
   .mobile-route-chat-legacy,
   .mobile-route-book-analysis,
+  .mobile-route-market-radar,
   .mobile-route-tasks,
   .mobile-route-auto-director-follow-ups,
   .mobile-route-knowledge,

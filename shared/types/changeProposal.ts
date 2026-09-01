@@ -128,19 +128,34 @@ export const proposedChangeItemDecisionSchema = z.object({
   }
 });
 
+/**
+ * 读取时看到的 `updatedAt`，用于并发守卫。
+ *
+ * `expectedVersion` 挡不住这一类：`version` 是**重新生成的世代号**
+ * （supersede 时 +1），逐项编辑不会动它。于是「我读过之后别人改了某一项」
+ * 在乐观锁眼里毫无变化，审批照过，批准的是审批者没看过的内容。
+ *
+ * 不把编辑也算进 version：那会让世代号同时表示两件事，supersedesId 链
+ * 和带 version 的事件幂等键都会跟着变味。另开一个字段，各管各的。
+ *
+ * 可选，老调用方行为不变。
+ */
 export const reviewChangeProposalInputSchema = z.object({
   expectedVersion: z.number().int().positive().optional(),
+  expectedUpdatedAt: z.string().optional(),
   itemDecisions: z.array(proposedChangeItemDecisionSchema).max(200).optional(),
   unlistedDecision: z.enum(["accepted", "rejected"]).optional(),
 });
 
 export const rejectChangeProposalInputSchema = z.object({
   expectedVersion: z.number().int().positive().optional(),
+  expectedUpdatedAt: z.string().optional(),
   reason: z.string().trim().min(1).max(1000).optional(),
 }).default({});
 
 export const editProposedChangeInputSchema = z.object({
   expectedVersion: z.number().int().positive().optional(),
+  expectedUpdatedAt: z.string().optional(),
   payload: z.record(z.string(), z.unknown()).optional(),
   after: z.unknown().optional(),
 }).refine(

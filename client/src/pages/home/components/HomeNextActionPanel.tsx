@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ArrowRight, BookOpenText, Check, Circle, Loader2, PlusCircle, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpenText, Check, Circle, Loader2, PlusCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { resolveImageAssetUrl } from "@/api/images";
 import defaultNovelCoverUrl from "@/assets/default-novel-cover.webp";
@@ -90,16 +90,12 @@ export function HomeNextActionPanel(props: {
         <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_18rem] xl:items-start">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 text-sm font-medium text-info">
-                <Sparkles className="h-4 w-4" aria-hidden="true" />
-                继续你的故事
-              </span>
+              <span className="text-sm font-medium text-foreground">继续你的故事</span>
               {workflowBadge ? <Badge variant="outline" className="border-info/20 bg-background/80 text-foreground">{workflowBadge.label}</Badge> : null}
             </div>
 
             <div className="mt-5 max-w-4xl">
-              <p className="text-sm text-muted-foreground">正在创作</p>
-              <h1 className="mt-1 break-words text-3xl font-semibold leading-tight tracking-[-0.025em] text-foreground sm:text-4xl">《{novel.title}》</h1>
+              <h1 className="break-words text-3xl font-semibold leading-tight tracking-[-0.025em] text-foreground sm:text-4xl">《{novel.title}》</h1>
               <div className="mt-5 flex items-start gap-3 rounded-2xl bg-background/75 px-4 py-3.5 ring-1 ring-border/60 backdrop-blur-sm">
                 <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
                   <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -116,7 +112,6 @@ export function HomeNextActionPanel(props: {
               <div className="mb-3 flex items-center justify-between gap-4">
                 <div>
                   <div className="text-sm font-semibold text-foreground">整本创作旅程</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">每一步都会成为后续章节的创作依据</div>
                 </div>
                 <div className="text-right">
                   <div className="text-lg font-semibold tabular-nums text-foreground">{journey.progressPercent}%</div>
@@ -190,22 +185,15 @@ export function HomeNextActionPanel(props: {
 
 function StarterPanel(props: { action: HomeNextAction }) {
   return (
-    <Card className="home-next-action-panel relative overflow-hidden rounded-3xl border-border/70 bg-[linear-gradient(135deg,hsl(var(--card)),hsl(var(--info)/0.08))] shadow-[0_28px_80px_-52px_rgba(15,23,42,0.48)]">
-      <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-info/10 blur-3xl" aria-hidden="true" />
+    <Card className="home-next-action-panel relative overflow-hidden rounded-xl border-border/70">
       <CardContent className="relative grid gap-8 p-7 sm:p-9 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-end">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-medium text-info">
-            <Sparkles className="h-4 w-4" aria-hidden="true" />
-            {props.action.eyebrow}
-          </div>
+          <div className="text-sm text-muted-foreground">{props.action.eyebrow}</div>
           <div className="mt-5">
             <h1 className="max-w-3xl text-3xl font-semibold leading-tight tracking-[-0.025em] sm:text-4xl">把一个模糊想法，写成完整故事</h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-muted-foreground">{props.action.description}</p>
           </div>
-          <div className="mt-6 inline-flex items-start gap-3 rounded-2xl bg-background/80 px-4 py-3 text-sm leading-6 text-muted-foreground ring-1 ring-border/60">
-            <Sparkles className="mt-1 h-4 w-4 shrink-0 text-info" aria-hidden="true" />
-            {props.action.reason}
-          </div>
+          <p className="mt-6 max-w-2xl text-sm leading-6 text-muted-foreground">{props.action.reason}</p>
         </div>
         <div className="grid gap-2">
           <Button asChild size="lg">

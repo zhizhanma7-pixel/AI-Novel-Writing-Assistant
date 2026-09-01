@@ -33,12 +33,17 @@ test("startPipelineJob persists maxRetries as a single repair pass", async () =>
     generationCreate: prisma.generationJob.create,
     chapterAggregate: prisma.chapter.aggregate,
     chapterFindMany: prisma.chapter.findMany,
+    novelFindUnique: prisma.novel.findUnique,
   };
 
   let createdInput = null;
   let scheduledOptions = null;
   let capturedChapterQuery = null;
   prisma.character.count = async () => 1;
+  // startPipelineJob 现在会先取问题治理策略快照，那一步要读小说本身
+  // （DirectorIssuePolicyService.getNovelPolicy）。这条存根加进来之前，
+  // 用例会在拿到任何断言之前就被「小说不存在。」打断。
+  prisma.novel.findUnique = async () => ({ directorIssuePolicyOverridesJson: null });
   prisma.generationJob.findMany = async () => [];
   prisma.chapter.aggregate = async () => ({
     _min: { order: 1 },
@@ -96,6 +101,7 @@ test("startPipelineJob persists maxRetries as a single repair pass", async () =>
     assert.equal(terminalContinueCondition.AND[2].riskFlags.not.contains, '"rootCauseCode":"replan_required"');
     assert.equal(terminalContinueCondition.AND[3].riskFlags.not.contains, '"recommendedAction":"replan"');
   } finally {
+    prisma.novel.findUnique = original.novelFindUnique;
     prisma.character.count = original.characterCount;
     prisma.generationJob.findMany = original.generationFindMany;
     prisma.generationJob.create = original.generationCreate;

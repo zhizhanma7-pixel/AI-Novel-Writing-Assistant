@@ -24,6 +24,18 @@ function valuesDiffer(left: string | null | undefined, right: string | null | un
 
 function rankForeshadowStatus(status: string | null | undefined): number {
   const normalized = normalizeText(status).toLowerCase();
+  // 同 rankInformationStatus：否定先判。`unresolved` 含 `resolved`、
+  // `incomplete` 含 `complete`、`未兑现` 含 `兑现`。判成最高档会同时造成
+  // 假警报（没铺垫却报「提前兑现」）和漏报（真的退回时反而不报）。
+  if (
+    normalized.includes("unresolved")
+    || normalized.includes("incomplete")
+    || normalized.includes("未兑现")
+    || normalized.includes("未回收")
+    || normalized.includes("待回收")
+  ) {
+    return 1;
+  }
   if (
     normalized.includes("resolved")
     || normalized.includes("complete")
@@ -48,6 +60,20 @@ function rankForeshadowStatus(status: string | null | undefined): number {
 
 function rankInformationStatus(status: string | null | undefined): number {
   const normalized = normalizeText(status).toLowerCase();
+  // **否定必须先判。** 这里是子串匹配，而 `unknown` 里含有 `known`、
+  // `未公开` 里含有 `公开`——先匹配肯定项会把「不知道」判成「知道」，
+  // 于是「已知的事又变回未知」这类冲突一条都报不出来，且毫无征兆。
+  if (
+    normalized.includes("unknown")
+    || normalized.includes("unaware")
+    || normalized.includes("undisclosed")
+    || normalized.includes("未知")
+    || normalized.includes("未公开")
+    || normalized.includes("不知")
+    || normalized.includes("隐瞒")
+  ) {
+    return 1;
+  }
   if (
     normalized.includes("confirmed")
     || normalized.includes("known")

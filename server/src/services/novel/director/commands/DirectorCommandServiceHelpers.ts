@@ -38,6 +38,12 @@ export interface DirectorCommandPayload {
     itemDecisions?: ProposedChangeItemDecision[];
     unlistedDecision?: "accepted" | "rejected";
     expectedVersion?: number;
+    /**
+     * 读取提案时看到的 updatedAt。审批走命令队列，这个字段不带过去，
+     * 排队期间被改动就查不出来了——审批者点「批准」时看到的那一版，
+     * 到执行时可能已经不是它了。
+     */
+    expectedUpdatedAt?: string;
     reason?: string;
     regenerateInput?: RegenerateChangeProposalInput;
   };

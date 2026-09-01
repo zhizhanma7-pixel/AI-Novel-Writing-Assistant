@@ -4,6 +4,7 @@ export type StateProposalDomainErrorReason =
   | "invalid_payload"
   | "missing_character_id"
   | "character_not_found"
+  | "duplicate_character"
   | "same_character_relation"
   | "character_outside_novel"
   | "chapter_content_protected";
