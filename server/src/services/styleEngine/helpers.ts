@@ -225,6 +225,7 @@ export function mapStyleProfileRow(row: {
   category: string | null;
   tagsJson: string | null;
   applicableGenresJson: string | null;
+  applicableTasksJson: string | null;
   sourceType: string;
   sourceRefId: string | null;
   sourceContent: string | null;
@@ -274,6 +275,7 @@ export function mapStyleProfileRow(row: {
     category: row.category,
     tags: parseJsonArray(row.tagsJson),
     applicableGenres: parseJsonArray(row.applicableGenresJson),
+    applicableTasks: parseJsonArray(row.applicableTasksJson),
     sourceType: row.sourceType as StyleProfile["sourceType"],
     sourceRefId: row.sourceRefId,
     sourceContent: row.sourceContent,

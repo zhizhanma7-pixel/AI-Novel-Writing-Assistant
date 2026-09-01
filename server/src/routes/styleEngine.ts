@@ -11,6 +11,8 @@ import { StyleBindingService } from "../services/styleEngine/StyleBindingService
 import { StyleDetectionService } from "../services/styleEngine/StyleDetectionService";
 import { StyleGenerationService } from "../services/styleEngine/StyleGenerationService";
 import { StyleProfileService } from "../services/styleEngine/StyleProfileService";
+import { SkillPackageService } from "../services/skillPackage/SkillPackageService";
+import { SkillPackageParseError } from "../services/skillPackage/skillPackageParser";
 import { styleRecommendationService } from "../services/styleEngine/StyleRecommendationService";
 import { StyleRewriteService } from "../services/styleEngine/StyleRewriteService";
 
@@ -232,6 +234,93 @@ router.post("/style-profiles", validate({ body: manualProfileSchema }), async (r
     } satisfies ApiResponse<typeof data>);
   } catch (error) {
     next(error);
+  }
+});
+
+const skillPackageFileSchema = z.object({
+  path: z.string().trim().min(1).max(512),
+  content: z.string(),
+});
+
+const skillPackagePreviewSchema = z.object({
+  files: z.array(skillPackageFileSchema).min(1).max(200),
+});
+
+const skillPackageImportSchema = skillPackagePreviewSchema.extend({
+  name: z.string().trim().min(1).max(120).optional(),
+});
+
+// 与 SillyTavern 那组同理：延迟到首次调用，别把导入链路拖进模块加载期。
+// 这个坑在 IMPLEMENTATION_PLAN_SILLYTAVERN_IMPORT.md 3b 记过一次，
+// Phase 3 合并复核时又撞了一次，不要再犯第三次。
+let skillPackageServiceInstance: SkillPackageService | null = null;
+
+function getSkillPackageService(): SkillPackageService {
+  skillPackageServiceInstance ??= new SkillPackageService();
+  return skillPackageServiceInstance;
+}
+
+function forwardSkillPackageError(error: unknown, next: (error?: unknown) => void): void {
+  if (error instanceof SkillPackageParseError) {
+    next(new AppError(error.code, 400, error.message));
+    return;
+  }
+  next(error);
+}
+
+// 预览是纯读：把包里会生效的内容摆出来，包括认不出的字段与被忽略的脚本。
+router.post(
+  "/style-profiles/skill-package/preview",
+  validate({ body: skillPackagePreviewSchema }),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof skillPackagePreviewSchema>;
+      const data = getSkillPackageService().preview(body.files);
+      res.status(200).json({
+        success: true,
+        data,
+        message: data.warnings.length > 0
+          ? "已读出这个写法包，其中有需要你确认的地方。"
+          : "已读出这个写法包，确认后可导入为写法资产。",
+      } satisfies ApiResponse<typeof data>);
+    } catch (error) {
+      forwardSkillPackageError(error, next);
+    }
+  },
+);
+
+router.post(
+  "/style-profiles/skill-package/import",
+  validate({ body: skillPackageImportSchema }),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof skillPackageImportSchema>;
+      const data = await getSkillPackageService().importPackage({
+        files: body.files,
+        name: body.name,
+      });
+      res.status(201).json({
+        success: true,
+        data,
+        message: "写法包已导入为写法资产，需要在写法绑定里启用后才会生效。",
+      } satisfies ApiResponse<typeof data>);
+    } catch (error) {
+      forwardSkillPackageError(error, next);
+    }
+  },
+);
+
+// 导出不限于导入过的资产：自己炼化出来的写法同样能打包拷给别人。
+router.get("/style-profiles/:id/skill-package", async (req, res, next) => {
+  try {
+    const data = await getSkillPackageService().exportPackage(req.params.id);
+    res.status(200).json({
+      success: true,
+      data: { files: data },
+      message: "已打包这条写法资产。",
+    } satisfies ApiResponse<{ files: typeof data }>);
+  } catch (error) {
+    forwardSkillPackageError(error, next);
   }
 });
 

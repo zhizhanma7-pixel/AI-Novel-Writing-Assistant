@@ -47,6 +47,7 @@ interface ManualProfileInput {
   category?: string;
   tags?: string[];
   applicableGenres?: string[];
+  applicableTasks?: string[];
   sourceType?: StyleSourceType;
   sourceRefId?: string;
   sourceContent?: string;
@@ -212,6 +213,7 @@ export class StyleProfileService {
         category: input.category,
         tagsJson: serializeJson(input.tags ?? []),
         applicableGenresJson: serializeJson(input.applicableGenres ?? []),
+        applicableTasksJson: serializeJson(input.applicableTasks ?? []),
         sourceType: input.sourceType ?? "manual",
         sourceRefId: input.sourceRefId,
         sourceContent: input.sourceContent,
