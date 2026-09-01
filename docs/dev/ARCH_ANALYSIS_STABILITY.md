@@ -101,16 +101,25 @@ version，因此 `expectedVersion` **只能发现"信封状态变了"，发现�
 眼下每次跑测试都要在报告里写"这几条是既有失败"。这种长期噪声会让真正的回归
 被忽略——这本身就是 Phase 6 要解决的稳定性问题。
 
-| 红灯 | 性质 | 已知信息 |
-| --- | --- | --- |
-| `director root stays limited to compatibility facades` | 结构约束 | `NovelDirectorIdeaInspirationService.ts` 留在 director 根目录。**曾尝试移走并失败**：移动后 `autoDirectorFollowUpRoutes` 在全量下偶发失败（单独跑通过），是文档 §3b 记录的 eager-singleton 加载顺序问题。移动之前要先解掉那个耦合 |
-| `startPipelineJob persists maxRetries as a single repair pass` | 测试夹具 | 报 `AppError: 小说不存在。`——是夹具没建小说，不是产品逻辑错。应为易修 |
-| `AI proposal producer enforces L1/L3`（integration） | 契约漂移 | schema 要求 `autoRetryBudget`，但没有任何地方产出它 |
-| client：progress panel、proposal review checkpoints、mobile ×3 | 5 条 | 未逐条分析 |
+**服务端两条已清（T2 已完成）。**
 
-**顺带记一条方法论**：客户端测试必须用 `pnpm --filter @ai-novel/client test`，
-不要自己拼 glob——bash 默认不开 globstar，`src/**/*.test.mjs` 不会递归展开，
-会漏掉约 147 条测试。Phase 4 期间我因此报过一轮偏低的数字。
+| 红灯 | 结果 |
+| --- | --- |
+| `startPipelineJob persists maxRetries as a single repair pass` | **已清**。纯夹具问题：startPipelineJob 后来加了取问题治理策略快照那一步，要读小说本身，用例没存根 `prisma.novel.findUnique` |
+| `director root stays limited to compatibility facades` | **已清**。先把唯一引用点改成按需引入，把这条链从急切单例图里摘出来，再移动文件。此前直接移动之所以引发无关的偶发失败，是因为它在加载期就构造单例、还静态拉起同为急切单例的 `marketRadarService` |
+| `AI proposal producer enforces L1/L3`（integration） | 仍红。schema 要求 `autoRetryBudget`，但没有任何地方产出它 |
+| client：progress panel、proposal review checkpoints、mobile ×3 | 仍红，5 条，未逐条分析 |
+
+现状：**server fast 1536/1524 通过、12 跳过、0 失败**（连跑两轮稳定）；
+integration 175/172 通过、2 跳过、1 条既有失败。
+
+**两条环境坑，踩过一次就别再踩**：
+
+1. 客户端测试必须用 `pnpm --filter @ai-novel/client test`，不要自己拼 glob——
+   bash 默认不开 globstar，`src/**/*.test.mjs` 不会递归展开，会漏掉约 147 条测试。
+2. 集成套件会 spawn `pnpm.cmd` 跑 `prisma:push`。pnpm 不在 PATH 上时会冒出
+   45 条与代码无关的失败。需要把 corepack 的 shims 目录加进 PATH：
+   `C:/Users/ADMIN/AppData/Local/nodejs/node_modules/corepack/shims`。
 
 ---
 
@@ -132,8 +141,8 @@ Phase 4 留下、已同意推迟到本阶段的一条：
 
 | 批次 | 内容 | 理由 |
 | --- | --- | --- |
-| **T1** | Import 6 条 + Skills 缺口（§3、§5） | 范围最清楚，刚做完记忆热，能快速拿到第一批绿 |
-| **T2** | 已知红灯收口（§4） | 先把噪声清掉，后面的回归才读得懂 |
+| ~~**T1**~~ | Import：坏 JSON / 重复角色 / 重复世界书条目**已做**；剩 PNG 元数据损坏、Skills 缺口 | — |
+| ~~**T2**~~ | **已做**，服务端红灯清零；客户端 5 条待办 | — |
 | **T3** | Proposal 5 条（§1） | 有明确根因（version bump），但改动触及核心状态机，要在噪声清掉后做 |
 | **T4** | Story consistency 6 条（§2） | 成本最高、最不确定，且需要前三批的稳定基座 |
 
