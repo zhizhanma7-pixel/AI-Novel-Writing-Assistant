@@ -17,9 +17,9 @@ import { toast } from "@/components/ui/toast";
 import { importSkillPackage, previewSkillPackage } from "@/api/styleEngine";
 import {
   SKILL_PACKAGE_MAX_FILE_BYTES,
-  parseSkillPackageBundle,
   toSkillPackageFiles,
 } from "../skillPackageFiles";
+import { readSkillPackageZip } from "../skillPackageZip";
 
 interface SkillPackageImportDialogProps {
   open: boolean;
@@ -37,11 +37,12 @@ const RULE_LABELS: Array<{ key: keyof SkillPackagePreview["ruleLengths"]; label:
 async function readSelectedFiles(fileList: FileList): Promise<SkillPackageFile[]> {
   const picked = Array.from(fileList);
 
-  // 单选一个 .json：可能是本项目导出的写法包，先按包认，认不出再当普通文件走目录逻辑。
-  if (picked.length === 1 && picked[0].name.toLowerCase().endsWith(".json")) {
-    const bundle = parseSkillPackageBundle(await picked[0].text());
-    if (bundle) {
-      return bundle;
+  // 单选一个 .zip：先按写法包认。认不出（不是 ZIP）再当普通文件走目录逻辑。
+  if (picked.length === 1 && picked[0].name.toLowerCase().endsWith(".zip")) {
+    const zipped = await readSkillPackageZip(new Uint8Array(await picked[0].arrayBuffer()));
+    if (zipped) {
+      // ZIP 里的路径还带着包根目录，和选目录时一样要剥掉。
+      return toSkillPackageFiles(zipped);
     }
   }
 
@@ -132,8 +133,7 @@ export default function SkillPackageImportDialog(props: SkillPackageImportDialog
         <DialogHeader>
           <DialogTitle>导入写法包</DialogTitle>
           <DialogDescription>
-            写法包是别人炼化好的一套写法（一个含 SKILL.md 的目录，或本项目导出的
-            .skill.json）。导入后它就是你库里一条普通的写法资产，可以照常改、照常绑。
+            写法包是别人炼化好的一套写法（一个含 SKILL.md 的目录，或导出的 .zip）。导入后它就是你库里一条普通的写法资产，可以照常改、照常绑。
             包里的脚本一律忽略，不会执行。
           </DialogDescription>
         </DialogHeader>
@@ -173,7 +173,7 @@ export default function SkillPackageImportDialog(props: SkillPackageImportDialog
             <input
               ref={fileInputRef}
               type="file"
-              accept=".md,.json"
+              accept=".md,.zip"
               className="hidden"
               onChange={(event) => {
                 void handleSelection(event.target.files);

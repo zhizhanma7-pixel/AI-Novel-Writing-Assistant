@@ -39,7 +39,7 @@ import {
   useWritingFormulaCreateFlow,
 } from "./useWritingFormulaCreateFlow";
 import { useWritingFormulaDialogFocus, type WritingFormulaDialogFocusIntent } from "./useWritingFormulaDialogFocus";
-import { buildSkillPackageDownload } from "./skillPackageFiles";
+import { buildSkillPackageDownload } from "./skillPackageZip";
 import { buildLandingProfileItems } from "./writingFormulaLandingItems";
 import {
   buildProfileFeaturesFromDraft,
@@ -61,8 +61,8 @@ export default function WritingFormulaPage() {
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [skillPackageDialogOpen, setSkillPackageDialogOpen] = useState(false);
 
-  // 导出写法包：取回包内文件后在浏览器里直接落盘。没有引 zip 依赖，
-  // 单文件就导出 SKILL.md 本身，带附件才打成一份 JSON（导入侧同样认）。
+  // 导出写法包：取回包内文件后在浏览器里直接落盘。ZIP 是自己拼的（stored 模式），
+  // 没有引第三方库；解开就是一个同构的写法包目录。
   const exportSkillPackageMutation = useMutation({
     mutationFn: async (profileId: string) => {
       const response = await exportSkillPackage(profileId);
@@ -70,7 +70,7 @@ export default function WritingFormulaPage() {
       return buildSkillPackageDownload(response.data?.files ?? [], profileName);
     },
     onSuccess: (download) => {
-      const url = URL.createObjectURL(new Blob([download.content], { type: download.mimeType }));
+      const url = URL.createObjectURL(new Blob([download.bytes as BlobPart], { type: download.mimeType }));
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = download.fileName;

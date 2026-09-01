@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import {
-  buildSkillPackageDownload,
-  parseSkillPackageBundle,
   resolveSkillPackageRoot,
   toSkillPackageFiles,
 } from "../src/pages/writingFormula/skillPackageFiles.ts";
+import {
+  buildSkillPackageDownload,
+  buildSkillPackageZip,
+  readSkillPackageZip,
+} from "../src/pages/writingFormula/skillPackageZip.ts";
 
 const landingSource = fs.readFileSync(
   new URL("../src/pages/writingFormula/components/WritingFormulaLanding.tsx", import.meta.url),
@@ -62,37 +65,59 @@ test("脚本照样上报路径，但内容不读", () => {
   assert.equal(script.content, "");
 });
 
-test("只有 SKILL.md 时导出的就是 SKILL.md 本身", () => {
-  const download = buildSkillPackageDownload(
-    [{ path: "SKILL.md", content: "# 慢热恋爱" }],
-    "慢热恋爱",
-  );
-  assert.equal(download.fileName, "SKILL.md");
-  assert.equal(download.content, "# 慢热恋爱");
-});
-
-test("带附件时打成 JSON 包，且导入侧认得回来", () => {
-  // 没有引 zip 依赖，来回一趟不能丢文件。
+test("导出的是 ZIP，解开就是一个同构的写法包目录", async () => {
+  // 计划要的是可携带的目录形态：解开能直接交给按目录消费 Skill 的工具。
   const files = [
     { path: "SKILL.md", content: "# 正文" },
     { path: "examples/1.md", content: "例子" },
   ];
   const download = buildSkillPackageDownload(files, "慢热恋爱");
-  assert.match(download.fileName, /\.skill\.json$/);
-  assert.deepEqual(parseSkillPackageBundle(download.content), files);
+
+  assert.equal(download.fileName, "慢热恋爱.zip");
+  assert.equal(download.mimeType, "application/zip");
+
+  const restored = await readSkillPackageZip(download.bytes);
+  assert.deepEqual(restored.map((file) => file.path), [
+    "慢热恋爱/SKILL.md",
+    "慢热恋爱/examples/1.md",
+  ]);
+  // 剥掉包根后就是原样，来回一趟不丢东西。
+  assert.deepEqual(toSkillPackageFiles(restored), files);
+});
+
+test("只有一个文件时也导出 ZIP，不会都叫 SKILL.md", async () => {
+  // 早先按「只有 SKILL.md 就直接导出 SKILL.md」处理，结果每条写法下载下来
+  // 都是同一个文件名，在下载文件夹里互相覆盖。
+  const a = buildSkillPackageDownload([{ path: "SKILL.md", content: "甲" }], "写法甲");
+  const b = buildSkillPackageDownload([{ path: "SKILL.md", content: "乙" }], "写法乙");
+  assert.notEqual(a.fileName, b.fileName);
+  assert.match(a.fileName, /\.zip$/);
+});
+
+test("导出的字节是合法 ZIP：签名、CRC、中央目录都对得上", async () => {
+  // 自己拼的 ZIP，别人的解压工具认不认全看这几处。用手算的 CRC 对照，
+  // 而不是拿自己的读取函数自证。
+  const bytes = buildSkillPackageZip([{ path: "SKILL.md", content: "abc" }], "pkg");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  assert.equal(view.getUint32(0, true), 0x04034b50, "本地文件头签名");
+  // "abc" 的 CRC32 是 0x352441c2（标准值）。
+  assert.equal(view.getUint32(14, true), 0x352441c2, "CRC32 算错了别人就解不开");
+  // 末 22 字节是 EOCD，条目数应为 1。
+  assert.equal(view.getUint32(bytes.length - 22, true), 0x06054b50, "EOCD 签名");
+  assert.equal(view.getUint16(bytes.length - 22 + 10, true), 1, "条目数");
+  // 中文路径要置 UTF-8 标志位，否则解压出来是乱码。
+  assert.equal(view.getUint16(6, true) & 0x0800, 0x0800, "UTF-8 标志位");
+});
+
+test("不是 ZIP 的内容返回 null，交给目录路径处理", async () => {
+  assert.equal(await readSkillPackageZip(new TextEncoder().encode("不是 zip")), null);
+  assert.equal(await readSkillPackageZip(new Uint8Array(4)), null);
 });
 
 test("导出文件名里的路径分隔符被换掉", () => {
-  const download = buildSkillPackageDownload(
-    [{ path: "SKILL.md", content: "a" }, { path: "examples/1.md", content: "b" }],
-    "都市/异能",
-  );
+  const download = buildSkillPackageDownload([{ path: "SKILL.md", content: "a" }], "都市/异能");
   assert.ok(!download.fileName.includes("/"), download.fileName);
-});
-
-test("普通 JSON 不会被当成写法包", () => {
-  assert.equal(parseSkillPackageBundle("{\"foo\":1}"), null);
-  assert.equal(parseSkillPackageBundle("不是 json"), null);
 });
 
 test("导入是先预览再确认，不是选完就落库", () => {
@@ -117,6 +142,7 @@ test("写法列表上有导入入口和逐条导出", () => {
 
 test("页面把导入导出接到了真接口上", () => {
   assert.match(pageSource, /exportSkillPackage/);
+  assert.match(pageSource, /download\.bytes/, "导出走的是字节流，不是自有的文本格式");
   assert.match(pageSource, /SkillPackageImportDialog/);
   assert.match(pageSource, /refreshStyleData\(\)/);
 });

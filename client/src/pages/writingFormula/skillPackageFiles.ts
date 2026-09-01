@@ -12,21 +12,6 @@ import {
 /** 单个文件的读取上限；写法包是文字资产，超过这个数基本是选错了目录。 */
 export const SKILL_PACKAGE_MAX_FILE_BYTES = 512 * 1024;
 
-/**
- * 导出落盘用的单文件格式。
- *
- * **没有引 zip 依赖。** 浏览器里生成 zip 需要额外的库，而写法包的常见形态就是
- * 一个 `SKILL.md`：只有一份文件时直接导出 `SKILL.md`，带附件时才退回这个
- * 打包成一份 JSON 的形态。导入侧同样认这个格式，来回一趟不丢东西。
- */
-export const SKILL_PACKAGE_BUNDLE_VERSION = 1;
-
-interface SkillPackageBundle {
-  format: "ai-novel-skill-package";
-  version: number;
-  files: SkillPackageFile[];
-}
-
 function isIgnoredPath(path: string): boolean {
   const lower = path.toLowerCase();
   return SKILL_PACKAGE_IGNORED_EXTENSIONS.some((ext) => lower.endsWith(ext));
@@ -82,55 +67,4 @@ export function toSkillPackageFiles(
     files.push({ path: relative, content: isIgnoredPath(relative) ? "" : entry.content });
   }
   return files;
-}
-
-/** 认出导出时生成的 JSON 包；不是这个格式就返回 null，交给目录路径处理。 */
-export function parseSkillPackageBundle(text: string): SkillPackageFile[] | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  const bundle = parsed as Partial<SkillPackageBundle>;
-  if (bundle?.format !== "ai-novel-skill-package" || !Array.isArray(bundle.files)) {
-    return null;
-  }
-  return bundle.files
-    .filter((file): file is SkillPackageFile => (
-      typeof file?.path === "string" && typeof file?.content === "string"
-    ))
-    .map((file) => ({ path: file.path, content: file.content }));
-}
-
-export interface SkillPackageDownload {
-  fileName: string;
-  mimeType: string;
-  content: string;
-}
-
-/**
- * 决定导出成什么文件。
- *
- * 只有 `SKILL.md` 时导出 `SKILL.md` 本身，作者拿到的就是能直接读、能直接改的
- * 那份原文；带附件才打成 JSON 包（见 `SKILL_PACKAGE_BUNDLE_VERSION`）。
- */
-export function buildSkillPackageDownload(
-  files: SkillPackageFile[],
-  profileName: string,
-): SkillPackageDownload {
-  const safeName = profileName.replace(/[\\\/:*?"<>|]/g, "_").trim() || "skill";
-  if (files.length === 1 && files[0].path === "SKILL.md") {
-    return { fileName: "SKILL.md", mimeType: "text/markdown;charset=utf-8", content: files[0].content };
-  }
-  const bundle: SkillPackageBundle = {
-    format: "ai-novel-skill-package",
-    version: SKILL_PACKAGE_BUNDLE_VERSION,
-    files,
-  };
-  return {
-    fileName: `${safeName}.skill.json`,
-    mimeType: "application/json;charset=utf-8",
-    content: JSON.stringify(bundle, null, 2),
-  };
 }

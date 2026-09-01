@@ -128,12 +128,12 @@ Prompt 预览能看到它被注入，并标明来源是「自动命中」而非�
 导出该资产得到可再装回去的写法包
 ```
 
-> **导出形态与原计划有偏差（已定，非遗漏）。** 原文写的是「同构的文件夹」。
-> 实现没有引 zip 依赖：只有 `SKILL.md` 时导出 `SKILL.md` 本身；带附件时导出
-> 一份本项目自有的 `.skill.json`，导入侧同样认，往返不丢文件。
-> 代价说清楚：**带附件的包目前不能直接交给 Codex / Claude 那套目录式 Skill 消费**，
-> 要么手工解开，要么等后续补 zip。导入侧不受影响——别人给的目录照收。
-> 权衡见 `client/src/pages/writingFormula/skillPackageFiles.ts` 顶部注释。
+> **导出形态：ZIP，无第三方依赖。** 导出得到 `<写法名>.zip`，解开就是
+> `<写法名>/SKILL.md (+ references/ …)` 的同构目录，可直接交给按目录消费 Skill
+> 的工具。ZIP 用 stored 模式自行拼装（`client/src/pages/writingFormula/skillPackageZip.ts`）——
+> 写法包是文字、体积以 KB 计，压缩省不下什么，不值得为此装一个库。
+> 导入侧接受目录、单个 `SKILL.md`、以及 `.zip`（别人用压缩模式打的包交给浏览器
+> 自带的 `DecompressionStream` 解）。
 
 逐条可判定：
 
