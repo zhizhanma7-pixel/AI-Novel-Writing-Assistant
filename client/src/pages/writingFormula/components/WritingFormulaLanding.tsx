@@ -110,8 +110,8 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
         onKeyDown={(event) => handleSelectableKeyDown(event, () => onSelectProfile(profile.id))}
         className={`rounded-3xl border px-5 py-4 text-left transition duration-200 ${isSelected ? selectedStyle : idleStyle}`}
       >
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex flex-col gap-3">
+          <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <div className="text-base font-semibold text-foreground">{profile.name}</div>
               <Badge variant={profile.isStarter ? "outline" : (isSelected ? "default" : "secondary")} className={badgeClassName}>
@@ -153,7 +153,7 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 xl:justify-end">
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
@@ -419,7 +419,7 @@ export default function WritingFormulaLanding(props: WritingFormulaLandingProps)
                       {starterProfiles.length} 套
                     </Badge>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3">
                     {starterProfiles.map(renderProfileCard)}
                   </div>
                 </section>
