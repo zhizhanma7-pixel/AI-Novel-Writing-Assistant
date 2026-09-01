@@ -1,4 +1,5 @@
 import type { ModelRouteTaskType } from "@ai-novel/shared/types/novel";
+import { SKILL_EFFECTIVE_TASK_TYPES } from "@ai-novel/shared/types/skillPackage";
 import type {
   MatchedSkill,
   StyleBinding,
@@ -32,6 +33,14 @@ const AGENT_TO_TASK: Record<StyleBindingAgent, ModelRouteTaskType> = {
   reviewer: "review",
 };
 
+// 这三个值就是 SKILL_EFFECTIVE_TASK_TYPES 的全部内容——导入预览按那份口径
+// 告诉作者「哪些声明不会生效」。两处如果各写各的，警告就会变成谎话。
+const _assertEffectiveTasksStayInSync: Record<
+  (typeof SKILL_EFFECTIVE_TASK_TYPES)[number],
+  true
+> = { writer: true, planner: true, review: true };
+void _assertEffectiveTasksStayInSync;
+
 function parseList(json: string | null): string[] {
   if (!json) {
     return [];
@@ -54,6 +63,22 @@ function readRuleSummary(json: string | null): string {
   } catch {
     return "";
   }
+}
+
+/**
+ * 自由正文当作写作说明带入时的长度上限。
+ *
+ * 四维规则是作者自己压缩过的摘要，长度可控；自由正文可能是整篇 SKILL.md，
+ * 直接塞进去会把上下文预算吃掉。截断优于丢弃：丢了就等于这个包不生效。
+ */
+const MAX_GUIDANCE_CHARS = 600;
+
+function truncateGuidance(markdown: string | null): string {
+  const text = (markdown ?? "").trim();
+  if (!text) {
+    return "";
+  }
+  return text.length > MAX_GUIDANCE_CHARS ? `${text.slice(0, MAX_GUIDANCE_CHARS)}…` : text;
 }
 
 export class SkillMatcherService {
@@ -82,6 +107,7 @@ export class SkillMatcherService {
         name: true,
         description: true,
         applicableTasksJson: true,
+        analysisMarkdown: true,
         narrativeRulesJson: true,
         characterRulesJson: true,
         languageRulesJson: true,
@@ -104,8 +130,12 @@ export class SkillMatcherService {
         readRuleSummary(row.languageRulesJson),
         readRuleSummary(row.rhythmRulesJson),
       ].filter(Boolean).join("\n");
-      if (!ruleSummary) {
-        // 命中了却没有可用规则，带进去只是噪声。
+      // 解析层明确允许没有四个中文小节的自由正文，只留一条 empty_rules 告警，
+      // 全文进 analysisMarkdown。要是这里只认四维 summary，那种包就成了
+      // 「导入成功、显示正常、永远不生效」——比读不进来更糟。
+      const guidance = ruleSummary || truncateGuidance(row.analysisMarkdown);
+      if (!guidance) {
+        // 四维空、正文也空，那是真没东西可带。
         continue;
       }
       matched.push({
@@ -113,7 +143,7 @@ export class SkillMatcherService {
         name: row.name,
         description: row.description ?? "",
         matchedTask: task,
-        ruleSummary,
+        ruleSummary: guidance,
       });
       if (matched.length >= MAX_MATCHED_SKILLS) {
         break;

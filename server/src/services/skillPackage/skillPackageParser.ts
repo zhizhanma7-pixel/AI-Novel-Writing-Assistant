@@ -4,6 +4,7 @@ import {
 } from "@ai-novel/shared/types/novel";
 import {
   SKILL_PACKAGE_IGNORED_EXTENSIONS,
+  SKILL_EFFECTIVE_TASK_TYPES,
   SKILL_RULE_SECTIONS,
   type SkillPackage,
   type SkillPackageAttachment,
@@ -164,6 +165,21 @@ function resolveApplicableTasks(
       warnings,
       "unknown_task_type",
       `任务类型「${candidate}」不在可用范围内，已忽略。可用：${MODEL_ROUTE_TASK_TYPES.join("、")}。`,
+      "applicableTasks",
+    );
+  }
+
+  // 合法但当前没有环节会触发的任务类型：包能正常导入、列表里也照常显示，
+  // 却永远不会自动命中。不说出来，作者只会以为是自己没配对。
+  const inert = resolved.filter((task) => !SKILL_EFFECTIVE_TASK_TYPES.includes(
+    task as (typeof SKILL_EFFECTIVE_TASK_TYPES)[number],
+  ));
+  if (inert.length > 0) {
+    warn(
+      warnings,
+      "inert_task_type",
+      `任务类型「${inert.join("、")}」目前没有对应环节会自动命中，导入后不会生效；`
+      + `眼下能自动命中的只有 ${SKILL_EFFECTIVE_TASK_TYPES.join("、")}。仍可手动绑定使用。`,
       "applicableTasks",
     );
   }

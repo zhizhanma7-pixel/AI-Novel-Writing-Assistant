@@ -178,3 +178,46 @@ test("a missing profile is refused with a readable reason", async () => {
     prisma.styleProfile.findUnique = original;
   }
 });
+
+test("编辑过的资产导出的是当前值，不是当初导入的那个包", async () => {
+  // 作者改了名称和规则，导出却还是旧的，等于把自己都已经不用的版本拷给别人。
+  const original = prisma.styleProfile.findUnique;
+  const service = new SkillPackageService();
+  const importedPackage = JSON.stringify({ version: 1, files: packageFiles() });
+
+  prisma.styleProfile.findUnique = async () => ({
+    id: "style-skill-1",
+    sourceType: "imported_skill",
+    // 库里是编辑之后的值。
+    name: "改过的名字",
+    description: "改过的说明",
+    category: "悬疑",
+    tagsJson: JSON.stringify(["改过的标签"]),
+    applicableGenresJson: JSON.stringify([]),
+    applicableTasksJson: JSON.stringify(["writer"]),
+    narrativeRulesJson: JSON.stringify({ summary: "改过的叙事规则。" }),
+    characterRulesJson: null,
+    languageRulesJson: null,
+    rhythmRulesJson: null,
+    analysisMarkdown: "改过的说明正文",
+    // sourceContent 仍是导入时那一份。
+    sourceContent: importedPackage,
+  });
+
+  try {
+    const files = await service.exportPackage("style-skill-1");
+    const manifest = files.find((file) => file.path === "SKILL.md").content;
+
+    assert.match(manifest, /改过的名字/);
+    assert.match(manifest, /改过的叙事规则。/);
+    assert.doesNotMatch(manifest, /慢热恋爱节奏/, "导出的还是导入前的旧名称");
+    assert.doesNotMatch(manifest, /推进靠距离变化。/, "导出的还是导入前的旧规则");
+
+    // 本项目不解读的东西照旧带走：附件、认不出的 frontmatter 字段。
+    // 认不出不等于可以丢——Phase 3 世界书那次的教训。
+    assert.ok(files.some((file) => file.path === "references/背景.md"), "附件不能丢");
+    assert.match(manifest, /future_field/, "认不出的字段不能丢");
+  } finally {
+    prisma.styleProfile.findUnique = original;
+  }
+});

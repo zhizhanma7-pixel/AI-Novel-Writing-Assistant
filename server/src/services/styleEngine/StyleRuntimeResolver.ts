@@ -3,8 +3,6 @@ import { AntiAiPolicyResolver } from "./AntiAiPolicyResolver";
 import { StyleBindingService } from "./StyleBindingService";
 import { StyleCompiler } from "./StyleCompiler";
 import { StyleProfileService } from "./StyleProfileService";
-import { SkillMatcherService, skillMatcherService } from "../skillPackage/SkillMatcherService";
-import { sanitizeMatchedSkillsForGeneration } from "./styleGenerationSanitizer";
 
 function buildDirectTaskBinding(profile: StyleProfile): StyleBinding {
   const timestamp = new Date().toISOString();
@@ -120,25 +118,10 @@ export class StyleRuntimeResolver {
       effectiveStyleProfileId: context.effectiveStyleProfileId,
     });
 
-    // 自动命中挂在解析结果上，但**不并进** matchedBindings：人工绑定与自动命中
-    // 在预览里必须分得开，合了就说不清某一条为什么会出现。
-    // 命中失败不该让整条生成链断掉——写法本来就是可选的。
-    const matchedSkills = input.agent
-      ? await skillMatcherService.matchForAgent({
-        agent: input.agent,
-        boundProfileIds: SkillMatcherService.collectBoundProfileIds(context.matchedBindings),
-      }).catch((error) => {
-        console.warn(
-          `[skill-matcher] event=match_failed agent=${input.agent} error=${JSON.stringify(error instanceof Error ? error.message : String(error))}`,
-        );
-        return [];
-      })
-      : [];
-
     return {
-      // 自动命中的规则文本同样要过禁用实体这道。人工绑定在 StyleBindingService
-      // 里已经过了，自动命中是这一层才挂上去的，赶不上那一趟。
-      context: sanitizeMatchedSkillsForGeneration({ ...context, matchedSkills }),
+      // 自动命中与其消毒都在 StyleBindingService.resolveForGeneration 里做了：
+      // 正文/规划链是直接调那个方法的，挂在这一层会漏掉它们。
+      context,
       antiAiRules: antiAiPolicy.effectiveRules.map((item) => item.rule),
       primaryProfile,
     };

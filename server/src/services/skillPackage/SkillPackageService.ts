@@ -127,9 +127,13 @@ export class SkillPackageService {
   /**
    * 导出一条写法资产为包文件。
    *
-   * 由 Skill 包导入来的资产直接还原原文，保证往返逐字一致；其它来源的资产
-   * （手工、从文本炼化、SillyTavern 预设等）按当前字段现场组装成包——
-   * 这正是「把自己炼的写法拷给别人」要的能力，不限于导入过的那些。
+   * 任何来源的资产都能导出——「把自己炼的写法拷给别人」正是这个能力，
+   * 不限于导入过的那些。
+   *
+   * **导出的永远是当前的资产，不是当初导入的那个包。** 作者改了名称或四维规则，
+   * 导出就得跟着变；否则拷给别人的是他自己都已经不用的旧版本。
+   * 导入来的包里那些本项目不解读的东西——附件、认不出的 frontmatter 字段——
+   * 原样保留（Phase 3 的教训：认不出不等于可以丢），已知字段一律以库里的为准。
    */
   async exportPackage(styleProfileId: string): Promise<SkillPackageFile[]> {
     const row = await prisma.styleProfile.findUnique({ where: { id: styleProfileId } });
@@ -137,16 +141,20 @@ export class SkillPackageService {
       throw new SkillPackageParseError("profile_not_found", "找不到这条写法资产。");
     }
 
+    // 导入来的包：取出附件与未知 frontmatter 带走，其余以库里的当前值为准。
+    let attachments: SkillPackage["attachments"] = [];
+    let unknownFrontmatter: SkillPackage["unknownFrontmatter"] = {};
     if (row.sourceType === SKILL_PACKAGE_SOURCE_TYPE && row.sourceContent) {
-      const restored = this.tryRestoreStoredPackage(row.sourceContent);
-      if (restored) {
-        return restored;
+      const original = this.tryRestoreOriginalPackage(row.sourceContent);
+      if (original) {
+        attachments = original.attachments;
+        unknownFrontmatter = original.unknownFrontmatter;
+      } else {
+        // 读不回来时不静默略过：附件和未知字段会就此消失，作者有权知道。
+        console.warn(
+          `[skill-package] event=stored_package_unreadable styleProfileId=${styleProfileId} — 附件与未识别字段无法带出，仅导出当前字段。`,
+        );
       }
-      // 存的东西读不回来时不要静默改走重建：那会让「导出的和导入的不一样」
-      // 无声发生。落到重建路径，但下面的日志要能对上。
-      console.warn(
-        `[skill-package] event=stored_package_unreadable styleProfileId=${styleProfileId} — 已改用字段重建导出。`,
-      );
     }
 
     const readRules = (json: string | null): string => {
@@ -188,10 +196,23 @@ export class SkillPackageService {
         rhythm: readRules(row.rhythmRulesJson),
       },
       instructions: row.analysisMarkdown ?? "",
-      attachments: [],
-      unknownFrontmatter: {},
+      attachments,
+      unknownFrontmatter,
       warnings: [],
     });
+  }
+
+  /** 取回当初导入的那个包，只为拿它的附件与未识别字段。 */
+  private tryRestoreOriginalPackage(sourceContent: string): SkillPackage | null {
+    const files = this.tryRestoreStoredPackage(sourceContent);
+    if (!files) {
+      return null;
+    }
+    try {
+      return parseSkillPackage(files);
+    } catch {
+      return null;
+    }
   }
 
   private tryRestoreStoredPackage(sourceContent: string): SkillPackageFile[] | null {

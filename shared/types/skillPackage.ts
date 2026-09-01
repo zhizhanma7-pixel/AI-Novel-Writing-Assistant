@@ -64,6 +64,8 @@ export const skillPackageWarningSchema = z.object({
     "missing_required_field",
     /** 正文里没有任何可识别的规则小节。 */
     "empty_rules",
+    /** 声明的任务类型合法，但当前没有对应环节会触发自动命中。 */
+    "inert_task_type",
   ]),
   message: z.string(),
   field: z.string().nullable().default(null),
@@ -108,6 +110,18 @@ export const skillPackageSchema = z.object({
   warnings: z.array(skillPackageWarningSchema).default([]),
 });
 export type SkillPackage = z.infer<typeof skillPackageSchema>;
+
+/**
+ * 目前真的会触发自动命中的任务类型。
+ *
+ * 格式层收下整个 `ModelRouteTaskType` 取值域（认不出的东西一律留下，不静默丢弃），
+ * 但运行时只有 writer / planner / reviewer 三个环节会调用写法解析，映射过去就是
+ * 下面这三个。声明成 `repair`、`replan` 的包能正常导入、正常显示，却永远不会生效——
+ * 所以要在预览里明说，不能让作者自己去猜。
+ *
+ * 哪天有第四个环节接上写法解析，这里和 `SkillMatcherService.AGENT_TO_TASK` 一起改。
+ */
+export const SKILL_EFFECTIVE_TASK_TYPES = ["writer", "planner", "review"] as const;
 
 /** 导入时写进 `StyleProfile.sourceType` 的值。 */
 export const SKILL_PACKAGE_SOURCE_TYPE = "imported_skill";

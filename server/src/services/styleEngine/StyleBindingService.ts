@@ -9,7 +9,11 @@ import {
   mapStyleProfileRow,
   mergeRuleObjects,
 } from "./helpers";
-import { sanitizeStyleContextForGeneration } from "./styleGenerationSanitizer";
+import {
+  sanitizeMatchedSkillsForGeneration,
+  sanitizeStyleContextForGeneration,
+} from "./styleGenerationSanitizer";
+import { SkillMatcherService, skillMatcherService } from "../skillPackage/SkillMatcherService";
 
 const TARGET_PRIORITY: Record<StyleBinding["targetType"], number> = {
   novel: 1,
@@ -125,6 +129,14 @@ export class StyleBindingService {
     await prisma.styleBinding.delete({ where: { id } });
   }
 
+  /**
+   * 生成链的写法解析入口。
+   *
+   * **自动命中（Skill）挂在这一层**，不在 `StyleRuntimeResolver`。正文
+   * （`GenerationContextAssembler`）、章节执行契约、规划都是直接调这个方法的，
+   * 只有改写/检测那几条才经过 `StyleRuntimeResolver`。挂错层会造成最坏的一种
+   * 假象：提示词预览里看得见，真实正文里没有。
+   */
   async resolveForGeneration(input: {
     novelId: string;
     chapterId?: string;
@@ -135,6 +147,35 @@ export class StyleBindingService {
      * 传了才会把该环节的绑定纳入解析——不传就完全是原来的行为，
      * 没接线的调用方不受影响。
      */
+    agent?: StyleBindingAgent;
+  }): Promise<ResolvedStyleContext> {
+    const context = await this.resolveBoundContext(input);
+    if (!input.agent) {
+      return context;
+    }
+
+    // 命中失败不该让整条生成链断掉——写法本来就是可选的。
+    const matchedSkills = await skillMatcherService.matchForAgent({
+      agent: input.agent,
+      // 已人工绑定的排除掉：既绑了又命中会注入两遍，预览里还会出现两条一样的。
+      boundProfileIds: SkillMatcherService.collectBoundProfileIds(context.matchedBindings),
+    }).catch((error) => {
+      console.warn(
+        `[skill-matcher] event=match_failed agent=${input.agent} error=${JSON.stringify(error instanceof Error ? error.message : String(error))}`,
+      );
+      return [] as ResolvedStyleContext["matchedSkills"];
+    });
+
+    // 自动命中**不并进** matchedBindings：人工绑定与自动命中在预览里必须分得开。
+    // 消毒要在这之后补一道——上面 sanitizeStyleContextForGeneration 跑的时候
+    // 自动命中还没挂上去。
+    return sanitizeMatchedSkillsForGeneration({ ...context, matchedSkills: matchedSkills ?? [] });
+  }
+
+  private async resolveBoundContext(input: {
+    novelId: string;
+    chapterId?: string;
+    taskStyleProfileId?: string;
     agent?: StyleBindingAgent;
   }): Promise<ResolvedStyleContext> {
     await ensureStyleEngineSeedData();

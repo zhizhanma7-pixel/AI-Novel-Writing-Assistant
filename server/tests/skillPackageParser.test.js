@@ -51,7 +51,9 @@ test("a full package maps onto the four style rule dimensions", () => {
   assert.match(skill.rules.character, /误读要有依据/);
   assert.match(skill.rules.language, /少解释/);
   assert.match(skill.rules.rhythm, /动作未完成处/);
-  assert.deepEqual(skill.warnings, []);
+  // 这份样例声明了 repair——合法，但当前没有环节会因它自动命中，所以有且只有
+  // 那一条告警。此前这里断言的是「无告警」，那是按静默失效的行为写的。
+  assert.deepEqual(skill.warnings.map((warning) => warning.code), ["inert_task_type"]);
 });
 
 test("unknown frontmatter keys keep their values, not just their names", () => {
@@ -213,4 +215,31 @@ test("windows line endings and nested paths do not break parsing", () => {
   assert.equal(skill.frontmatter.name, "测试");
   assert.match(skill.rules.narrative, /内容/);
   assert.deepEqual(skill.attachments.map((item) => item.path), ["references/sub/a.md"]);
+});
+
+test("声明了合法但当前不会触发的任务类型时，预览要明说不会生效", () => {
+  // repair / replan 是合法的 ModelRouteTaskType，包能正常导入、列表里照常显示，
+  // 却永远不会自动命中——运行时只有 writer / planner / reviewer 三个环节会解析写法。
+  // 不说出来，作者只会以为是自己没配对。
+  const skill = parseSkillPackage([{
+    path: "SKILL.md",
+    content: "---\nname: 修补写法\napplicableTasks: writer, repair, replan\n---\n\n## 叙事规则\n内容\n",
+  }]);
+
+  // 值本身照收不误：认不出/用不上都不是丢弃的理由。
+  assert.deepEqual(skill.frontmatter.applicableTasks, ["writer", "repair", "replan"]);
+
+  const inert = skill.warnings.find((warning) => warning.code === "inert_task_type");
+  assert.ok(inert, "合法但不生效的声明必须留下告警");
+  assert.match(inert.message, /repair、replan/);
+  assert.match(inert.message, /writer、planner、review/);
+  assert.doesNotMatch(inert.message, /\bwriter、repair\b/, "生效的那个不该被算进不生效名单");
+});
+
+test("只声明了会生效的任务类型时不发这条告警", () => {
+  const skill = parseSkillPackage([{
+    path: "SKILL.md",
+    content: "---\nname: 正文写法\napplicableTasks: writer, planner\n---\n\n## 叙事规则\n内容\n",
+  }]);
+  assert.equal(skill.warnings.find((warning) => warning.code === "inert_task_type"), undefined);
 });

@@ -130,29 +130,17 @@ test("no matched skills means no block at all", () => {
   assert.equal(buildMatchedSkillsBlock(undefined), null);
 });
 
-test("提示词工坊预览会带上自动命中的写法，而不是永远为空", () => {
-  // 验收要求「预览里能看到 Skill 已被注入」。预览走的是自己拼的合成上下文，
-  // 少接这一路就会永远看不到——块在运行时有、预览里没有，等于验收不了。
+test("提示词工坊预览与正文链走同一个入口", () => {
+  // 验收要求「预览里能看到 Skill 已被注入」。但预览若自己单独查一次匹配器，
+  // 就会漏掉人工绑定的排除，而且预览与生产成了两条路——预览再也证明不了生产的行为。
+  // 结构约束的正本在 skillProductionChain.test.js，这里只钉住预览确实接了上下文。
   const fs = require("node:fs");
   const path = require("node:path");
   const previewCtx = fs.readFileSync(
     path.join(__dirname, "../src/prompting/workbench/writerPreviewContext.ts"),
     "utf8",
   );
-  const previewBuilder = fs.readFileSync(
-    path.join(__dirname, "../src/prompting/workbench/previewContextBuilder.ts"),
-    "utf8",
-  );
   assert.match(previewCtx, /matchedSkills: input\.matchedSkills \?\? \[\]/);
-  assert.match(previewBuilder, /matchForAgent\(\{ agent: "writer" \}\)/);
-  // 匹配器直连 prisma，本模块的数据访问走注入的 db；顶层引它会把 prisma
-  // 拖进加载期，那是这个仓库踩过的加载顺序坑。
-  assert.match(previewBuilder, /await import\("\.\.\/\.\.\/services\/skillPackage\/SkillMatcherService"\)/);
-  assert.doesNotMatch(
-    previewBuilder,
-    /^import .*SkillMatcherService/m,
-    "不能在顶层引匹配器",
-  );
 });
 
 test("自动命中的规则文本也要过禁用实体这道", () => {
@@ -205,4 +193,46 @@ test("没有自动命中时消毒是空操作", () => {
   } = require("../dist/services/styleEngine/styleGenerationSanitizer.js");
   const context = { matchedBindings: [], matchedSkills: [] };
   assert.equal(sanitizeMatchedSkillsForGeneration(context), context);
+});
+
+test("只有自由正文、没有四维小节的包也能命中", async () => {
+  // 解析层明确允许这种包（只留一条 empty_rules 告警，全文进 analysisMarkdown）。
+  // 匹配器若只认四维 summary，它就成了「导入成功、显示正常、永远不生效」——
+  // 比读不进来更糟，因为作者看不出问题在哪。
+  await withProfiles(
+    [profile("free", ["writer"], {
+      narrativeRulesJson: null,
+      analysisMarkdown: "写悬疑揭露时不要一次给完答案。",
+    })],
+    async () => {
+      const matched = await new SkillMatcherService().matchForAgent({ agent: "writer" });
+      assert.deepEqual(matched.map((item) => item.styleProfileId), ["free"]);
+      assert.match(matched[0].ruleSummary, /不要一次给完答案/);
+    },
+  );
+});
+
+test("自由正文进上下文前会截断", async () => {
+  // 四维规则是作者压缩过的摘要；自由正文可能是整篇 SKILL.md，
+  // 原样塞进去会把上下文预算吃掉。截断优于丢弃。
+  await withProfiles(
+    [profile("long", ["writer"], {
+      narrativeRulesJson: null,
+      analysisMarkdown: "字".repeat(5000),
+    })],
+    async () => {
+      const matched = await new SkillMatcherService().matchForAgent({ agent: "writer" });
+      assert.ok(matched[0].ruleSummary.length < 700, matched[0].ruleSummary.length);
+      assert.match(matched[0].ruleSummary, /…$/);
+    },
+  );
+});
+
+test("四维和正文都空才真的跳过", async () => {
+  await withProfiles(
+    [profile("empty", ["writer"], { narrativeRulesJson: null, analysisMarkdown: "   " })],
+    async () => {
+      assert.deepEqual(await new SkillMatcherService().matchForAgent({ agent: "writer" }), []);
+    },
+  );
 });
