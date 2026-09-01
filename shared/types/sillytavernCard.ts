@@ -19,6 +19,7 @@ export const sillyTavernParseWarningCodeSchema = z.enum([
   "unreadable_character_book",
   "dropped_unparsable_entry",
   "empty_content",
+  "duplicate_worldbook_entry",
 ]);
 export type SillyTavernParseWarningCode = z.infer<typeof sillyTavernParseWarningCodeSchema>;
 

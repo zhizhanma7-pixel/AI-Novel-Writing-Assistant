@@ -12,6 +12,7 @@ import { StyleProfileService } from "../styleEngine/StyleProfileService";
 import { parseSillyTavernCard, SillyTavernParseError } from "./sillyTavernCardParser";
 import { listIgnoredCardFields, planSillyTavernCardSplit } from "./sillyTavernCardSplitPlanner";
 import { SillyTavernWorldBookImportService } from "./SillyTavernWorldBookImportService";
+import { prisma } from "../../db/prisma";
 
 /**
  * 角色卡导入：**分流，不是映射**。
@@ -82,6 +83,10 @@ export class SillyTavernCardImportService {
     }
 
     const cardName = parsed.data.name?.trim() || "SillyTavern 角色卡";
+    const characterName = input.characterName?.trim() || cardName;
+    if (characterSegments.length > 0 && input.novelId) {
+      await this.assertCharacterImportIsNew(input.novelId, characterName);
+    }
 
     let knowledgeDocumentId: string | null = null;
     let knowledgeUnchanged = false;
@@ -117,7 +122,7 @@ export class SillyTavernCardImportService {
     // 所以只有这一路进提案。
     let characterProposalId: string | null = null;
     if (characterSegments.length > 0 && input.novelId) {
-      const name = input.characterName?.trim() || cardName;
+      const name = characterName;
       const payload = {
         name,
         // 默认「配角」而不是「主角」：正文与统计链路用 `role === "主角"` 和
@@ -167,6 +172,46 @@ export class SillyTavernCardImportService {
         skipped: skipped.length,
       },
     };
+  }
+
+  private async assertCharacterImportIsNew(novelId: string, name: string): Promise<void> {
+    const normalizedName = name.trim().toLocaleLowerCase("zh-Hans-CN");
+    const existingCharacters = await prisma.character.findMany({
+      where: { novelId },
+      select: { name: true },
+    });
+    if (existingCharacters.some((character) => (
+      character.name.trim().toLocaleLowerCase("zh-Hans-CN") === normalizedName
+    ))) {
+      throw new SillyTavernParseError(
+        "duplicate_character",
+        `小说中已有角色「${name}」，请改名或使用现有角色，避免重复导入。`,
+      );
+    }
+
+    const pendingChanges = await prisma.stateChangeProposal.findMany({
+      where: {
+        novelId,
+        proposalType: "character_import",
+        changeProposal: { status: { in: ["draft", "pending_review", "approved", "partially_approved"] } },
+      },
+      select: { payloadJson: true },
+    });
+    const hasPendingDuplicate = pendingChanges.some((change) => {
+      try {
+        const payload = JSON.parse(change.payloadJson) as { name?: unknown };
+        return typeof payload.name === "string"
+          && payload.name.trim().toLocaleLowerCase("zh-Hans-CN") === normalizedName;
+      } catch {
+        return false;
+      }
+    });
+    if (hasPendingDuplicate) {
+      throw new SillyTavernParseError(
+        "duplicate_character",
+        `角色「${name}」已有待审导入提案，请先处理该提案。`,
+      );
+    }
   }
 
   /**

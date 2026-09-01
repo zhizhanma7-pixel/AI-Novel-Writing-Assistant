@@ -115,6 +115,14 @@ test("state proposal appliers expose stable typed domain reasons", async () => {
     proposalType: "character_resource_update",
     payload: {},
   }, {}, "invalid_payload");
+  await expectReason({
+    ...baseProposal,
+    proposalType: "character_import",
+    payload: { name: "沈砚", role: "配角" },
+  }, {
+    novel: { findUnique: async () => ({ id: "novel-1" }) },
+    character: { findFirst: async () => ({ id: "character-existing" }) },
+  }, "duplicate_character");
 });
 
 test("StateCommitService validate auto-commits low-risk runtime updates", () => {

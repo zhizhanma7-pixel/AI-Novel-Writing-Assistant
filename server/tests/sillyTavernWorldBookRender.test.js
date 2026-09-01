@@ -47,6 +47,26 @@ test("a disabled entry stays out of the indexed text but is still counted", () =
   assert.equal(preview.entryCount, 2);
 });
 
+test("Phase 6 — completely duplicated worldbook entries enter semantic search only once", () => {
+  const duplicate = {
+    keys: ["影卫"],
+    secondary_keys: ["夜巡"],
+    content: "影卫直属城主。",
+    enabled: true,
+    insertion_order: 10,
+    name: "北境影卫",
+  };
+  const preview = service.preview(book([
+    duplicate,
+    { ...duplicate, insertion_order: 20 },
+  ]));
+
+  assert.equal(preview.entryCount, 2, "预览仍应告诉作者原文件有两条");
+  assert.equal(preview.includedCount, 1, "完全重复的内容不能重复进入检索");
+  assert.equal(preview.content.match(/影卫直属城主。/g)?.length, 1);
+  assert.ok(preview.warnings.some((warning) => warning.code === "duplicate_worldbook_entry"));
+});
+
 test("entries keep the order the author arranged in the original tool", () => {
   const preview = service.preview(book([
     { keys: ["c"], content: "第三", enabled: true, insertion_order: 30 },

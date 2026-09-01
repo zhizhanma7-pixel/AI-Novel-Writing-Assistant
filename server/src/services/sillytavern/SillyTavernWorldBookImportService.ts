@@ -55,6 +55,34 @@ function renderEntry(entry: SillyTavernBookEntry, index: number): string {
   return lines.join("\n");
 }
 
+function stableEntryFingerprint(entry: SillyTavernBookEntry): string {
+  const normalized = Object.fromEntries(
+    Object.entries(entry)
+      .filter(([key]) => key !== "insertion_order")
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+  return JSON.stringify(normalized);
+}
+
+function dedupeIncludedEntries(entries: SillyTavernBookEntry[]): {
+  entries: SillyTavernBookEntry[];
+  duplicateCount: number;
+} {
+  const seen = new Set<string>();
+  const unique: SillyTavernBookEntry[] = [];
+  let duplicateCount = 0;
+  for (const entry of entries) {
+    const fingerprint = stableEntryFingerprint(entry);
+    if (seen.has(fingerprint)) {
+      duplicateCount += 1;
+      continue;
+    }
+    seen.add(fingerprint);
+    unique.push(entry);
+  }
+  return { entries: unique, duplicateCount };
+}
+
 /**
  * 未识别内容的两个来源，必须分开传。
  *
@@ -83,8 +111,19 @@ function buildPreview(
     ...entryUnknownFields,
   ])].sort();
 
-  const included = book.entries.filter((entry) => entry.enabled && entry.content.trim());
+  const includedResult = dedupeIncludedEntries(
+    book.entries.filter((entry) => entry.enabled && entry.content.trim()),
+  );
+  const included = includedResult.entries;
   const excluded = book.entries.filter((entry) => !entry.enabled);
+  const previewWarnings = [...warnings];
+  if (includedResult.duplicateCount > 0) {
+    previewWarnings.push({
+      code: "duplicate_worldbook_entry",
+      message: `发现 ${includedResult.duplicateCount} 条完全重复的世界书条目，导入时只保留一份，避免重复影响检索。`,
+      field: "entries",
+    });
+  }
 
   const sections: string[] = [];
   if (book.name?.trim()) {
@@ -136,7 +175,7 @@ function buildPreview(
     content,
     charCount: content.length,
     unknownFields,
-    warnings,
+    warnings: previewWarnings,
   };
 }
 

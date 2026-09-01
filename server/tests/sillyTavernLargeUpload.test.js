@@ -89,3 +89,23 @@ test("P9 — the configured limit leaves room for a 20MB file after base64", () 
     `20MB 文件 base64 后约 ${(afterBase64 / 1024 / 1024).toFixed(1)}MB，上限必须高于它`,
   );
 });
+
+test("Phase 6 — malformed JSON is a readable client error, not a server failure", async () => {
+  const app = createApp();
+  const server = http.createServer(app);
+  const port = await listen(server);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/sillytavern/inspect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"content":',
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 400);
+    assert.equal(payload.success, false);
+    assert.match(payload.error, /不是有效的 JSON/);
+    assert.doesNotMatch(payload.error, /Unexpected|SyntaxError/i);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
