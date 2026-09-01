@@ -4,6 +4,7 @@ import { StyleBindingService } from "./StyleBindingService";
 import { StyleCompiler } from "./StyleCompiler";
 import { StyleProfileService } from "./StyleProfileService";
 import { SkillMatcherService, skillMatcherService } from "../skillPackage/SkillMatcherService";
+import { sanitizeMatchedSkillsForGeneration } from "./styleGenerationSanitizer";
 
 function buildDirectTaskBinding(profile: StyleProfile): StyleBinding {
   const timestamp = new Date().toISOString();
@@ -135,7 +136,9 @@ export class StyleRuntimeResolver {
       : [];
 
     return {
-      context: { ...context, matchedSkills },
+      // 自动命中的规则文本同样要过禁用实体这道。人工绑定在 StyleBindingService
+      // 里已经过了，自动命中是这一层才挂上去的，赶不上那一趟。
+      context: sanitizeMatchedSkillsForGeneration({ ...context, matchedSkills }),
       antiAiRules: antiAiPolicy.effectiveRules.map((item) => item.rule),
       primaryProfile,
     };

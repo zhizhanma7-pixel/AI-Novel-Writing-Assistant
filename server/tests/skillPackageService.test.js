@@ -61,6 +61,22 @@ test("an oversized package is refused instead of being squeezed into one row", (
   );
 });
 
+test("超标的包在解析之前就被拒，而不是解析完再拒", () => {
+  // 请求体上限是 20MB，而包上限是 256KB。体积检查放在解析之后等于没检查：
+  // 一个 20MB 的包会被完整解析一遍才被拒。这里用一个既超标、又必然让
+  // 解析抛别的错的包来定序——只要顺序反了，抛出来的就不是 package_too_large。
+  const service = new SkillPackageService();
+  const oversizedAndBroken = [
+    { path: "references/大.md", content: "字".repeat(SKILL_PACKAGE_MAX_BYTES) },
+  ];
+
+  assert.throws(
+    () => service.preview(oversizedAndBroken),
+    (error) => error.code === "package_too_large",
+    "缺 SKILL.md 的错先抛出来，说明解析跑在了体积检查前面",
+  );
+});
+
 test("importing creates a style profile that carries the package back out unchanged", async () => {
   const originals = {
     create: prisma.styleProfile.create,
@@ -90,6 +106,9 @@ test("importing creates a style profile that carries the package back out unchan
     assert.equal(stored.sourceType, "imported_skill");
     assert.deepEqual(JSON.parse(stored.applicableTasksJson), ["writer", "repair"]);
     assert.deepEqual(JSON.parse(stored.narrativeRulesJson), { summary: "推进靠距离变化。" });
+    // 别人的一套写法，作者还没看过一眼，不该在下一次生成时就开始左右自己的文字。
+    // 自动命中要作者自己开；手动绑定不受此限制。
+    assert.equal(stored.status, "archived", "导入进来不能默认参与自动命中");
     // 没写的维度存空对象，不要塞一个假的 summary 进去。
     assert.deepEqual(JSON.parse(stored.characterRulesJson), {});
     // 整包原文进 sourceContent：既保证导出无损，也让示例里的源作实体进入脱敏候选。

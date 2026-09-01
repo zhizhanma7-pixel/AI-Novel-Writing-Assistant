@@ -305,7 +305,7 @@ router.post(
       res.status(201).json({
         success: true,
         data,
-        message: "写法包已导入为写法资产，需要在写法绑定里启用后才会生效。",
+        message: "写法包已导入为写法资产。默认不参与自动命中，可以手动绑定使用，或在写法列表里开启自动命中。",
       } satisfies ApiResponse<typeof data>);
     } catch (error) {
       forwardSkillPackageError(error, next);

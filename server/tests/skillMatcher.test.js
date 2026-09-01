@@ -154,3 +154,55 @@ test("提示词工坊预览会带上自动命中的写法，而不是永远为�
     "不能在顶层引匹配器",
   );
 });
+
+test("自动命中的规则文本也要过禁用实体这道", () => {
+  // 同一条写法人工绑定时会经 collectProfileText 进实体提取并在契约里被遮蔽；
+  // 自动命中是 StyleRuntimeResolver 之后才挂上去的，赶不上 StyleBindingService
+  // 里那一趟。不补这道，别人原作里的人名就原样进提示词了——Skill 恰恰全是别人的原作。
+  const {
+    sanitizeMatchedSkillsForGeneration,
+  } = require("../dist/services/styleEngine/styleGenerationSanitizer.js");
+
+  const sanitized = sanitizeMatchedSkillsForGeneration({
+    matchedBindings: [],
+    compiledBlocks: null,
+    effectiveStyleProfileId: null,
+    taskStyleProfileId: null,
+    activeSourceTargets: [],
+    activeSourceLabels: [],
+    maturity: "summary_only",
+    usesGlobalAntiAiBaseline: false,
+    globalAntiAiRuleIds: [],
+    styleAntiAiRuleIds: [],
+    sanitizedGenerationProfile: {
+      writingGuidance: [],
+      forbiddenEntities: [],
+      sourceProfileNames: [],
+      sanitizedAt: new Date().toISOString(),
+      strategy: "deterministic",
+    },
+    matchedSkills: [{
+      styleProfileId: "a",
+      name: "慢热恋爱节奏",
+      description: "距离变化",
+      matchedTask: "writer",
+      ruleSummary: "推进靠《寒江雪》里那种距离变化。",
+    }],
+  });
+
+  const skill = sanitized.matchedSkills[0];
+  assert.doesNotMatch(skill.ruleSummary, /寒江雪/, "原作名不能原样进提示词");
+  assert.match(skill.ruleSummary, /\[source-entity\]/);
+  // 名字留着：预览要靠它说明这一条为什么会出现。
+  assert.equal(skill.name, "慢热恋爱节奏");
+  // 扩过的禁用清单要写回去，成稿检查才查得到这些词。
+  assert.ok(sanitized.sanitizedGenerationProfile.forbiddenEntities.includes("寒江雪"));
+});
+
+test("没有自动命中时消毒是空操作", () => {
+  const {
+    sanitizeMatchedSkillsForGeneration,
+  } = require("../dist/services/styleEngine/styleGenerationSanitizer.js");
+  const context = { matchedBindings: [], matchedSkills: [] };
+  assert.equal(sanitizeMatchedSkillsForGeneration(context), context);
+});

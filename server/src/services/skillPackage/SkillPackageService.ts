@@ -73,8 +73,10 @@ export class SkillPackageService {
   /** 纯解析与体检，不写任何库。 */
   preview(files: SkillPackageFile[]): SkillPackagePreview {
     const sizeBytes = measureBytes(files);
-    const skill = parseSkillPackage(files);
+    // 先卡体积再解析。放在解析后就等于没卡：请求体上限是 20MB，
+    // 超标的包会被完整解析一遍才被拒。
     this.assertWithinSizeLimit(sizeBytes);
+    const skill = parseSkillPackage(files);
     return buildPreview(skill, sizeBytes);
   }
 
@@ -84,8 +86,8 @@ export class SkillPackageService {
     name?: string;
   }): Promise<{ profile: StyleProfile; preview: SkillPackagePreview }> {
     const sizeBytes = measureBytes(input.files);
-    const skill = parseSkillPackage(input.files);
     this.assertWithinSizeLimit(sizeBytes);
+    const skill = parseSkillPackage(input.files);
 
     const name = input.name?.trim() || skill.frontmatter.name.trim();
     if (!name) {
@@ -112,6 +114,11 @@ export class SkillPackageService {
       characterRules: skill.rules.character ? { summary: skill.rules.character } : {},
       languageRules: skill.rules.language ? { summary: skill.rules.language } : {},
       rhythmRules: skill.rules.rhythm ? { summary: skill.rules.rhythm } : {},
+      // 导入进来不立刻参与自动命中。别人的一套写法，作者还没看过一眼，
+      // 不该在下一次生成时就开始左右自己的文字——那正是酒馆式黑箱，
+      // 写作这边要把东西先摆出来让作者取舍。作者在写法列表里点「恢复
+      // 自动命中」才开始生效；手动绑定不受此限制，随时可用。
+      status: "archived",
     });
 
     return { profile, preview: buildPreview(skill, sizeBytes) };
