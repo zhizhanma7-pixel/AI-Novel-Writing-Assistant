@@ -3,6 +3,7 @@ import { AntiAiPolicyResolver } from "./AntiAiPolicyResolver";
 import { StyleBindingService } from "./StyleBindingService";
 import { StyleCompiler } from "./StyleCompiler";
 import { StyleProfileService } from "./StyleProfileService";
+import { SkillMatcherService, skillMatcherService } from "../skillPackage/SkillMatcherService";
 
 function buildDirectTaskBinding(profile: StyleProfile): StyleBinding {
   const timestamp = new Date().toISOString();
@@ -118,8 +119,23 @@ export class StyleRuntimeResolver {
       effectiveStyleProfileId: context.effectiveStyleProfileId,
     });
 
+    // 自动命中挂在解析结果上，但**不并进** matchedBindings：人工绑定与自动命中
+    // 在预览里必须分得开，合了就说不清某一条为什么会出现。
+    // 命中失败不该让整条生成链断掉——写法本来就是可选的。
+    const matchedSkills = input.agent
+      ? await skillMatcherService.matchForAgent({
+        agent: input.agent,
+        boundProfileIds: SkillMatcherService.collectBoundProfileIds(context.matchedBindings),
+      }).catch((error) => {
+        console.warn(
+          `[skill-matcher] event=match_failed agent=${input.agent} error=${JSON.stringify(error instanceof Error ? error.message : String(error))}`,
+        );
+        return [];
+      })
+      : [];
+
     return {
-      context,
+      context: { ...context, matchedSkills },
       antiAiRules: antiAiPolicy.effectiveRules.map((item) => item.rule),
       primaryProfile,
     };

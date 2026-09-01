@@ -92,6 +92,17 @@ export const runtimeStyleContextSchema = z.object({
     sanitizedAt: z.string(),
     strategy: z.enum(["deterministic", "llm"]),
   }).nullable().optional(),
+  /**
+   * 按当前环节自动命中的写法。与 matchedBindings（人工绑定）分开，
+   * 提示词预览才能说清某一条是自动带进来的还是作者自己绑的。
+   */
+  matchedSkills: z.array(z.object({
+    styleProfileId: z.string(),
+    name: z.string(),
+    description: z.string().default(""),
+    matchedTask: z.string(),
+    ruleSummary: z.string(),
+  })).optional(),
 });
 
 export type RuntimeStyleContractSection = z.infer<typeof runtimeStyleContractSectionSchema>;
