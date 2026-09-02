@@ -24,6 +24,21 @@ function valuesDiffer(left: string | null | undefined, right: string | null | un
 
 function rankForeshadowStatus(status: string | null | undefined): number {
   const normalized = normalizeText(status).toLowerCase();
+  // Check negations first. These are substring matches, and "unresolved"
+  // contains "resolved", "incomplete" contains "complete", and "未兑现"
+  // contains "兑现". Ranking those as the highest tier causes both a false
+  // positive (a payoff with no setup is reported even though nothing was
+  // paid off) and a false negative (a genuine regression away from
+  // "resolved" is not reported at all).
+  if (
+    normalized.includes("unresolved")
+    || normalized.includes("incomplete")
+    || normalized.includes("未兑现")
+    || normalized.includes("未回收")
+    || normalized.includes("待回收")
+  ) {
+    return 1;
+  }
   if (
     normalized.includes("resolved")
     || normalized.includes("complete")
@@ -48,6 +63,21 @@ function rankForeshadowStatus(status: string | null | undefined): number {
 
 function rankInformationStatus(status: string | null | undefined): number {
   const normalized = normalizeText(status).toLowerCase();
+  // Check negations first: "unknown" contains "known" and "未公开" contains
+  // "公开", so matching the positive terms first ranks "not known" as
+  // "known". That silently disables information_regression entirely — a fact
+  // moving from known back to unknown is never reported.
+  if (
+    normalized.includes("unknown")
+    || normalized.includes("unaware")
+    || normalized.includes("undisclosed")
+    || normalized.includes("未知")
+    || normalized.includes("未公开")
+    || normalized.includes("不知")
+    || normalized.includes("隐瞒")
+  ) {
+    return 1;
+  }
   if (
     normalized.includes("confirmed")
     || normalized.includes("known")
