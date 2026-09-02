@@ -7,7 +7,6 @@ import type {
   DirectorConfirmApiResponse,
   DirectorConfirmRequest,
 } from "@ai-novel/shared/types/novelDirector";
-import type { DirectorRiskPolicy } from "@ai-novel/shared/types/directorRisk";
 import { buildDirectorCompletionProfile } from "@ai-novel/shared/types/directorCompletion";
 import type { NovelContextService } from "../../NovelContextService";
 import type { NovelWorkflowService } from "../../workflow/NovelWorkflowService";
@@ -61,7 +60,6 @@ export class NovelDirectorConfirmRuntime {
     ensurePrimaryNovelStyleBinding: (novelId: string, styleProfileId: string | null | undefined) => Promise<void>;
     withWorkflowTaskUsage: <T>(workflowTaskId: string | null | undefined, runner: () => Promise<T>) => Promise<T>;
     scheduleBackgroundRun: (taskId: string, runner: () => Promise<void>) => void;
-    resolveRiskPolicy: (novelId: string) => Promise<DirectorRiskPolicy>;
   }) {}
 
   async confirmCandidate(input: DirectorConfirmRequest): Promise<DirectorConfirmApiResponse> {
@@ -258,6 +256,8 @@ export class NovelDirectorConfirmRuntime {
               sourceKnowledgeDocumentId: resolvedInput.sourceKnowledgeDocumentId ?? undefined,
               continuationBookAnalysisId: resolvedInput.continuationBookAnalysisId ?? undefined,
               continuationBookAnalysisSections: resolvedInput.continuationBookAnalysisSections ?? undefined,
+              referenceBookAnalysisId: resolvedInput.referenceBookAnalysisId ?? undefined,
+              referenceBookAnalysisSections: resolvedInput.referenceBookAnalysisSections ?? undefined,
             });
             await this.deps.workflowService.attachNovelToTask(workflowTask.id, novel.id, "project_setup");
             return novel;
@@ -277,10 +277,7 @@ export class NovelDirectorConfirmRuntime {
         if (!createdNovel?.id) {
           throw new Error("自动导演建书节点没有返回小说项目。");
         }
-        const executionDirectorInput: DirectorConfirmRequest = {
-          ...resolvedDirectorInput,
-          riskPolicy: resolvedDirectorInput.riskPolicy ?? await this.deps.resolveRiskPolicy(createdNovel.id),
-        };
+        const executionDirectorInput: DirectorConfirmRequest = resolvedDirectorInput;
         await prisma.novel.update({
           where: { id: createdNovel.id },
           data: {

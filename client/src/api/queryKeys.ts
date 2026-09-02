@@ -18,6 +18,7 @@ export const queryKeys = {
     chapterTraces: (novelId: string, chapterId: string) => ["novels", "chapter-traces", novelId, chapterId] as const,
     pipelineJob: (id: string, jobId: string) => ["novels", "pipeline", id, jobId] as const,
     qualityReport: (id: string) => ["novels", "quality-report", id] as const,
+    simpleShelf: (id: string) => ["novels", id, "simple-shelf"] as const,
     state: (id: string) => ["novels", "state", id] as const,
     latestStateSnapshot: (id: string) => ["novels", "state-snapshots", id, "latest"] as const,
     payoffLedger: (id: string, chapterOrder?: number) => ["novels", "payoff-ledger", id, chapterOrder ?? "latest"] as const,
@@ -34,7 +35,6 @@ export const queryKeys = {
     autoDirectorTask: (id: string) => ["novels", "auto-director-task", id] as const,
     directorBookAutomation: (id: string) => ["novels", "director-book-automation", id] as const,
     autoDirectorTakeoverReadiness: (id: string) => ["novels", "auto-director-takeover-readiness", id] as const,
-    directorRiskPolicy: (id: string) => ["novels", "director-risk-policy", id] as const,
     changeProposals: (id: string, filters = "all") => ["novels", "change-proposals", id, filters] as const,
     changeProposalDetail: (id: string, proposalId: string) => ["novels", "change-proposals", id, "detail", proposalId] as const,
     novelWorld: (id: string) => ["novels", "novel-world", id] as const,
@@ -64,6 +64,11 @@ export const queryKeys = {
     list: (params: string) => ["book-analysis", "list", params] as const,
     detail: (id: string) => ["book-analysis", "detail", id] as const,
     characters: (id: string) => ["book-analysis", "characters", id] as const,
+  },
+  marketRadar: {
+    sources: ["market-radar", "sources"] as const,
+    scan: (id: string) => ["market-radar", "scan", id] as const,
+    brief: (id: string) => ["market-radar", "brief", id] as const,
   },
   writingFormula: {
     all: ["writing-formula"] as const,
@@ -156,7 +161,6 @@ export const queryKeys = {
     autoDirectorIssuePolicy: ["settings", "auto-director-issue-policy"] as const,
     autoDirectorApprovalPreferences: ["settings", "auto-director-approval-preferences"] as const,
     pendingReviewAutoPromotion: ["settings", "pending-review-auto-promotion"] as const,
-    autoDirectorRiskPolicy: ["settings", "auto-director-risk-policy"] as const,
     quickSetup: ["settings", "quick-setup"] as const,
   },
   onboarding: {

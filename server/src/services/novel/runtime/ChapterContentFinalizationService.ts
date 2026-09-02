@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type { ChapterRuntimePackage, GenerationContextPackage } from "@ai-novel/shared/types/chapterRuntime";
-import { prisma } from "../../../db/prisma";
 import { novelEventBus } from "../../../events";
 import { openConflictService } from "../../state/OpenConflictService";
 import { directorAutomationLedgerEventService } from "../director/runtime/DirectorAutomationLedgerEventService";
@@ -13,6 +12,7 @@ import { ChapterArtifactSyncService } from "./ChapterArtifactSyncService";
 import type { ChapterRuntimeRequestInput } from "./chapterRuntimeSchema";
 import type { StyleReviewResult } from "./PostGenerationStyleReviewRunner";
 import { ChapterQualityGateService } from "./ChapterQualityGateService";
+import type { ChapterTimelineFinalizationService } from "./ChapterTimelineFinalizationService";
 import {
   buildRuntimePackage,
   type ChapterRuntimePlannerPort,
@@ -21,20 +21,20 @@ import {
   buildProseQualityAuditReport,
   detectProseQuality,
 } from "./proseQuality/ProseQualityDetector";
+import type { ChapterLifecycleService } from "./lifecycle";
 
 export interface ChapterContentFinalizationAgentRuntime {
   finishChapterGenRun: (runId: string, summary: string, durationMs: number) => Promise<void>;
 }
 
 export interface ChapterContentFinalizationServiceDeps {
-  qualityGateService: Pick<ChapterQualityGateService, "runAcceptanceGateOnly">;
+  qualityGateService: Pick<ChapterQualityGateService, "runAcceptanceGate">;
   artifactSyncService: Pick<ChapterArtifactSyncService, "syncChapterArtifacts">;
   plannerService: ChapterRuntimePlannerPort;
   agentRuntime: ChapterContentFinalizationAgentRuntime;
-  divergenceProposalService?: Pick<
-    typeof chapterDivergenceProposalService,
-    "createForChapter"
-  >;
+  timelineFinalizer: Pick<ChapterTimelineFinalizationService, "finalizeCurrentContent">;
+  lifecycleService: Pick<ChapterLifecycleService, "markChapterStatus">;
+  divergenceProposalService?: Pick<typeof chapterDivergenceProposalService, "createForChapter">;
   ledgerEventService?: Pick<typeof directorAutomationLedgerEventService, "recordEvent">;
   warn?: (message: string, details?: Record<string, unknown>) => void;
 }
@@ -56,17 +56,17 @@ export interface FinalizeChapterContentResult {
   finalContent: string;
   runtimePackage: ChapterRuntimePackage;
   styleReview: StyleReviewResult;
+  needsRepair: boolean;
 }
 
 export class ChapterContentFinalizationService {
-  private readonly qualityGateService: Pick<ChapterQualityGateService, "runAcceptanceGateOnly">;
+  private readonly qualityGateService: Pick<ChapterQualityGateService, "runAcceptanceGate">;
   private readonly artifactSyncService: Pick<ChapterArtifactSyncService, "syncChapterArtifacts">;
   private readonly plannerService: ChapterRuntimePlannerPort;
   private readonly agentRuntime: ChapterContentFinalizationAgentRuntime;
-  private readonly divergenceProposalService: Pick<
-    typeof chapterDivergenceProposalService,
-    "createForChapter"
-  >;
+  private readonly timelineFinalizer: Pick<ChapterTimelineFinalizationService, "finalizeCurrentContent">;
+  private readonly lifecycleService: Pick<ChapterLifecycleService, "markChapterStatus">;
+  private readonly divergenceProposalService: Pick<typeof chapterDivergenceProposalService, "createForChapter">;
   private readonly ledgerEventService: Pick<typeof directorAutomationLedgerEventService, "recordEvent">;
   private readonly warn: (message: string, details?: Record<string, unknown>) => void;
 
@@ -75,22 +75,18 @@ export class ChapterContentFinalizationService {
     this.artifactSyncService = deps.artifactSyncService;
     this.plannerService = deps.plannerService;
     this.agentRuntime = deps.agentRuntime;
+    this.timelineFinalizer = deps.timelineFinalizer;
+    this.lifecycleService = deps.lifecycleService;
     this.divergenceProposalService = deps.divergenceProposalService ?? chapterDivergenceProposalService;
     this.ledgerEventService = deps.ledgerEventService ?? directorAutomationLedgerEventService;
     this.warn = deps.warn ?? console.warn;
   }
 
-  /**
-   * 偏离提案是**旁路**：无论成功、失败还是抛错，都不改变本章的推进决定。
-   * 全书自动执行途中出现偏离必须继续跑完，这由 T1 整书回归锁定。
-   */
+  /** 章节偏离提案是旁路：失败只能留下提醒，不能改变正文推进决定。 */
   private async produceChapterDivergenceProposal(
     input: FinalizeChapterContentInput,
     assessment: { divergences?: unknown; repairability?: string; riskTags?: unknown },
   ): Promise<void> {
-    // M1：不可核验的偏离被 Prompt recovery 剥离后会留下稳定 riskTag。
-    // 除了顺 riskTags 进质量债，还要写一条非阻塞账本事件，让它在驾驶舱可见、
-    // 可跟进——这是实施计划 T8 的原始要求。每章一条，不按偏离条数刷屏。
     const riskTags = Array.isArray(assessment.riskTags) ? assessment.riskTags : [];
     if (riskTags.includes(UNVERIFIED_DIVERGENCE_DEBT_CODE)) {
       await this.ledgerEventService.recordEvent({
@@ -110,7 +106,6 @@ export class ChapterContentFinalizationService {
         severity: "medium",
         metadata: { code: UNVERIFIED_DIVERGENCE_DEBT_CODE, chapterId: input.chapterId },
       }).catch((error: unknown) => {
-        // 账本写入失败不停链，降级为日志。
         this.warn("[chapter-divergence] failed to record unverified divergence event.", {
           novelId: input.novelId,
           chapterId: input.chapterId,
@@ -132,13 +127,10 @@ export class ChapterContentFinalizationService {
         chapterId: input.chapterId,
         chapterOrder: input.contextPackage.chapter.order,
         taskId: input.request.workflowTaskId ?? null,
-        divergences: divergences as Parameters<
-          typeof chapterDivergenceProposalService.createForChapter
-        >[0]["divergences"],
+        divergences: divergences as Parameters<typeof chapterDivergenceProposalService.createForChapter>[0]["divergences"],
         obligationContract: expectedSource?.obligationContract ?? null,
         boundaryContract: expectedSource?.chapterBoundary ?? null,
         repairability: assessment.repairability ?? null,
-        // M3：用与 stale 检查同一套哈希算法，否则记录的引用永远比不中。
         chapterContentHash: stableDirectorContentHash(input.content),
       });
     } catch (error) {
@@ -153,14 +145,13 @@ export class ChapterContentFinalizationService {
 
   async finalizeChapterContent(input: FinalizeChapterContentInput): Promise<FinalizeChapterContentResult> {
     const finalContent = input.content;
-    const { acceptance, timelineGate } = await this.qualityGateService.runAcceptanceGateOnly({
+    const acceptance = await this.qualityGateService.runAcceptanceGate({
       novelId: input.novelId,
       chapterId: input.chapterId,
       contextPackage: input.contextPackage,
       content: finalContent,
       request: input.request,
     });
-    const timelineCheck = timelineGate.result;
     const proseQualityReport = detectProseQuality(finalContent);
     const proseQualityAuditReport = buildProseQualityAuditReport({
       novelId: input.novelId,
@@ -196,19 +187,26 @@ export class ChapterContentFinalizationService {
       activeOpenConflicts,
       styleReview,
       acceptance: acceptance.assessment,
-      timelineCheck,
       runId: input.runId,
       plannerService: this.plannerService,
     });
-    // Phase 2C：把本章的执行偏离聚合成一份非阻塞提案。
-    // 这一步的任何结果都**不得**参与下面的 needsRepair 判定，也不得抛出——
-    // 章节推进只能由既有结构化判据决定（`AGENTS.md` 自动导演质量门规则）。
     await this.produceChapterDivergenceProposal(input, acceptance.assessment);
-
     const needsRepair = acceptance.assessment.status === "repairable"
       || acceptance.assessment.status === "needs_manual_review"
-      || timelineCheck.status === "failed"
       || runtimePackage.audit.hasBlockingIssues;
+    const timelineFinalization = await this.timelineFinalizer.finalizeCurrentContent({
+      novelId: input.novelId,
+      chapterId: input.chapterId,
+      content: finalContent,
+      contextPackage: input.contextPackage,
+      request: input.request,
+      mode: needsRepair ? "degraded" : "stable",
+      sourceStage: "chapter_content_finalization",
+      qualityDebt: needsRepair,
+    });
+    if (!timelineFinalization.checkpointWritten) {
+      throw new Error("Chapter timeline finalization is still running");
+    }
     await this.markChapterStatus(input.chapterId, needsRepair ? "needs_repair" : "pending_review");
     if (!needsRepair) {
       // 保证义务账本在下一章 JIT 上下文组装前完成；失败只告警，不阻断定稿返回。
@@ -263,6 +261,7 @@ export class ChapterContentFinalizationService {
       finalContent,
       runtimePackage,
       styleReview,
+      needsRepair,
     };
   }
 
@@ -286,10 +285,7 @@ export class ChapterContentFinalizationService {
     chapterId: string,
     chapterStatus: "pending_generation" | "generating" | "pending_review" | "needs_repair",
   ): Promise<void> {
-    await prisma.chapter.update({
-      where: { id: chapterId },
-      data: { chapterStatus },
-    });
+    await this.lifecycleService.markChapterStatus(chapterId, chapterStatus);
   }
 
   /**

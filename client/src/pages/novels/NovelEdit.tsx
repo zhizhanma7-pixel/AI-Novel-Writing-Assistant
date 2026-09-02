@@ -6,7 +6,7 @@ import type { DirectorContinuationMode, DirectorLockScope, DirectorSessionState,
 import { extractDirectorTaskSeedPayloadFromMeta } from "@ai-novel/shared/types/novelDirector";
 import type { AutoDirectorAction, AutoDirectorMutationActionCode } from "@ai-novel/shared/types/autoDirectorFollowUp";
 import type { DirectorBookAutomationAction, DirectorDashboardMode, DirectorTaskSnapshot } from "@ai-novel/shared/types/directorRuntime";
-import type { NovelExportDownloadFormat, NovelExportScope } from "@ai-novel/shared/types/novelExport";
+import type { NovelExportDownloadFormat, NovelExportFormat, NovelExportScope } from "@ai-novel/shared/types/novelExport";
 import type {
   Chapter,
   PipelineRepairMode,
@@ -530,7 +530,7 @@ export default function NovelEdit() {
   });
   const exportNovelMutation = useMutation({
     mutationFn: async (input: {
-      format: NovelExportDownloadFormat;
+      format: NovelExportFormat;
       scope: NovelExportScope;
       novelTitle: string;
     }) => {
@@ -619,6 +619,7 @@ export default function NovelEdit() {
     isGeneratingChapterDetailBundle,
     generatingChapterDetailMode,
     generatingChapterDetailChapterId,
+    chapterDetailFailure,
     startStrategyGeneration,
     startStrategyCritique,
     startSkeletonGeneration,
@@ -626,6 +627,7 @@ export default function NovelEdit() {
     startChapterListGeneration,
     startChapterDetailGeneration,
     startChapterDetailBundleGeneration,
+    retryFailedChapterDetail,
     handleVolumeFieldChange,
     handleOpenPayoffsChange,
     handleAddVolume,
@@ -1699,9 +1701,10 @@ export default function NovelEdit() {
       || task.status === "cancelled"
     ) {
       actions.push({
-        label: "收起此提醒",
-        onClick: dismissTakeover,
+        label: archiveCompletedAutoDirectorMutation.isPending ? "移除中..." : "从任务列表移除",
+        onClick: () => archiveCompletedAutoDirectorMutation.mutate(task.id),
         variant: "secondary",
+        disabled: archiveCompletedAutoDirectorMutation.isPending,
       });
     } else if (canArchiveCompletedAutoDirectorTask(task)) {
       actions.push({
@@ -2548,8 +2551,10 @@ export default function NovelEdit() {
     isGeneratingChapterDetailBundle,
     generatingChapterDetailMode,
     generatingChapterDetailChapterId,
+    chapterDetailFailure,
     onGenerateChapterDetail: startChapterDetailGeneration,
     onGenerateChapterDetailBundle: startChapterDetailBundleGeneration,
+    onRetryFailedChapterDetail: retryFailedChapterDetail,
     syncPreview: volumeSyncPreview,
     syncOptions: volumeSyncOptions,
     onSyncOptionsChange: (patch) => setVolumeSyncOptions((prev) => ({ ...prev, ...patch })),
@@ -2755,6 +2760,9 @@ export default function NovelEdit() {
   const isExportingFullJson = exportNovelMutation.isPending
     && exportVariables?.scope === "full"
     && exportVariables?.format === "json";
+  const isExportingFullTxt = exportNovelMutation.isPending
+    && exportVariables?.scope === "full"
+    && exportVariables?.format === "txt";
 
   if (displayAutoDirectorTask?.checkpointType === "production_experience_required") {
     return (
@@ -2779,6 +2787,7 @@ export default function NovelEdit() {
         isExportingCurrentJson,
         isExportingFullMarkdown,
         isExportingFullJson,
+        isExportingFullTxt,
         onExportCurrent: (format) => {
           if (!currentExportScope) {
             return;

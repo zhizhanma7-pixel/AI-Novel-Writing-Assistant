@@ -16,7 +16,6 @@ export function buildDefaultDirectorPolicy(
     mode,
     proposalAutonomyLevel,
     mayOverwriteUserContent: false,
-    maxAutoRepairAttempts: 1,
     allowExpensiveReview: false,
     modelTier: "balanced",
     updatedAt: new Date().toISOString(),
@@ -33,7 +32,6 @@ export function normalizeDirectorRuntimePolicy(
     mode: value?.mode ?? fallback.mode,
     proposalAutonomyLevel: proposalAutonomyLevelSchema.safeParse(value?.proposalAutonomyLevel).data
       ?? "L1",
-    maxAutoRepairAttempts: 1,
     updatedAt: value?.updatedAt ?? fallback.updatedAt,
   };
 }

@@ -11,12 +11,19 @@ import {
   type DirectorCandidateBatch,
   type DirectorAutoExecutionPlan,
   type DirectorCorrectionPreset,
+  type DirectorIdeaConstellationOption,
+  type DirectorIdeaConstellationSelection,
   type DirectorIdeaInspiration,
   type DirectorRunMode,
   type DirectorWorldSetupMode,
 } from "@ai-novel/shared/types/novelDirector";
 import { bootstrapNovelWorkflow, continueNovelWorkflow } from "@/api/novelWorkflow";
-import { confirmDirectorCandidate, generateDirectorIdeaInspirations } from "@/api/novelDirector";
+import {
+  composeDirectorIdeaConstellation,
+  confirmDirectorCandidate,
+  generateDirectorIdeaInspirations,
+  generateDirectorIdeaConstellationOptions,
+} from "@/api/novelDirector";
 import { queryKeys } from "@/api/queryKeys";
 import { getStyleProfiles } from "@/api/styleEngine";
 import { getTaskDetail } from "@/api/tasks";
@@ -50,8 +57,11 @@ import {
 } from "../components/directorCandidateSelectionHandlers";
 import { useNovelAutoDirectorCandidateMutations } from "../components/useNovelAutoDirectorCandidateMutations";
 import { hasCreationFoundationChanged } from "./creationFoundationPickerState";
+import type { AutoDirectorCreateDraft } from "./draft/autoDirectorCreateDraft";
 
 interface UseAutoDirectorCreateControllerInput {
+  marketBriefId?: string;
+  initialStyleProfileId?: string;
   basicForm: NovelBasicFormState;
   genreOptions: Array<{
     id: string;
@@ -66,6 +76,7 @@ interface UseAutoDirectorCreateControllerInput {
     description?: string | null;
   }>;
   worldOptions: Array<{ id: string; name: string }>;
+  initialDraft?: AutoDirectorCreateDraft | null;
   workflowTaskId?: string;
   restoredTask?: UnifiedTaskDetail | null;
   onWorkflowTaskChange?: (workflowTaskId: string) => void;
@@ -91,14 +102,17 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
     genreOptions,
     storyModeOptions,
     worldOptions,
+    initialDraft,
     workflowTaskId: workflowTaskIdProp,
     restoredTask,
     onWorkflowTaskChange,
     onBasicFormChange,
+    marketBriefId,
+    initialStyleProfileId,
   } = input;
   const llm = useLLMStore();
   const queryClient = useQueryClient();
-  const [idea, setIdea] = useState("");
+  const [idea, setIdea] = useState(initialDraft?.idea ?? "");
   const [feedback, setFeedback] = useState("");
   const [selectedPresets, setSelectedPresets] = useState<DirectorCorrectionPreset[]>([]);
   const [batches, setBatches] = useState<DirectorCandidateBatch[]>([]);
@@ -108,11 +122,16 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
   const [executionRequested, setExecutionRequested] = useState(false);
   const [pendingTitleHint, setPendingTitleHint] = useState("");
   const [executionError, setExecutionError] = useState("");
-  const [runMode, setRunMode] = useState<DirectorRunMode>(DEFAULT_VISIBLE_RUN_MODE);
-  const [worldSetupMode, setWorldSetupMode] = useState<DirectorWorldSetupMode>("auto_generate");
+  const [runMode, setRunMode] = useState<DirectorRunMode>(initialDraft?.runMode ?? DEFAULT_VISIBLE_RUN_MODE);
+  const [worldSetupMode, setWorldSetupMode] = useState<DirectorWorldSetupMode>(
+    initialDraft?.worldSetupMode ?? "auto_generate",
+  );
   const [autoExecutionDraft, setAutoExecutionDraft] = useState(() => createDefaultDirectorAutoExecutionDraftState());
-  const [selectedStyleProfileId, setSelectedStyleProfileId] = useState("");
+  const [selectedStyleProfileId, setSelectedStyleProfileId] = useState(
+    initialStyleProfileId || initialDraft?.selectedStyleProfileId || "",
+  );
   const [ideaInspirations, setIdeaInspirations] = useState<DirectorIdeaInspiration[]>([]);
+  const [ideaConstellationOptions, setIdeaConstellationOptions] = useState<DirectorIdeaConstellationOption[]>([]);
   const [candidatePatchFeedbacks, setCandidatePatchFeedbacks] = useState<Record<string, string>>({});
   const [titlePatchFeedbacks, setTitlePatchFeedbacks] = useState<Record<string, string>>({});
   const [isUpdatingFoundation, setIsUpdatingFoundation] = useState(false);
@@ -126,6 +145,12 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
     }
     setWorkflowTaskId(workflowTaskIdProp);
   }, [workflowTaskId, workflowTaskIdProp]);
+
+  useEffect(() => {
+    if (initialStyleProfileId) {
+      setSelectedStyleProfileId((current) => current || initialStyleProfileId);
+    }
+  }, [initialStyleProfileId]);
 
   useEffect(() => {
     if (!restoredTask) {
@@ -163,7 +188,6 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
 
   const directorBasicForm = useMemo(
     () => patchNovelBasicForm(basicForm, {
-      writingMode: "original",
       projectMode: "ai_led",
     }),
     [basicForm],
@@ -206,36 +230,59 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
     [directorBasicForm.styleTone, selectedStyleProfile],
   );
 
+  const buildIdeaContextPayload = () => {
+    const genre = genreOptions.find((item) => item.id === directorBasicForm.genreId);
+    const primaryStoryMode = storyModeOptions.find(
+      (item) => item.id === directorBasicForm.primaryStoryModeId,
+    );
+    const secondaryStoryMode = storyModeOptions.find(
+      (item) => item.id === directorBasicForm.secondaryStoryModeId,
+    );
+    const world = worldOptions.find((item) => item.id === directorBasicForm.worldId);
+    return {
+      ...buildAutoDirectorRequestPayload(directorBasicForm, idea || directorBasicForm.description, llm, runMode, undefined, {
+        styleProfileId: selectedStyleProfileId,
+        worldSetupMode,
+        marketBriefId,
+      }),
+      currentIdea: idea.trim() || undefined,
+      genreLabel: genre?.path || genre?.label,
+      genreDescription: genre?.description || undefined,
+      primaryStoryModeLabel: primaryStoryMode?.path || primaryStoryMode?.label,
+      primaryStoryModeDescription: primaryStoryMode?.description || undefined,
+      secondaryStoryModeLabel: secondaryStoryMode?.path || secondaryStoryMode?.label,
+      secondaryStoryModeDescription: secondaryStoryMode?.description || undefined,
+      worldName: world?.name,
+    };
+  };
+
   const ideaInspirationMutation = useMutation({
-    mutationFn: async () => {
-      const genre = genreOptions.find((item) => item.id === directorBasicForm.genreId);
-      const primaryStoryMode = storyModeOptions.find(
-        (item) => item.id === directorBasicForm.primaryStoryModeId,
-      );
-      const secondaryStoryMode = storyModeOptions.find(
-        (item) => item.id === directorBasicForm.secondaryStoryModeId,
-      );
-      const world = worldOptions.find((item) => item.id === directorBasicForm.worldId);
-      return generateDirectorIdeaInspirations({
-        ...buildAutoDirectorRequestPayload(directorBasicForm, idea || directorBasicForm.description, llm, runMode, undefined, {
-          styleProfileId: selectedStyleProfileId,
-          worldSetupMode,
-        }),
-        currentIdea: idea.trim() || undefined,
-        genreLabel: genre?.path || genre?.label,
-        genreDescription: genre?.description || undefined,
-        primaryStoryModeLabel: primaryStoryMode?.path || primaryStoryMode?.label,
-        primaryStoryModeDescription: primaryStoryMode?.description || undefined,
-        secondaryStoryModeLabel: secondaryStoryMode?.path || secondaryStoryMode?.label,
-        secondaryStoryModeDescription: secondaryStoryMode?.description || undefined,
-        worldName: world?.name,
-      });
-    },
+    mutationFn: () => generateDirectorIdeaInspirations(buildIdeaContextPayload()),
     onSuccess: (response) => {
       setIdeaInspirations(response.data?.ideas ?? []);
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "生成起始想法失败，请稍后重试。");
+    },
+  });
+
+  const ideaConstellationOptionsMutation = useMutation({
+    mutationFn: () => generateDirectorIdeaConstellationOptions(buildIdeaContextPayload()),
+    onSuccess: (response) => {
+      setIdeaConstellationOptions(response.data?.options ?? []);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "生成开书素材失败，请稍后重试。");
+    },
+  });
+
+  const ideaConstellationComposeMutation = useMutation({
+    mutationFn: (selectedOptions: DirectorIdeaConstellationSelection[]) => composeDirectorIdeaConstellation({
+      ...buildIdeaContextPayload(),
+      selectedOptions,
+    }),
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "整理故事想法失败，请稍后重试。");
     },
   });
 
@@ -335,6 +382,7 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
         },
         styleProfileId: selectedStyleProfileId || null,
         styleIntentSummary: selectedStyleSummary ?? null,
+        marketBriefId: marketBriefId || null,
       },
     });
     const taskId = response.data?.id ?? "";
@@ -367,7 +415,7 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
       llm,
       runMode,
       currentWorkflowTaskId,
-      { styleProfileId: selectedStyleProfileId, worldSetupMode },
+      { styleProfileId: selectedStyleProfileId, worldSetupMode, marketBriefId },
     );
   };
 
@@ -407,6 +455,7 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
         ...buildAutoDirectorRequestPayload(directorBasicForm, requestIdea, llm, runMode, currentWorkflowTaskId, {
           styleProfileId: selectedStyleProfileId,
           worldSetupMode,
+          marketBriefId,
         }),
         batchId: latestBatch?.id,
         round: latestBatch?.round,
@@ -612,6 +661,14 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
     ideaInspirations,
     isGeneratingIdeaInspirations: ideaInspirationMutation.isPending,
     generateIdeaInspirations: () => ideaInspirationMutation.mutate(),
+    ideaConstellationOptions,
+    isGeneratingIdeaConstellationOptions: ideaConstellationOptionsMutation.isPending,
+    generateIdeaConstellationOptions: () => ideaConstellationOptionsMutation.mutate(),
+    isComposingIdeaConstellation: ideaConstellationComposeMutation.isPending,
+    composeIdeaConstellation: async (selectedOptions: DirectorIdeaConstellationSelection[]) => {
+      const response = await ideaConstellationComposeMutation.mutateAsync(selectedOptions);
+      return response.data?.idea ?? "";
+    },
     runMode,
     runModeOptions: RUN_MODE_OPTIONS,
     setRunMode,

@@ -1,5 +1,5 @@
 import type { ChapterRuntimePackage } from "@ai-novel/shared/types/chapterRuntime";
-import type { QualityScore, ReviewIssue } from "@ai-novel/shared/types/novel";
+import type { QualityScore, ReplanRecommendation, ReviewIssue } from "@ai-novel/shared/types/novel";
 import type { Prisma } from "@prisma/client";
 import {
   buildChapterQualityLoopAssessment,
@@ -8,6 +8,7 @@ import {
 import { prisma } from "../../../db/prisma";
 import { directorAutomationLedgerEventService } from "../director/runtime/DirectorAutomationLedgerEventService";
 import type { QualityDebtAttribution } from "../runtime/chapterRuntimePipeline";
+import { chapterLifecycleService } from "../runtime/lifecycle/ChapterLifecycleService";
 
 interface RecordChapterQualityLoopInput {
   novelId: string;
@@ -16,6 +17,7 @@ interface RecordChapterQualityLoopInput {
   score: QualityScore;
   issues: ReviewIssue[];
   runtimePackage?: ChapterRuntimePackage | null;
+  replanRecommendation?: ReplanRecommendation | null;
   source: "manual_review" | "pipeline_review" | "repair_recheck";
   terminalAction?: "defer_and_continue" | null;
   taskId?: string | null;
@@ -77,9 +79,6 @@ function appendRepairHistory(
     `[quality_loop ${assessment.evaluatedAt}]`,
     `status=${assessment.overallStatus}`,
     `action=${assessment.recommendedAction}`,
-    assessment.budget?.signature ? `signature=${assessment.budget.signature}` : "",
-    assessment.budget ? `attempt=${assessment.budget.attempt}/${assessment.budget.maxAttempts}` : "",
-    assessment.budget?.nextAction ? `budget=${assessment.budget.nextAction}` : "",
     terminalAction ? `terminal=${terminalAction}` : "",
     assessment.signals
       .filter((signal) => signal.status !== "valid")
@@ -105,6 +104,15 @@ function resolveContinuableChapterState(
   };
 }
 
+function resolveBlockedChapterState(
+  source: RecordChapterQualityLoopInput["source"],
+): Pick<Prisma.ChapterUpdateInput, "chapterStatus" | "generationState"> {
+  return {
+    chapterStatus: "needs_repair",
+    ...(source === "pipeline_review" ? {} : { generationState: "reviewed" }),
+  };
+}
+
 export function buildChapterQualityLoopChapterUpdate(
   chapter: ChapterQualityLoopChapter,
   assessment: ChapterQualityLoopAssessment,
@@ -120,7 +128,7 @@ export function buildChapterQualityLoopChapterUpdate(
   return {
     riskFlags: serializeRiskFlags(chapter.riskFlags, assessment, source, terminalAction, qualityDebtAttribution),
     ...(nextRepairHistory !== undefined ? { repairHistory: nextRepairHistory } : {}),
-    ...(shouldContinueChapter ? continuableChapterState : { chapterStatus: "needs_repair" }),
+    ...(shouldContinueChapter ? continuableChapterState : resolveBlockedChapterState(source)),
   };
 }
 
@@ -148,11 +156,14 @@ export class ChapterQualityLoopService {
       score: input.score,
       issues: input.issues,
       runtimePackage: input.runtimePackage,
-      previousRepairHistory: chapter.repairHistory,
+      replanRecommendation: input.replanRecommendation,
     });
-    await prisma.chapter.update({
-      where: { id: input.chapterId },
-      data: buildChapterQualityLoopChapterUpdate(chapter, assessment, input.source, input.terminalAction ?? null, input.qualityDebtAttribution),
+    const terminalAction = assessment.recommendedAction === "continue"
+      ? null
+      : input.terminalAction ?? null;
+    await chapterLifecycleService.applyQualityAssessmentState({
+      chapterId: input.chapterId,
+      data: buildChapterQualityLoopChapterUpdate(chapter, assessment, input.source, terminalAction, input.qualityDebtAttribution),
     });
     await directorAutomationLedgerEventService.recordQualityLoopAssessment({
       taskId: input.taskId,

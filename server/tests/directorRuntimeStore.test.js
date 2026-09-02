@@ -16,7 +16,6 @@ function buildSnapshot() {
       mode: "run_until_gate",
       proposalAutonomyLevel: "L1",
       mayOverwriteUserContent: false,
-      maxAutoRepairAttempts: 1,
       allowExpensiveReview: false,
       modelTier: "balanced",
       updatedAt: "2026-04-28T00:00:00.000Z",

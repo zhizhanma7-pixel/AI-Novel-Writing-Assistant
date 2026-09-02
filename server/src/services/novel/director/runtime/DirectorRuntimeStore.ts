@@ -627,7 +627,6 @@ export class DirectorRuntimeStore {
         ...snapshot.policy,
         ...compactPolicyPatch(input.patch),
         mode: input.mode,
-        maxAutoRepairAttempts: 1,
         updatedAt: new Date().toISOString(),
       };
       return {

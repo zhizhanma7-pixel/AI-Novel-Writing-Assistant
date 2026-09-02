@@ -2,16 +2,12 @@ import type { Router } from "express";
 import type { ApiResponse } from "@ai-novel/shared/types/api";
 import {
   hasChapterQualityLoopReplanRequiredRiskFlags,
-  hasContinuableChapterQualityLoopRiskFlags,
+  readChapterQualityDebtDetails,
 } from "@ai-novel/shared/types/chapterQualityLoop";
 import { NOVEL_LIST_PAGE_LIMIT_DEFAULT, NOVEL_LIST_PAGE_LIMIT_MAX } from "@ai-novel/shared/types/pagination";
 import { z } from "zod";
 import type { SimpleCreationShelfProjection } from "@ai-novel/shared/types/novel";
-import {
-  DEFAULT_DIRECTOR_RISK_POLICY,
-  parsePersistedDirectorRiskAssessment,
-  parsePersistedDirectorRiskPolicy,
-} from "@ai-novel/shared/types/directorRisk";
+import { parsePersistedDirectorRiskAssessment } from "@ai-novel/shared/types/directorRisk";
 import { prisma } from "../../../../db/prisma";
 import { llmProviderSchema } from "../../../../llm/providerSchema";
 import { validate } from "../../../../middleware/validate";
@@ -76,6 +72,8 @@ const createNovelSchema = z.object({
   sourceKnowledgeDocumentId: z.string().trim().optional(),
   continuationBookAnalysisId: z.string().trim().optional(),
   continuationBookAnalysisSections: z.array(bookAnalysisSectionKeySchema).min(1).max(8).optional(),
+  referenceBookAnalysisId: z.string().trim().optional(),
+  referenceBookAnalysisSections: z.array(bookAnalysisSectionKeySchema).min(1).max(8).optional(),
   projectMode: z.enum(["ai_led", "co_pilot", "draft_mode", "auto_pipeline"]).optional(),
   creationExperience: z.enum(["simple", "professional"]).optional(),
   narrativePov: z.enum(["first_person", "third_person", "mixed"]).optional(),
@@ -106,6 +104,8 @@ const updateNovelSchema = z.object({
   sourceKnowledgeDocumentId: z.string().trim().nullable().optional(),
   continuationBookAnalysisId: z.string().trim().nullable().optional(),
   continuationBookAnalysisSections: z.array(bookAnalysisSectionKeySchema).min(1).max(8).nullable().optional(),
+  referenceBookAnalysisId: z.string().trim().nullable().optional(),
+  referenceBookAnalysisSections: z.array(bookAnalysisSectionKeySchema).min(1).max(8).nullable().optional(),
   genreId: z.string().trim().nullable().optional(),
   primaryStoryModeId: z.string().trim().nullable().optional(),
   secondaryStoryModeId: z.string().trim().nullable().optional(),
@@ -324,7 +324,6 @@ export function registerNovelBaseRoutes(input: RegisterNovelBaseRoutesInput): vo
             select: {
               characters: true,
               volumePlans: true,
-              auditReports: true,
             },
           },
           workflowTasks: {
@@ -359,14 +358,6 @@ export function registerNovelBaseRoutes(input: RegisterNovelBaseRoutesInput): vo
       const autoExecutionRecord = autoExecution && typeof autoExecution === "object" && !Array.isArray(autoExecution)
         ? autoExecution as Record<string, unknown>
         : null;
-      const directorInput = seedPayload?.directorInput;
-      const directorInputRecord = directorInput && typeof directorInput === "object" && !Array.isArray(directorInput)
-        ? directorInput as Record<string, unknown>
-        : null;
-      const riskPolicy = parsePersistedDirectorRiskPolicy(
-        autoExecutionRecord?.riskPolicy ?? directorInputRecord?.riskPolicy,
-      )
-        ?? DEFAULT_DIRECTOR_RISK_POLICY;
       const riskHistory = task?.directorEvents.flatMap((event) => {
         const metadata = parseJsonRecord(event.metadataJson);
         const assessment = parsePersistedDirectorRiskAssessment(metadata?.riskAssessment);
@@ -389,6 +380,39 @@ export function registerNovelBaseRoutes(input: RegisterNovelBaseRoutesInput): vo
             : task?.pendingManualRecovery || taskStatus === "waiting_approval" ? "paused"
               : taskStatus === "running" ? "running"
                 : "queued";
+      const chapters: SimpleCreationShelfProjection["chapters"] = novel.chapters.map((chapter) => {
+        const isCompleted = chapter.chapterStatus === "completed"
+          || chapter.generationState === "approved"
+          || chapter.generationState === "published";
+        const content = chapter.content?.trim() || null;
+        const qualityDebt = content ? readChapterQualityDebtDetails(chapter.riskFlags) : null;
+        const requiresReplan = hasChapterQualityLoopReplanRequiredRiskFlags(chapter.riskFlags);
+        const status: SimpleCreationShelfProjection["chapters"][number]["status"] = requiresReplan
+          ? "replan_required"
+          : qualityDebt
+            ? "quality_debt"
+            : isCompleted
+              ? "completed"
+              : chapter.chapterStatus === "needs_repair" || chapter.chapterStatus === "pending_review"
+                ? "reviewing"
+                : chapter.chapterStatus === "generating"
+                  ? "generating"
+                  : chapter.chapterStatus === "pending_generation"
+                    ? "waiting_writing"
+                    : progressStatus === "failed" && task?.checkpointType?.includes("chapter")
+                      ? "error"
+                      : "waiting_planning";
+        return {
+          id: chapter.id,
+          order: chapter.order,
+          title: chapter.title,
+          status,
+          wordCount: content ? Array.from(content).length : 0,
+          content,
+          updatedAt: chapter.updatedAt.toISOString(),
+          qualityDebt,
+        };
+      });
       const data: SimpleCreationShelfProjection = {
         novel: {
           id: novel.id,
@@ -406,50 +430,15 @@ export function registerNovelBaseRoutes(input: RegisterNovelBaseRoutesInput): vo
           canRetry: progressStatus === "failed" || progressStatus === "paused",
           recoveryAction: task?.checkpointType === "replan_required" ? "replan_and_continue" : "continue",
           safetyMessage: task?.lastError ?? null,
-          riskPolicy,
           latestRiskAssessment: riskHistory[0] ?? null,
           riskHistory,
         },
-        chapters: novel.chapters.map((chapter) => {
-          const isCompleted = chapter.chapterStatus === "completed"
-            || chapter.generationState === "approved"
-            || chapter.generationState === "published";
-          const content = chapter.content?.trim() || null;
-          const hasContinuableQualityDebt = Boolean(content)
-            && hasContinuableChapterQualityLoopRiskFlags(chapter.riskFlags);
-          const requiresReplan = hasChapterQualityLoopReplanRequiredRiskFlags(chapter.riskFlags);
-          const status: SimpleCreationShelfProjection["chapters"][number]["status"] = isCompleted
-            ? "completed"
-            : requiresReplan
-              ? "replan_required"
-              : hasContinuableQualityDebt
-                ? "quality_debt"
-                : chapter.chapterStatus === "needs_repair" || chapter.chapterStatus === "pending_review"
-                  ? "reviewing"
-                  : chapter.chapterStatus === "generating"
-                    ? "generating"
-                    : chapter.chapterStatus === "pending_generation"
-                      ? "waiting_writing"
-                      : progressStatus === "failed" && task?.checkpointType?.includes("chapter")
-                        ? "error"
-                        : "waiting_planning";
-          // 已保存的草稿也可以只读查看。章节状态仍然决定它是否是稳定正文，
-          // 但不能因为正在审校/修复就把已经生成的内容隐藏掉。
-          return {
-            id: chapter.id,
-            order: chapter.order,
-            title: chapter.title,
-            status,
-            wordCount: content ? Array.from(content).length : 0,
-            content,
-            updatedAt: chapter.updatedAt.toISOString(),
-          };
-        }),
+        chapters,
         materials: {
           description: novel.description,
           characterCount: novel._count.characters,
           volumeCount: novel._count.volumePlans,
-          openQualityDebtCount: novel._count.auditReports,
+          openQualityDebtCount: chapters.filter((chapter) => chapter.qualityDebt).length,
           story: {
             coreSellingPoint: novel.bookContract?.coreSellingPoint ?? novel.bookSellingPoint,
             readingPromise: novel.bookContract?.readingPromise ?? novel.competingFeel,
@@ -550,9 +539,9 @@ export function registerNovelBaseRoutes(input: RegisterNovelBaseRoutesInput): vo
         res.status(200).json({
           success: true,
           data,
-          message: experience === "simple"
-            ? "已切换到简易模式，可在章节书架阅读进度与成稿。"
-            : "已切换到专业模式，可使用完整编辑工作台。",
+        message: experience === "simple"
+            ? "已切换到简易模式，将优先展示章节进度与成稿。"
+            : "已切换到专业模式，将展示完整创作工作台。",
         } satisfies ApiResponse<typeof data>);
       } catch (error) {
         next(error);

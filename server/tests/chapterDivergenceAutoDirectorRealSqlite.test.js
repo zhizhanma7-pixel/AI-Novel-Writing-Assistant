@@ -167,24 +167,22 @@ async function main() {
 
     const finalizationService = new ChapterContentFinalizationService({
       qualityGateService: {
-        runAcceptanceGateOnly: async (input) => ({
-          acceptance: buildAcceptance(input.contextPackage.chapter.order),
-          timelineGate: {
-            result: {
-              status: "passed",
-              issues: [],
-              addressedHookIds: [],
-              resolvedHookIds: [],
-              extractorSucceeded: true,
-              extractorError: null,
-              timelineContext: null,
-            },
-          },
-        }),
+        runAcceptanceGate: async (input) => buildAcceptance(input.contextPackage.chapter.order),
       },
       artifactSyncService: { syncChapterArtifacts: async () => ({}) },
       plannerService: { shouldTriggerReplanFromAudit: () => false },
       agentRuntime: { finishChapterGenRun: async () => {} },
+      timelineFinalizer: {
+        finalizeCurrentContent: async () => ({ checkpointWritten: true }),
+      },
+      lifecycleService: {
+        markChapterStatus: async (chapterId, chapterStatus) => {
+          await prisma.chapter.update({
+            where: { id: chapterId },
+            data: { chapterStatus },
+          });
+        },
+      },
     });
 
     const transitions = [];

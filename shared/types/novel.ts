@@ -5,7 +5,8 @@ import type { NovelStoryMode } from "./storyMode";
 import type { TaskStatus, TaskTokenUsageSummary } from "./task";
 import type { NarrativeForm } from "./creationStudio";
 import type { WritingPlatform } from "./writingPlatform";
-import type { DirectorRiskHistoryItem, DirectorRiskPolicy } from "./directorRisk";
+import type { DirectorRiskHistoryItem } from "./directorRisk";
+import type { ChapterQualityDebtDetails } from "./chapterQualityLoop";
 export type {
   BaseCharacter,
   Character,
@@ -132,7 +133,6 @@ export interface SimpleCreationShelfProjection {
     canRetry: boolean;
     recoveryAction?: "replan_and_continue" | "continue";
     safetyMessage?: string | null;
-    riskPolicy?: DirectorRiskPolicy | null;
     latestRiskAssessment?: DirectorRiskHistoryItem | null;
     riskHistory?: DirectorRiskHistoryItem[];
   };
@@ -144,6 +144,7 @@ export interface SimpleCreationShelfProjection {
     wordCount: number;
     content: string | null;
     updatedAt: string;
+    qualityDebt: ChapterQualityDebtDetails | null;
   }>;
   materials: {
     description: string | null;
@@ -256,6 +257,8 @@ export interface Novel {
   sourceKnowledgeDocumentId?: string | null;
   continuationBookAnalysisId?: string | null;
   continuationBookAnalysisSections?: BookAnalysisSectionKey[] | null;
+  referenceBookAnalysisId?: string | null;
+  referenceBookAnalysisSections?: BookAnalysisSectionKey[] | null;
   outline?: string | null;
   structuredOutline?: string | null;
   volumes?: VolumePlan[];

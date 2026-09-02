@@ -15,6 +15,12 @@ function createTask(overrides = {}) {
     lane: "auto_director",
     status: "waiting_approval",
     updatedAt: new Date("2026-04-29T12:00:00.000Z"),
+    seedPayloadJson: JSON.stringify({
+      issueGovernanceVersion: 1,
+      issuePolicy: { maxAutomaticRetries: 1, issueActions: {} },
+      issuePolicySource: "global",
+      runMode: "auto_to_execution",
+    }),
     ...overrides,
   };
 }
@@ -97,6 +103,7 @@ function createHarness(task = createTask()) {
   };
   const originalDirectorEvent = {
     create: prisma.directorEvent.create,
+    upsert: prisma.directorEvent.upsert,
   };
   const workflowService = {
     async getTaskById(taskId) {
@@ -284,6 +291,10 @@ function createHarness(task = createTask()) {
     directorEvents.push(data);
     return data;
   };
+  prisma.directorEvent.upsert = async ({ create }) => {
+    directorEvents.push(create);
+    return create;
+  };
 
   return {
     commands,
@@ -347,6 +358,70 @@ test("director command service queues candidate confirmation as a serialized com
     assert.equal(harness.task.currentItemKey, "candidate_confirm");
     assert.equal(harness.task.currentItemLabel, "书级方向提交完成，等待 AI 创建小说项目");
     assert.equal(harness.task.pendingManualRecovery, false);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("director command service restores corrupted confirmation text from the saved candidate batch", async () => {
+  const authoritativeCandidate = {
+    ...createConfirmRequest().candidate,
+    workingTitle: "资本沉默战",
+    logline: "金融天才在能源设备企业的危机中激活沉默资产。",
+    positioning: "现代商战中的资本与产业博弈。",
+    sellingPoint: "用规则与资本布局完成逆转。",
+  };
+  const harness = createHarness(createTask({
+    novelId: null,
+    status: "waiting_approval",
+    seedPayloadJson: JSON.stringify({
+      idea: "参考现实商战创作一部独立小说。",
+      basicForm: {
+        description: "参考现实商战创作一部独立小说。",
+        targetAudience: "喜欢高密度智斗的读者。",
+        bookSellingPoint: "规则博弈与阶层跃迁。",
+        competingFeel: "冷静克制的商业对弈。",
+        first30ChapterPromise: "前三十章完成第一次完整破局。",
+        commercialTagsText: "现代商战，规则博弈",
+      },
+      candidate: {
+        ...authoritativeCandidate,
+        workingTitle: "资本不眠",
+      },
+      batches: [{
+        id: "batch-1",
+        round: 1,
+        idea: "参考现实商战创作一部独立小说。",
+        candidates: [authoritativeCandidate],
+      }],
+    }),
+  }));
+  try {
+    await harness.service.enqueueConfirmCandidateCommand(createConfirmRequest({
+      batchId: "batch-1",
+      idea: "�ο���ʵ��ս",
+      description: "�ο���ʵ��ս",
+      targetAudience: "ϲ�����ܶ��Ƕ��Ķ���",
+      bookSellingPoint: "�������ײ�ԾǨ",
+      competingFeel: "�侲���Ƶ���ҵ����",
+      first30ChapterPromise: "ǰ��ʮ����ɵ�һ������ƾ�",
+      commercialTags: ["�ִ���ս", "�������"],
+      candidate: {
+        ...authoritativeCandidate,
+        workingTitle: "�ʱ�����",
+        logline: "������������Դ�豸��ҵ��Σ����",
+      },
+    }));
+
+    const payload = JSON.parse(harness.commands[0].payloadJson).confirmRequest;
+    assert.equal(payload.idea, "参考现实商战创作一部独立小说。");
+    assert.equal(payload.description, "参考现实商战创作一部独立小说。");
+    assert.equal(payload.targetAudience, "喜欢高密度智斗的读者。");
+    assert.equal(payload.candidate.workingTitle, "资本不眠");
+    assert.equal(payload.candidate.logline, authoritativeCandidate.logline);
+    assert.deepEqual(payload.commercialTags, ["现代商战", "规则博弈"]);
+    assert.equal(JSON.stringify(payload).includes("�"), false);
+    assert.equal(JSON.stringify(harness.bootstraps[0].seedPayload).includes("�"), false);
   } finally {
     harness.restore();
   }
@@ -711,8 +786,6 @@ test("director command stale recovery applies the task policy instead of only re
     seedPayloadJson: JSON.stringify({
       issueGovernanceVersion: 1,
       issuePolicy: {
-        noticeThreshold: 5,
-        pauseThreshold: 8,
         issueActions: { "runtime.worker_stale": "fail_task" },
       },
       issuePolicySource: "novel",
@@ -725,26 +798,15 @@ test("director command stale recovery applies the task policy instead of only re
   directorIssueService.reportIssue = async (input) => {
     reportedPolicy = input.policy;
     await input.applyAction({
-      occurrence: {
-        schemaVersion: 1,
-        issueCode: input.issueCode,
-        stage: input.stage,
-        summary: input.summary,
-        attempt: input.attempt,
-        maxAttempts: input.maxAttempts,
-        hasUsableOutput: false,
-        fingerprint: input.fingerprint,
-        occurredAt: new Date().toISOString(),
-      },
-      decision: {
-        issueCode: input.issueCode,
-        action: "fail_task",
-        reason: "本书规则要求结束任务",
-        locked: false,
-        policySource: "novel",
-        retryExhaustedAction: "pause_for_manual",
-      },
+      issueCode: input.issueCode,
+      action: "fail_task",
+      reason: "本书规则要求结束任务",
+      locked: false,
+      policySource: "novel",
+      retryExhaustedAction: "pause_for_manual",
     });
+    assert.equal(harness.commands[0].status, "failed");
+    assert.equal(harness.task.status, "failed");
   };
   try {
     await harness.service.enqueueContinueCommand("task-1");
@@ -764,7 +826,7 @@ test("director command stale recovery applies the task policy instead of only re
   }
 });
 
-test("director command service auto requeues full-book autopilot stale leases before manual recovery", async () => {
+test("director command service applies the single governance retry budget to full-book stale leases", async () => {
   const harness = createHarness(createTask({
     status: "running",
     pendingManualRecovery: false,
@@ -782,12 +844,10 @@ test("director command service auto requeues full-book autopilot stale leases be
     const count = await harness.service.recoverStaleLeases(new Date("2026-04-29T12:01:00.000Z"));
 
     assert.equal(count, 1);
-    assert.equal(harness.commands[0].status, "queued");
-    assert.equal(harness.commands[0].leaseOwner, null);
-    assert.equal(harness.commands[0].leaseExpiresAt, null);
-    assert.equal(harness.requeued.length, 0);
+    assert.equal(harness.commands[0].status, "stale");
+    assert.equal(harness.requeued.length, 1);
     assert.equal(harness.task.status, "queued");
-    assert.equal(harness.task.pendingManualRecovery, false);
+    assert.equal(harness.task.pendingManualRecovery, true);
   } finally {
     harness.restore();
   }

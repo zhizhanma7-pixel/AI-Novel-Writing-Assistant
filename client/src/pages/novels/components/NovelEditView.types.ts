@@ -43,7 +43,7 @@ import type {
 } from "@ai-novel/shared/types/storyMacro";
 import type { BookAnalysisSectionKey } from "@ai-novel/shared/types/bookAnalysis";
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
-import type { NovelExportDownloadFormat } from "@ai-novel/shared/types/novelExport";
+import type { NovelExportDownloadFormat, NovelExportFormat } from "@ai-novel/shared/types/novelExport";
 import type { ChapterRuntimePackage } from "@ai-novel/shared/types/chapterRuntime";
 import type {
   CharacterResourceContext,
@@ -264,6 +264,13 @@ export interface StructuredTabViewProps extends Omit<
   isGeneratingChapterDetailBundle: boolean;
   generatingChapterDetailMode: "purpose" | "boundary" | "task_sheet" | "";
   generatingChapterDetailChapterId: string;
+  chapterDetailFailure?: {
+    chapterId: string;
+    chapterOrder: number;
+    chapterTitle: string;
+    mode: "purpose" | "boundary" | "task_sheet";
+    message: string;
+  } | null;
   onGenerateChapterDetail: (
     volumeId: string,
     chapterId: string,
@@ -273,6 +280,7 @@ export interface StructuredTabViewProps extends Omit<
     volumeId: string,
     request: ChapterDetailBundleRequest,
   ) => void;
+  onRetryFailedChapterDetail?: () => void;
   syncPreview: VolumeSyncPreview;
   syncOptions: StructuredSyncOptions;
   onSyncOptionsChange: (patch: Partial<StructuredSyncOptions>) => void;
@@ -643,8 +651,9 @@ export interface NovelEditViewProps {
     isExportingCurrentJson: boolean;
     isExportingFullMarkdown: boolean;
     isExportingFullJson: boolean;
+    isExportingFullTxt: boolean;
     onExportCurrent: (format: NovelExportDownloadFormat) => void;
-    onExportFull: (format: NovelExportDownloadFormat) => void;
+    onExportFull: (format: NovelExportFormat) => void;
   };
   basicTab: BasicTabProps;
   worldTab: BasicTabProps;
