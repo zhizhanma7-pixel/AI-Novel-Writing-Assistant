@@ -13,9 +13,30 @@
 ![Database](https://img.shields.io/badge/Database-SQLite%20%2B%20Prisma-111827)
 ![Vector DB](https://img.shields.io/badge/RAG-Qdrant-E63946)
 
-<a href="https://trendshift.io/repositories/26664?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-26664" target="_blank" rel="noopener noreferrer">
-  <img src="https://trendshift.io/api/badge/repositories/26664" alt="ExplosiveCoderflome/AI-Novel-Writing-Assistant | Trendshift" width="250" height="55" />
-</a>
+
+## 关于这个分支
+
+这是 [ExplosiveCoderflome/AI-Novel-Writing-Assistant](https://github.com/ExplosiveCoderflome/AI-Novel-Writing-Assistant) 的分支，
+已经分叉得比较远：**上游没有的部分约 333 个文件、34000 行**。下面这些是本分支加的，
+上游没有对应实现：
+
+| 加了什么 | 是什么 | 文档 |
+| --- | --- | --- |
+| **变更提案工作流** | AI 不再直接改你的稿子和设定，而是先提出一份「打算改什么」的提案，逐项列出改动、等你批准、可以只批一部分、也可以就地改了再批。批准之后才落库 | [设计复盘](docs/dev/ARCH_RECON_PROPOSAL.md) |
+| **大纲工作流** | 卷／章的规划走同一套提案审批，规划与正文之间的偏离会被记录并给出修正建议 | [复审记录](docs/dev/CODE_REVIEW_OUTLINE_WORKFLOW_2A.md) |
+| **SillyTavern 导入** | 读酒馆的角色卡（含 PNG 内嵌）、世界书、预设，把每个字段摊开让你决定它去哪：角色、世界设定、写法资产，或者不导入。认不出的字段连值一起留着，不丢 | [wiki](docs/wiki/workflows/sillytavern-import.md) |
+| **写法包（Skill）** | 把一套写法打成可携带的目录拷给别人，也能装进别人的。导入的写法默认不生效，由你决定何时开启 | [设计](docs/design/skill-packages-v1.md) |
+| **稳定性加固** | 针对提案冲突、跨章一致性、导入异常的成套回归测试，以及由此挖出的若干判定错误 | [分析](docs/dev/ARCH_ANALYSIS_STABILITY.md) |
+
+**不是本分支的功劳**：Creative Hub、自动导演、写法引擎、拆书工作台、RAG 联动这些主干能力
+都来自上游，本分支只是在上面继续长。
+
+**许可证**：沿用上游的 AGPL-3.0（外加上游对服务化商用的附加条款），`LICENSE` 原样保留。
+本分支的修改同样以 AGPL-3.0 开放。
+
+**与上游的关系**：这些改动**尚未合入上游**。其中两个独立的缺陷修复已经拆成可单独审阅的
+分支（`fix/state-conflict-negation`、`fix/book-analysis-budget-atomic`），其余部分互相耦合，
+没有干净的切分方式。
 
 ## ✨ 项目简介
 
