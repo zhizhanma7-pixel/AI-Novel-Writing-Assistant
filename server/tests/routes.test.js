@@ -1130,6 +1130,24 @@ test("creative hub thread create and state routes return success payloads", asyn
   }
 });
 
+// 从资源接口里取一组可用的题材 / 推进模式 id。
+async function resolveCreateFoundation(port) {
+  const flatten = (nodes) => (nodes ?? []).flatMap((node) => [node, ...flatten(node.children)]);
+  const [genreResponse, storyModeResponse] = await Promise.all([
+    fetch(`http://127.0.0.1:${port}/api/genres`),
+    fetch(`http://127.0.0.1:${port}/api/story-modes`),
+  ]);
+  const genres = flatten((await genreResponse.json()).data);
+  const storyModes = flatten((await storyModeResponse.json()).data);
+  assert.ok(genres.length > 0, "内置题材资源应当已就绪");
+  assert.ok(storyModes.length > 1, "内置推进模式资源应当至少有两项");
+  return {
+    genreId: genres[0].id,
+    primaryStoryModeId: storyModes[0].id,
+    secondaryStoryModeId: storyModes[1].id,
+  };
+}
+
 test("novel routes preserve book framing fields through create-get-update cycle", async () => {
   const app = createApp();
   const server = http.createServer(app);
@@ -1137,12 +1155,16 @@ test("novel routes preserve book framing fields through create-get-update cycle"
   let novelId = null;
 
   try {
+    // 建书现在要先定下题材基底和推进模式：三项都给齐就走"用户已选"分支，
+    // 不会去调 AI 推荐（测试环境没有 API Key，那条路必然 500）。
+    const foundation = await resolveCreateFoundation(port);
     const createResponse = await fetch(`http://127.0.0.1:${port}/api/novels`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        ...foundation,
         title: `book-framing-route-${Date.now()}`,
         description: "测试书级 framing roundtrip。",
         targetAudience: "爱看都市高压逆袭的读者",

@@ -1,0 +1,534 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const childProcess = require("node:child_process");
+const { pnpmInvocation, sqliteDatabaseUrl } = require("./helpers/processInvocation.js");
+
+const repoRoot = path.resolve(__dirname, "..", "..");
+const serverRoot = path.resolve(repoRoot, "server");
+
+function setupTempSqliteDatabase(tempDir) {
+  const databasePath = path.join(tempDir, "sillytavern-card-import.db");
+  const databaseUrl = sqliteDatabaseUrl(serverRoot, databasePath);
+  const invocation = pnpmInvocation(["--filter", "@ai-novel/server", "prisma:push"]);
+  childProcess.execFileSync(invocation.command, invocation.args, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseUrl,
+      ...(process.platform === "win32" ? { RUST_LOG: "info" } : {}),
+    },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  return databaseUrl;
+}
+
+function writeScenario(tempDir) {
+  const scriptPath = path.join(tempDir, "run-sillytavern-card-import.cjs");
+  const script = `
+const path = require("node:path");
+
+async function snapshotDatabase(prisma) {
+  const tables = await prisma.$queryRawUnsafe(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_prisma%' ORDER BY name"
+  );
+  const snapshot = {};
+  for (const row of tables) {
+    const rows = await prisma.$queryRawUnsafe('SELECT * FROM "' + row.name + '"');
+    snapshot[row.name] = JSON.stringify(
+      rows,
+      (key, value) => (typeof value === "bigint" ? value.toString() : value),
+    );
+  }
+  return snapshot;
+}
+
+function diffSnapshots(before, after) {
+  const changed = [];
+  const names = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const name of names) {
+    if (before[name] !== after[name]) {
+      changed.push(name);
+    }
+  }
+  return changed.sort();
+}
+
+const CARD = {
+  spec: "chara_card_v2",
+  spec_version: "2.0",
+  data: {
+    name: "沈砚",
+    description: "北境十三城的旧律仍由影卫执行。\\n\\n沈砚十七岁入影卫，左手有旧伤。",
+    personality: "沉默，护短",
+    scenario: "城内宵禁的第三夜。",
+    extensions: { depth_prompt: { prompt: "保持冷淡", depth: 4 } },
+    system_prompt: "用冷硬的短句写，不要抒情。",
+    first_mes: "「你不该来。」",
+    character_book: {
+      name: "北境设定",
+      entries: [{ keys: ["影卫"], content: "影卫直属城主，不受旧律约束。", enabled: true, insertion_order: 0 }],
+    },
+  },
+};
+
+async function expectRejection(run) {
+  try {
+    await run();
+    return { rejected: false, code: null };
+  } catch (error) {
+    return { rejected: true, code: error && error.code ? error.code : null };
+  }
+}
+
+async function main() {
+  const repoRoot = process.cwd();
+  const { prisma } = require(path.join(repoRoot, "server", "dist", "db", "prisma.js"));
+  const {
+    SillyTavernCardImportService,
+  } = require(path.join(repoRoot, "server", "dist", "services", "sillytavern", "SillyTavernCardImportService.js"));
+  const {
+    StyleProfileService,
+  } = require(path.join(repoRoot, "server", "dist", "services", "styleEngine", "StyleProfileService.js"));
+
+  try {
+    const service = new SillyTavernCardImportService();
+    const novel = await prisma.novel.create({ data: { title: "导入目标书" } });
+
+    // 首次创建写法资产会补齐风格引擎的种子数据（模板与反 AI 规则）。
+    // 先用一个无关的资产把它触发掉，后面的表差异才只反映导入本身。
+    await new StyleProfileService().createManualProfile({ name: "预热种子" });
+
+    // 规划必须是纯读。
+    const beforePlan = await snapshotDatabase(prisma);
+    const plan = service.plan(CARD);
+    const afterPlan = await snapshotDatabase(prisma);
+
+    // 需要判断的段落没表态 → 必须拒绝，不能按默认值悄悄落地。
+    const undecided = await expectRejection(() => service.apply({
+      rawJson: CARD,
+      decisions: [],
+      novelId: novel.id,
+    }));
+
+    // 不属于这张卡的段落 id → 拒绝。
+    const unknownSegment = await expectRejection(() => service.apply({
+      rawJson: CARD,
+      decisions: [{ segmentId: "not-a-real-segment", destination: "world" }],
+      novelId: novel.id,
+    }));
+
+    // 有内容要进角色，却没说进哪本书 → 拒绝。
+    const missingNovel = await expectRejection(() => service.apply({
+      rawJson: CARD,
+      decisions: [
+        { segmentId: "description:0", destination: "world" },
+        { segmentId: "description:1", destination: "character" },
+        { segmentId: "scenario:0", destination: "world" },
+      ],
+    }));
+
+    // PNG 入口：提取出的卡片必须能走同一条分流链路，而不是只能预览。
+    const {
+      extractSillyTavernCardFromPng,
+    } = require(path.join(repoRoot, "server", "dist", "services", "sillytavern", "sillyTavernPngCard.js"));
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const buildChunk = (type, data) => {
+      const length = Buffer.alloc(4);
+      length.writeUInt32BE(data.length, 0);
+      return Buffer.concat([length, Buffer.from(type, "ascii"), data, Buffer.alloc(4)]);
+    };
+    const cardBase64 = Buffer.from(JSON.stringify(CARD), "utf8").toString("base64");
+    const png = Buffer.concat([
+      pngSignature,
+      buildChunk("tEXt", Buffer.concat([
+        Buffer.from("chara", "latin1"),
+        Buffer.from([0]),
+        Buffer.from(cardBase64, "latin1"),
+      ])),
+      buildChunk("IEND", Buffer.alloc(0)),
+    ]);
+    const fromPng = extractSillyTavernCardFromPng(png);
+    const pngPlan = service.plan(fromPng.json);
+    const pngApplied = await service.apply({
+      rawJson: fromPng.json,
+      decisions: [
+        { segmentId: "description:0", destination: "world" },
+        { segmentId: "description:1", destination: "skip" },
+        { segmentId: "scenario:0", destination: "skip" },
+        // personality 的建议值是「这个角色」；这一趟不导角色，必须显式跳过，
+        // 否则会因为没给 novelId 而被拒——这正是那条规则在起作用。
+        { segmentId: "personality:0", destination: "skip" },
+      ],
+      knowledgeTitle: "PNG 来源的世界设定",
+      styleProfileName: "PNG 来源的文风",
+    });
+
+    const beforeApply = await snapshotDatabase(prisma);
+    const applied = await service.apply({
+      rawJson: CARD,
+      decisions: [
+        // 第一段是世界设定，第二段才是这个角色的事实——这正是分流要解决的情况。
+        { segmentId: "description:0", destination: "world" },
+        { segmentId: "description:1", destination: "character" },
+        { segmentId: "scenario:0", destination: "skip" },
+      ],
+      novelId: novel.id,
+    });
+    const afterApply = await snapshotDatabase(prisma);
+
+    // 全部分流到世界设定的那一趟：不产生角色提案、不产生写法资产，原文没有
+    // 别的载体。未识别内容这一段是作者唯一能让原值留下来的地方。
+    const worldOnlyDecisions = [
+      { segmentId: "description:0", destination: "world" },
+      { segmentId: "description:1", destination: "world" },
+      { segmentId: "scenario:0", destination: "world" },
+      { segmentId: "personality:0", destination: "skip" },
+      { segmentId: "system_prompt:0", destination: "skip" },
+      { segmentId: "first_mes:0", destination: "skip" },
+      { segmentId: "__unknown__:0", destination: "world" },
+    ];
+    const worldOnly = await service.apply({
+      rawJson: CARD,
+      decisions: worldOnlyDecisions,
+      knowledgeTitle: "只有世界设定的卡片",
+    });
+    const worldOnlyKnowledge = worldOnly.knowledgeDocumentId
+      ? await prisma.knowledgeDocument.findUnique({
+        where: { id: worldOnly.knowledgeDocumentId },
+        include: { activeVersion: true },
+      })
+      : null;
+
+    // 默认不选它时，现状保持不变：原值不进任何去处。
+    const worldOnlyDefault = await service.apply({
+      rawJson: CARD,
+      decisions: worldOnlyDecisions.filter((item) => item.segmentId !== "__unknown__:0"),
+      knowledgeTitle: "未识别内容默认不导入",
+    });
+    const worldOnlyDefaultKnowledge = worldOnlyDefault.knowledgeDocumentId
+      ? await prisma.knowledgeDocument.findUnique({
+        where: { id: worldOnlyDefault.knowledgeDocumentId },
+        include: { activeVersion: true },
+      })
+      : null;
+
+    // 一段 JSON 进角色背景或写法约束都是错的：服务端要挡住。
+    const unknownToCharacter = await expectRejection(() => service.apply({
+      rawJson: CARD,
+      decisions: worldOnlyDecisions
+        .filter((item) => item.segmentId !== "__unknown__:0")
+        .concat([{ segmentId: "__unknown__:0", destination: "character" }]),
+      novelId: novel.id,
+    }));
+
+    const knowledge = applied.knowledgeDocumentId
+      ? await prisma.knowledgeDocument.findUnique({
+        where: { id: applied.knowledgeDocumentId },
+        include: { activeVersion: true },
+      })
+      : null;
+    const style = applied.styleProfileId
+      ? await prisma.styleProfile.findUnique({ where: { id: applied.styleProfileId } })
+      : null;
+    // 角色现在走提案：先看提案落成什么样，再确认角色库里此刻还没有它。
+    const characterProposal = applied.characterProposalId
+      ? await prisma.changeProposal.findUnique({
+        where: { id: applied.characterProposalId },
+        include: { changes: true },
+      })
+      : null;
+    const charactersBeforeReview = await prisma.character.count({ where: { novelId: novel.id } });
+
+    // 走一遍正式审阅链路，确认提案能真正落成角色。
+    let committedCharacter = null;
+    if (characterProposal) {
+      const {
+        changeProposalReviewService,
+      } = require(path.join(repoRoot, "server", "dist", "services", "novel", "proposal", "application", "ChangeProposalReviewService.js"));
+      const {
+        changeProposalApplyService,
+      } = require(path.join(repoRoot, "server", "dist", "services", "novel", "proposal", "application", "ChangeProposalApplyService.js"));
+      await changeProposalReviewService.approveProposal(novel.id, characterProposal.id, {});
+      await changeProposalApplyService.executeProposal(novel.id, characterProposal.id);
+      committedCharacter = await prisma.character.findFirst({ where: { novelId: novel.id } });
+    }
+
+    console.log(JSON.stringify({
+      planChangedTables: diffSnapshots(beforePlan, afterPlan),
+      planSegmentIds: plan.segments.map((item) => item.id),
+      planNeedsReview: plan.needsReviewCount,
+      undecided,
+      unknownSegment,
+      missingNovel,
+      pngPlanSegmentIds: pngPlan.segments.map((item) => item.id),
+      pngAppliedCounts: pngApplied.appliedCounts,
+      pngKnowledgeDocumentId: pngApplied.knowledgeDocumentId,
+      pngStyleProfileId: pngApplied.styleProfileId,
+      pngCharacterProposalId: pngApplied.characterProposalId,
+      applyChangedTables: diffSnapshots(beforeApply, afterApply),
+      applied,
+      knowledgeContent: knowledge ? knowledge.activeVersion.content : null,
+      styleSummary: style ? JSON.parse(style.narrativeRulesJson || "{}").summary : null,
+      styleSourceType: style ? style.sourceType : null,
+      characterProposalStatus: characterProposal ? characterProposal.status : null,
+      characterProposalType: characterProposal ? characterProposal.changes[0].proposalType : null,
+      characterProposalPayload: characterProposal
+        ? JSON.parse(characterProposal.changes[0].payloadJson)
+        : null,
+      planUnknownFields: plan.unknownFields,
+      worldOnlyApplied: worldOnly.appliedCounts,
+      worldOnlyStyleProfileId: worldOnly.styleProfileId,
+      worldOnlyCharacterProposalId: worldOnly.characterProposalId,
+      worldOnlyKnowledgeContent: worldOnlyKnowledge ? worldOnlyKnowledge.activeVersion.content : null,
+      worldOnlyDefaultKnowledgeContent: worldOnlyDefaultKnowledge
+        ? worldOnlyDefaultKnowledge.activeVersion.content
+        : null,
+      unknownToCharacter,
+      charactersBeforeReview,
+      characterName: committedCharacter ? committedCharacter.name : null,
+      characterPersonality: committedCharacter ? committedCharacter.personality : null,
+      characterBackground: committedCharacter ? committedCharacter.background : null,
+      characterNovelId: committedCharacter ? committedCharacter.novelId : null,
+      novelId: novel.id,
+    }));
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+`;
+  fs.writeFileSync(scriptPath, script, "utf8");
+  return scriptPath;
+}
+
+function runScenario() {
+  const tempRoot = path.resolve(serverRoot, ".tmp");
+  fs.mkdirSync(tempRoot, { recursive: true });
+  const tempDir = fs.mkdtempSync(path.join(tempRoot, "sillytavern-card-import-"));
+  const resolvedTempDir = path.resolve(tempDir);
+  if (!resolvedTempDir.startsWith(`${tempRoot}${path.sep}`)) {
+    throw new Error(`Unsafe temp directory: ${resolvedTempDir}`);
+  }
+  try {
+    const databaseUrl = setupTempSqliteDatabase(resolvedTempDir);
+    const scriptPath = writeScenario(resolvedTempDir);
+    const stdout = childProcess.execFileSync(process.execPath, [scriptPath], {
+      cwd: repoRoot,
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const resultLine = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .reverse()
+      .find((line) => line.startsWith("{"));
+    if (!resultLine) {
+      throw new Error(`Scenario did not return JSON. stdout=${stdout}`);
+    }
+    return JSON.parse(resultLine);
+  } finally {
+    fs.rmSync(resolvedTempDir, { recursive: true, force: true });
+  }
+}
+
+let cachedResult = null;
+
+function scenarioResult() {
+  cachedResult ??= runScenario();
+  return cachedResult;
+}
+
+test("P8 — planning a card writes nothing to the database", () => {
+  const result = scenarioResult();
+
+  // 规划一旦开始写库，用户就在还没确认去向时被替他决定了。
+  assert.deepEqual(result.planChangedTables, [], "规划阶段必须是纯读");
+  assert.equal(result.planNeedsReview, 3, "description 两段与 scenario 都要人判断");
+});
+
+test("a card is refused until every ambiguous segment has been decided", () => {
+  const result = scenarioResult();
+
+  assert.equal(result.undecided.rejected, true);
+  assert.equal(result.undecided.code, "decision_required");
+});
+
+test("a segment id that is not part of this card is refused", () => {
+  const result = scenarioResult();
+
+  assert.equal(result.unknownSegment.rejected, true);
+  assert.equal(result.unknownSegment.code, "unknown_segment");
+});
+
+test("content bound for a character requires knowing which book it belongs to", () => {
+  const result = scenarioResult();
+
+  // 角色必须归属一本书；世界设定与文风则是全局可复用的。
+  assert.equal(result.missingNovel.rejected, true);
+  assert.equal(result.missingNovel.code, "novel_required");
+});
+
+test("one card splits three ways according to the decisions", () => {
+  const result = scenarioResult();
+
+  assert.deepEqual(result.applied.appliedCounts, {
+    world: 1,
+    style: 2,
+    character: 2,
+    // scenario 那段，加上默认不导入的「未识别内容」。
+    skipped: 2,
+  });
+
+  // 世界设定：第一段描述 + 卡片内嵌的世界书。
+  assert.ok(result.knowledgeContent.includes("北境十三城的旧律"));
+  assert.ok(result.knowledgeContent.includes("影卫直属城主"));
+  assert.equal(
+    result.knowledgeContent.includes("左手有旧伤"),
+    false,
+    "被判为角色事实的段落不该进世界设定",
+  );
+
+  // 文风：写作指令与开场白。
+  // 来源要能区分「来自卡片分流」和「来自一份独立预设」。
+  assert.equal(result.styleSourceType, "from_sillytavern_card");
+  assert.ok(result.styleSummary.includes("用冷硬的短句写"));
+  assert.ok(result.styleSummary.includes("你不该来"));
+
+  // 角色：走提案，不直接写角色库。
+  assert.equal(result.characterProposalStatus, "pending_review");
+  assert.equal(result.characterProposalType, "character_import");
+  assert.equal(
+    result.charactersBeforeReview,
+    0,
+    "设计文档要求导入不直接写正式角色库：审阅前不该有角色",
+  );
+
+  // 审阅通过并执行之后才真正落成角色。
+  assert.equal(result.characterName, "沈砚");
+  assert.equal(result.characterPersonality, "沉默，护短");
+  assert.ok(result.characterBackground.includes("左手有旧伤"));
+  assert.equal(result.characterNovelId, result.novelId);
+});
+
+test("a skipped segment reaches none of the three destinations", () => {
+  const result = scenarioResult();
+
+  const everything = [
+    result.knowledgeContent ?? "",
+    result.styleSummary ?? "",
+    result.characterBackground ?? "",
+    result.characterPersonality ?? "",
+  ].join("\n");
+  assert.equal(
+    everything.includes("城内宵禁的第三夜"),
+    false,
+    "选择不导入的段落不能出现在任何一个去处",
+  );
+});
+
+test("applying touches only the three destination tables", () => {
+  const result = scenarioResult();
+
+  // 一次导入不该顺手碰到别的子系统。
+  const unexpected = result.applyChangedTables.filter((table) => ![
+    "KnowledgeDocument",
+    "KnowledgeDocumentVersion",
+    "StyleProfile",
+    // 角色走提案，所以这一趟写的是提案信封与逐项，而不是 Character。
+    // 提案还会被索引为 DirectorArtifact 并记事件——那是既有提案体系
+    // 自带的账本与 stale 检测，正是走这条路想要的东西。
+    "ChangeProposal",
+    "StateChangeProposal",
+    "DirectorEvent",
+    "DirectorArtifact",
+    // 知识入库会排队重建 RAG 索引，走的是既有队列。
+    "RagIndexJob",
+  ].includes(table));
+  assert.deepEqual(unexpected, [], `意外写入的表：${unexpected.join(", ")}`);
+  assert.ok(result.applyChangedTables.includes("KnowledgeDocument"));
+  assert.ok(result.applyChangedTables.includes("StyleProfile"));
+  assert.ok(result.applyChangedTables.includes("ChangeProposal"));
+  assert.equal(
+    result.applyChangedTables.includes("Character"),
+    false,
+    "导入本身不该写角色库",
+  );
+});
+
+test("a card extracted from a PNG goes through the same split pipeline", () => {
+  const result = scenarioResult();
+
+  // 从图片读出的卡片不该只能预览——它和 JSON 卡片是同一份内容。
+  assert.deepEqual(
+    result.pngPlanSegmentIds,
+    result.planSegmentIds,
+    "PNG 与 JSON 读出的应当是同一张卡",
+  );
+  assert.equal(result.pngAppliedCounts.world, 1);
+  assert.equal(result.pngAppliedCounts.style, 2);
+  assert.ok(result.pngKnowledgeDocumentId, "世界设定应当落地");
+  assert.ok(result.pngStyleProfileId, "文风应当落地");
+  // 这次没有段落分给角色，也就没给 novelId，因此不该产生角色提案。
+  assert.equal(result.pngCharacterProposalId, null);
+});
+
+test("the original file survives in the proposal so unknown fields stay recoverable", () => {
+  const result = scenarioResult();
+
+  // 预览要告诉用户有没被识别的内容。
+  assert.deepEqual(result.planUnknownFields, ["extensions"]);
+
+  // 而且原文要随提案留存——批准之后仍然找得回来，否则那是不可逆的损失。
+  const raw = result.characterProposalPayload.sourceRaw;
+  assert.ok(raw, "提案载荷必须带上原始文件");
+  assert.deepEqual(
+    raw.data.extensions,
+    { depth_prompt: { prompt: "保持冷淡", depth: 4 } },
+    "没被识别的字段要能从提案里原样取回",
+  );
+});
+
+test("routing the unrecognised segment to world is the author's own call", () => {
+  const result = scenarioResult();
+
+  // 全部内容都去了世界设定：没有角色提案、没有写法资产，原文没有别的载体。
+  assert.equal(result.worldOnlyStyleProfileId, null);
+  assert.equal(result.worldOnlyCharacterProposalId, null);
+
+  // 作者选了「世界设定」，原值就跟着进文档，日后还能回溯。
+  assert.ok(result.worldOnlyKnowledgeContent.includes("原始文件中未被识别的内容"));
+  assert.ok(result.worldOnlyKnowledgeContent.includes("extensions"));
+  assert.ok(result.worldOnlyKnowledgeContent.includes("保持冷淡"), "原值要原样留住");
+
+  // 附录排在正文与内嵌世界书之后，不插进设定中间。
+  const appendixAt = result.worldOnlyKnowledgeContent.indexOf("原始文件中未被识别的内容");
+  const bookAt = result.worldOnlyKnowledgeContent.indexOf("影卫直属城主");
+  assert.ok(bookAt >= 0 && bookAt < appendixAt, "未识别内容应当排在最后");
+});
+
+test("leaving the unrecognised segment alone keeps the previous behaviour", () => {
+  const result = scenarioResult();
+
+  // 默认值就是现状：不擅自把一段 JSON 塞进检索。
+  assert.equal(
+    result.worldOnlyDefaultKnowledgeContent.includes("原始文件中未被识别的内容"),
+    false,
+  );
+  assert.equal(result.worldOnlyDefaultKnowledgeContent.includes("保持冷淡"), false);
+});
+
+test("the unrecognised segment cannot be routed into a character or a style asset", () => {
+  const result = scenarioResult();
+
+  // 那会把读不懂的元信息当成作品事实或写作指令喂给模型。
+  assert.equal(result.unknownToCharacter.rejected, true);
+  assert.equal(result.unknownToCharacter.code, "invalid_destination");
+});

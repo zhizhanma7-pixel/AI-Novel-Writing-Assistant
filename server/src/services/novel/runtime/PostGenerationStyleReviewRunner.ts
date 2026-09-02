@@ -53,15 +53,12 @@ export class PostGenerationStyleReviewRunner {
       };
     }
 
-    if (!input.contextPackage.styleContext?.compiledBlocks) {
-      return {
-        report: null,
-        autoRewritten: false,
-        originalContent: null,
-        finalContent: input.content,
-      };
-    }
-
+    // 这里原本先看正文生成时组装的 styleContext 有没有内容，没有就直接跳过审校。
+    // 那个 context 来自 writer 环节：只绑了 reviewer 而没绑 writer 或作品写法时，
+    // 它是空的，于是审校根本不跑，reviewer 绑定完全失效。
+    //
+    // 判断"有没有可执行约束"本来就该由检测自己做——它解析的是 reviewer 环节，
+    // 并且在没有任何约束时会直接返回空报告且不调用模型。所以这里不再前置拦截。
     let report: RuntimeStyleDetectionReport | null = null;
     try {
       report = await this.deps.styleDetectionService.check({

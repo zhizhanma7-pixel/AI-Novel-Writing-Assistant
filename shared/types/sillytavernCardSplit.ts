@@ -1,0 +1,113 @@
+import { z } from "zod";
+import { sillyTavernParseWarningSchema } from "./sillytavernCard.js";
+import { sillyTavernWorldBookPreviewSchema } from "./sillytavernWorldBookImport.js";
+
+/**
+ * 角色卡的分流契约（Phase 3 / S4）。
+ *
+ * **这一层是整个 Phase 3 的产品主张所在。** 角色卡在格式上长得像"一个角色"，
+ * 但作者往往把世界设定、语气要求和写作约束都塞在 `description` / `scenario` 里。
+ * 直接映射成一个角色实体，等于把世界观埋进角色字段。
+ *
+ * 所以导入不是映射，是**分流**：把卡片切成段，每段各自决定去世界设定、
+ * 写法资产还是角色。
+ */
+
+export const sillyTavernSegmentDestinationSchema = z.enum([
+  /** 世界设定 → 知识库，可绑定到书或世界，全局可复用。 */
+  "world",
+  /** 文风与写作约束 → 写法资产。 */
+  "style",
+  /** 真正的角色事实 → 角色，必须归属某本书。 */
+  "character",
+  /** 不导入。 */
+  "skip",
+]);
+export type SillyTavernSegmentDestination = z.infer<typeof sillyTavernSegmentDestinationSchema>;
+
+/** 建议是怎么来的：字段本身就能定的，还是需要人判断的。 */
+export const sillyTavernSuggestionOriginSchema = z.enum(["deterministic", "needs_review"]);
+export type SillyTavernSuggestionOrigin = z.infer<typeof sillyTavernSuggestionOriginSchema>;
+
+/**
+ * 未识别内容那一段的 `sourceField`。
+ *
+ * 它不来自任何一个卡片字段，而是解析器认不出的那些字段的集合。单独给它一个
+ * 标识，是因为服务端要限制它的可选去向（一段 JSON 进角色背景或写法约束都是
+ * 错的），界面也要据此只给出「世界设定 / 不导入」两个选项。
+ */
+export const SILLYTAVERN_UNKNOWN_SEGMENT_FIELD = "__unknown__";
+
+export const sillyTavernCardSegmentSchema = z.object({
+  /** 稳定标识，形如 `description:1`，用户提交决定时按它对应。 */
+  id: z.string(),
+  sourceField: z.string(),
+  /** 字段的中文名，直接展示。 */
+  sourceLabel: z.string(),
+  text: z.string(),
+  suggestedDestination: sillyTavernSegmentDestinationSchema,
+  /** 为什么这么建议，给用户看。 */
+  reason: z.string(),
+  origin: sillyTavernSuggestionOriginSchema,
+});
+export type SillyTavernCardSegment = z.infer<typeof sillyTavernCardSegmentSchema>;
+
+export const sillyTavernCardSplitPlanSchema = z.object({
+  cardName: z.string(),
+  segments: z.array(sillyTavernCardSegmentSchema),
+  /**
+   * 卡片内嵌的世界书。它的归属是确定的（世界设定），不参与分流，
+   * 但要让用户看到卡片里带了多少世界观。
+   */
+  embeddedBook: sillyTavernWorldBookPreviewSchema.nullable(),
+  /** 需要用户逐段判断的数量——这类段落是这张卡最容易被导错的部分。 */
+  needsReviewCount: z.number().int().nonnegative(),
+  /**
+   * 有内容但不参与分流的字段（卡片元信息）。
+   *
+   * 列出来是为了让界面能说明「这些没被导入」；静默丢弃会让人以为进去了。
+   */
+  ignoredFields: z.array(z.object({
+    field: z.string(),
+    label: z.string(),
+    reason: z.string(),
+  })).default([]),
+  /**
+   * 解析器**不认识**的字段名。
+   *
+   * 与 `ignoredFields` 不同：那些是我们认识但有意不导入的元信息，这些是
+   * 格式演进出来的、代码还不知道的东西。设计文档要求预览把它们显示出来，
+   * 原始内容随提案载荷一起留存。
+   */
+  unknownFields: z.array(z.string()).default([]),
+  warnings: z.array(sillyTavernParseWarningSchema).default([]),
+});
+export type SillyTavernCardSplitPlan = z.infer<typeof sillyTavernCardSplitPlanSchema>;
+
+export const sillyTavernSegmentDecisionSchema = z.object({
+  segmentId: z.string(),
+  destination: sillyTavernSegmentDestinationSchema,
+});
+export type SillyTavernSegmentDecision = z.infer<typeof sillyTavernSegmentDecisionSchema>;
+
+export const sillyTavernCardApplyResultSchema = z.object({
+  /** 世界设定去处；没有分到世界的段落时为 null。 */
+  knowledgeDocumentId: z.string().nullable(),
+  knowledgeUnchanged: z.boolean(),
+  /** 文风去处。 */
+  styleProfileId: z.string().nullable(),
+  /**
+   * 角色那一路产生的待审提案 id。
+   *
+   * 角色**不直接写入**：设计文档要求导入走提案，且角色是小说范围的正式状态，
+   * 适配既有 `ChangeProposal` 信封。世界设定与写法是全局资产，不进提案。
+   */
+  characterProposalId: z.string().nullable(),
+  appliedCounts: z.object({
+    world: z.number().int().nonnegative(),
+    style: z.number().int().nonnegative(),
+    character: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+  }),
+});
+export type SillyTavernCardApplyResult = z.infer<typeof sillyTavernCardApplyResultSchema>;

@@ -1158,6 +1158,51 @@ test("post-generation style review policy disables detection and rewrite", async
   });
 });
 
+test("detection still runs when only the reviewer agent has a style binding", async () => {
+  // reviewer-only 回归：正文生成时组装的 styleContext 来自 writer 环节。只绑了
+  // reviewer、没绑 writer 也没绑作品写法时它是空的，一旦拿它做前置拦截，审校
+  // 根本不会跑，reviewer 绑定完全失效。判断"有没有可执行约束"由检测自己做。
+  const calls = [];
+  const runner = new PostGenerationStyleReviewRunner({
+    postGenerationStyleReviewPolicyResolver: {
+      resolve: async () => ({ enabled: true }),
+    },
+    styleDetectionService: {
+      check: async (input) => {
+        calls.push(input);
+        return {
+          summary: "reviewer 绑定命中",
+          riskScore: 20,
+          canAutoRewrite: false,
+          appliedRuleIds: [],
+          violations: [],
+        };
+      },
+    },
+    styleRewriteService: {
+      rewrite: async () => {
+        throw new Error("风险分不够，不该改写");
+      },
+    },
+  });
+
+  const result = await runner.run({
+    novelId: "novel-1",
+    chapterId: "chapter-1",
+    request: {},
+    // 没有 writer / 作品级写法：这正是只绑 reviewer 时 styleContext 的样子。
+    contextPackage: { styleContext: null },
+    content: "正文草稿",
+  });
+
+  assert.equal(calls.length, 1, "只绑 reviewer 时检测仍必须执行");
+  assert.equal(calls[0].novelId, "novel-1");
+  assert.equal(calls[0].chapterId, "chapter-1");
+  assert.equal(result.report.summary, "reviewer 绑定命中");
+  assert.equal(result.autoRewritten, false);
+  assert.equal(result.finalContent, "正文草稿");
+});
+
 test("post-generation style review policy keeps existing detection and rewrite when enabled", async () => {
   const calls = [];
   const runner = new PostGenerationStyleReviewRunner({

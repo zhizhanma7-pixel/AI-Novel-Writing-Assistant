@@ -5,10 +5,44 @@ export type StyleSourceType =
   | "from_text"
   | "from_book_analysis"
   | "from_knowledge_document"
-  | "from_current_work";
+  | "from_current_work"
+  /** 由 SillyTavern preset 导入。原始 JSON 保留在 `sourceContent` 里可回溯。 */
+  | "from_sillytavern_preset"
+  /**
+   * 由 SillyTavern 角色卡分流出的文风部分。
+   *
+   * 与 preset 分开是因为来源追踪要能说清这份写法是从哪来的：卡片里的文风是
+   * 从 `system_prompt` / 语气样本分流出来的，和一份独立预设不是一回事。
+   */
+  | "from_sillytavern_card";
 export type StyleExtractionSourceProcessingMode = "full_text" | "representative_sample";
 export type StyleProfileStatus = "active" | "archived";
-export type StyleBindingTargetType = "novel" | "chapter" | "task";
+/**
+ * 写法绑定的作用目标。
+ *
+ * `agent` 是按**环节**绑定（`targetId` 存环节名，如 `writer` / `planner`），
+ * 让「正文用一种写法、规划用另一种」成为可能。它与 novel / chapter 并列，
+ * 谁先生效由 `priority` 决定，不做隐式的层级覆盖。
+ */
+export type StyleBindingTargetType = "novel" | "chapter" | "task" | "agent";
+
+/**
+ * 已接入写法解析的环节。
+ *
+ * **这份清单就是「哪些环节真的生效」的唯一事实**：加一个值而不接进对应的
+ * 解析调用，绑定会存得下来却永远不起作用。服务端按它校验 `targetId`，
+ * 界面也按它出选项。
+ */
+export const STYLE_BINDING_AGENTS = ["writer", "planner", "reviewer"] as const;
+
+export type StyleBindingAgent = typeof STYLE_BINDING_AGENTS[number];
+
+export const STYLE_BINDING_AGENT_LABELS: Record<StyleBindingAgent, string> = {
+  writer: "写正文",
+  planner: "做规划",
+  reviewer: "审校修正",
+};
+
 export type AntiAiRuleType = "forbidden" | "risk" | "encourage";
 export type StyleDetectionRuleType = "style" | "character" | AntiAiRuleType;
 export type AntiAiSeverity = "low" | "medium" | "high";

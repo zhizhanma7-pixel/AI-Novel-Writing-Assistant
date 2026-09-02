@@ -37,6 +37,9 @@ export class StyleDetectionService {
       novelId: input.novelId,
       chapterId: input.chapterId,
       taskStyleProfileId: input.taskStyleProfileId,
+      // 审校检测环节：绑到 reviewer 的写法要在**发现问题**这一步生效，
+      // 而不是只在随后的改写里生效。
+      agent: "reviewer",
     });
     const previewRules = await listPreviewAntiAiRules(input.previewAntiAiRuleIds);
     const existingRuleIds = new Set(resolved.antiAiRules.map((rule) => rule.id));

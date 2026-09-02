@@ -42,6 +42,7 @@ const WorldGenerator = lazy(() => import("@/pages/worlds/WorldGenerator"));
 const WorldWorkspace = lazy(() => import("@/pages/worlds/WorldWorkspace"));
 const WritingFormulaPage = lazy(() => import("@/pages/writingFormula/WritingFormulaPage"));
 const CharacterLibrary = lazy(() => import("@/pages/characters/CharacterLibrary"));
+const SillyTavernImportPage = lazy(() => import("@/pages/sillytavern/SillyTavernImportPage"));
 
 const routes: RouteObject[] = [
   {
@@ -73,6 +74,7 @@ const routes: RouteObject[] = [
       { path: "auto-director/follow-up-center", element: <Navigate to="/auto-director/follow-ups" replace /> },
       { path: "auto-director/followup-center", element: <Navigate to="/auto-director/follow-ups" replace /> },
       { path: "knowledge", element: <KnowledgePage /> },
+      { path: "sillytavern-import", element: <SillyTavernImportPage /> },
       { path: "genres", element: <GenreManagementPage /> },
       { path: "story-modes", element: <StoryModeManagementPage /> },
       { path: "titles", element: <TitleStudioPage /> },

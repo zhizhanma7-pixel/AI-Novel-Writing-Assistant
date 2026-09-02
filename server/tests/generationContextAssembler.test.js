@@ -7,6 +7,9 @@ const {
   resolveChapterResourceCharacterIds,
 } = require("../dist/services/novel/runtime/GenerationContextAssembler.js");
 const { prisma } = require("../dist/db/prisma.js");
+const {
+  summarizeWorldRules,
+} = require("../dist/prompting/prompts/novel/chapterLayeredContextShared.js");
 const { plannerService } = require("../dist/services/planner/PlannerService.js");
 const { contextAssemblyService } = require("../dist/services/novel/production/ContextAssemblyService.js");
 const { ragServices } = require("../dist/services/rag/index.js");
@@ -286,8 +289,11 @@ test("assembler refreshes chapter execution fields after chapter plan regenerati
     assert.equal(assembled.chapter.taskSheet, "新任务单");
     assert.equal(assembled.contextPackage.chapter.sceneCards, freshSceneCards);
     assert.equal(assembled.contextPackage.storyWorldSlice, storyWorldSlice);
-    assert.match(assembled.contextPackage.chapter.supportingContextText, /本书世界上下文/);
-    assert.match(assembled.contextPackage.chapter.supportingContextText, /星核枯竭的北境舞台/);
+    // supportingContextText 已经是个到处硬编码成 "" 的死字段；世界上下文现在
+    // 经 storyWorldSlice 进 summarizeWorldRules，再落到写作上下文的世界规则里。
+    const worldRules = summarizeWorldRules(assembled.contextPackage);
+    assert.ok(worldRules.includes("星核枯竭的北境舞台。"), worldRules.join(" | "));
+    assert.ok(worldRules.some((rule) => rule.includes("星核代价")), worldRules.join(" | "));
     assert.equal(assembled.contextPackage.chapterWriteContext.chapterBoundary.entryState, "新合同入口1");
     assert.ok(assembled.contextPackage.chapterWriteContext.chapterBoundary.doNotCross.includes("新禁止"));
   } finally {

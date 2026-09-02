@@ -112,7 +112,7 @@ test("novel workflow auto director route returns null when only historical visib
   }
 });
 
-test("novel workflow continue route accepts range and full-book continuation modes", { concurrency: false }, async () => {
+test("novel workflow continue route accepts both non-resume continuation modes", { concurrency: false }, async () => {
   const calls = [];
   const originalEnqueue = DirectorCommandService.prototype.enqueueContinueCommand;
   const originalDetail = NovelWorkflowTaskAdapter.prototype.detail;
@@ -155,14 +155,17 @@ test("novel workflow continue route accepts range and full-book continuation mod
     const payload = await response.json();
     assert.equal(payload.success, true);
     assert.equal(payload.data.commandId, "command-1");
-    const fullBookResponse = await fetch(`http://127.0.0.1:${port}/api/novel-workflows/workflow-auto-exec/continue`, {
+    // full_book_autopilot 是 runMode，不是 continuationMode——契约里只有
+    // resume / auto_execute_range / skip_quality_repair 三个，两个非 resume
+    // 的模式都该走 enqueueContinueCommand。
+    const skipRepairResponse = await fetch(`http://127.0.0.1:${port}/api/novel-workflows/workflow-auto-exec/continue`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        continuationMode: "full_book_autopilot",
+        continuationMode: "skip_quality_repair",
       }),
     });
-    assert.equal(fullBookResponse.status, 202);
+    assert.equal(skipRepairResponse.status, 202);
     assert.deepEqual(calls, [
       {
         taskId: "workflow-auto-exec",
@@ -173,7 +176,7 @@ test("novel workflow continue route accepts range and full-book continuation mod
       {
         taskId: "workflow-auto-exec",
         input: {
-          continuationMode: "full_book_autopilot",
+          continuationMode: "skip_quality_repair",
         },
       },
     ]);

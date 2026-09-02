@@ -180,7 +180,11 @@ function resolveConfirmRequestFromTaskSeed(
 }
 
 export class DirectorCommandService {
-  constructor(private readonly workflowService = new NovelWorkflowService()) {}
+  private readonly leaseService: DirectorCommandLeaseService;
+
+  constructor(private readonly workflowService = new NovelWorkflowService()) {
+    this.leaseService = new DirectorCommandLeaseService(this.workflowService);
+  }
 
   async enqueueGenerateCandidatesCommand(input: DirectorCandidatesRequest): Promise<DirectorCommandAcceptedResponse> {
     const task = await this.ensureCandidateTask(input, {
@@ -614,10 +618,18 @@ export class DirectorCommandService {
     };
   }
 
+  /**
+   * 租约过期的恢复走 {@link DirectorCommandLeaseService}。
+   *
+   * 这里原本留着一份自己判断怎么恢复的旧实现：它先按 attempt 决定重排还是转人工，
+   * 再调 reportIssue **不带 applyAction**——治理把动作算出来了却没人执行，作品级
+   * 的 issuePolicy（比如 runtime.worker_stale = fail_task）对这条路完全不起作用。
+   * 抽出去的那份是会执行决定的，但一直没人接线，成了死代码。
+   */
   async recoverStaleLeases(now = new Date(), options: {
     taskId?: string;
   } = {}): Promise<number> {
-    return new DirectorCommandLeaseService(this.workflowService).recoverStaleLeases(now, options);
+    return this.leaseService.recoverStaleLeases(now, options);
   }
 
   async leaseNextCommand(input: {

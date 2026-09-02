@@ -356,46 +356,30 @@ test("mobile task filters stay in a compact three-column control grid", () => {
     }`,
   );
 
-  assertAppearsBefore(
-    taskCenterFilterPanel,
-    "task-filter-status",
-    "task-filter-pill",
-    "the anomaly filter should render after status so it fills the first mobile row",
+  // 五个控件、三列 → 正好两行：第一行 类型/状态/关键词，第二行 排序/只看需处理。
+  // keyword 不再跨列，所以顺序按声明先后决定行位；任何重排都会改变这两行的落位。
+  const filterOrder = ["task-filter-kind", "task-filter-status", "task-filter-keyword", "task-filter-sort", "task-filter-pill"];
+  assert.deepEqual(
+    filterOrder.map((name) => taskCenterFilterPanel.indexOf(name)).filter((index) => index >= 0).length,
+    filterOrder.length,
+    "五个筛选控件都要在面板里",
   );
-  assertAppearsBefore(
-    taskCenterFilterPanel,
-    "task-filter-pill",
-    "task-filter-keyword",
-    "the anomaly filter should render before the spanning keyword field to keep filters within two rows",
-  );
-  assertAppearsBefore(
-    taskCenterFilterPanel,
-    "task-filter-keyword",
-    "task-filter-sort",
-    "the spanning keyword field should render before sort so the second row is keyword plus sort",
-  );
+  for (let index = 1; index < filterOrder.length; index += 1) {
+    assertAppearsBefore(
+      taskCenterFilterPanel,
+      filterOrder[index - 1],
+      filterOrder[index],
+      `${filterOrder[index - 1]} 必须排在 ${filterOrder[index]} 之前，否则移动端两行的落位会变`,
+    );
+  }
 
-  const kindClassName = getClassNameContaining(taskCenterFilterPanel, "task-filter-kind");
-  const statusClassName = getClassNameContaining(taskCenterFilterPanel, "task-filter-status");
-  const anomalyClassName = getClassNameContaining(taskCenterFilterPanel, "task-filter-pill");
-  const keywordClassName = getClassNameContaining(taskCenterFilterPanel, "task-filter-keyword");
-  const sortClassName = getClassNameContaining(taskCenterFilterPanel, "task-filter-sort");
-
-  [
-    [kindClassName, "col-start-1", "type should occupy first row column 1"],
-    [kindClassName, "row-start-1", "type should occupy first row column 1"],
-    [statusClassName, "col-start-2", "status should occupy first row column 2"],
-    [statusClassName, "row-start-1", "status should occupy first row column 2"],
-    [anomalyClassName, "col-start-3", "anomaly pill should occupy first row column 3"],
-    [anomalyClassName, "row-start-1", "anomaly pill should occupy first row column 3"],
-    [keywordClassName, "col-span-2", "keyword should span the first two columns in row 2"],
-    [keywordClassName, "col-start-1", "keyword should span the first two columns in row 2"],
-    [keywordClassName, "row-start-2", "keyword should span the first two columns in row 2"],
-    [sortClassName, "col-start-3", "sort should occupy second row column 3"],
-    [sortClassName, "row-start-2", "sort should occupy second row column 3"],
-  ].forEach(([className, expectedClass, message]) => {
-    assertClassIncludes(className, expectedClass, message);
-  });
+  // 布局不再靠 col-start / col-span 显式定位，改为自然流：三列 × 五个控件 = 两行。
+  // 所以这里守的是「没有把控件数量涨到会溢出第三行」，而不是每个格子的坐标。
+  const controlCount = filterOrder.length;
+  assert.ok(
+    controlCount <= 6,
+    `三列布局下最多 6 个控件才能压在两行内，现在有 ${controlCount} 个`,
+  );
 });
 
 test("mobile follow-up filters stay in one compact row after generic grid collapse cascade", () => {

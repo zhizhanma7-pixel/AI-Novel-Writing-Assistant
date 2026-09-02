@@ -45,6 +45,7 @@ interface CompileStyleInput {
 
 const TARGET_TYPE_LABELS: Record<StyleBinding["targetType"], string> = {
   novel: "Novel",
+  agent: "Agent",
   chapter: "Chapter",
   task: "Task",
 };

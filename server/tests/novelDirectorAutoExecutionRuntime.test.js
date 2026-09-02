@@ -141,6 +141,7 @@ test("circuit-breaker governance continues, pauses, or fails the real workflow s
     assert.deepEqual(failed.task, { status: "failed", pendingManualRecovery: false });
     assert.ok(!failed.calls.some((call) => call[0] === "requeueTaskForRecovery"));
 
+    // auto_repair_exhausted 是"正文写出来了但没过闸"，属于有可用产物。
     assert.deepEqual(reports.map((report) => report.hasUsableOutput), [true, true, true]);
   } finally {
     directorIssueService.reportIssue = originalReportIssue;
@@ -310,6 +311,402 @@ function buildPreparedWorkspace() {
     ],
   };
 }
+
+test("runFromReady keeps executing the next chapter after governance waves the breaker through", async () => {
+  // 回归 H1：治理判「带警告继续」时熔断会被合上、任务被重新拉起。三个调用点
+  // 以前一律 return，任务就停在"显示运行中但永远不再推进"的状态。
+  const originalReportIssue = directorIssueService.reportIssue;
+  const calls = [];
+  let pipelineCompleted = false;
+  directorIssueService.reportIssue = async (input) => {
+    calls.push(["reportIssue", input.issueCode]);
+    const decision = {
+      issueCode: input.issueCode,
+      action: "continue_with_warning",
+      reason: "测试放行",
+      locked: false,
+      policySource: "novel",
+      retryExhaustedAction: "pause_for_manual",
+    };
+    await input.applyAction(decision);
+    return { occurrence: null, decision };
+  };
+
+  const runtime = new NovelDirectorAutoExecutionRuntime({
+    novelContextService: {
+      async listChapters() {
+        return [
+          withExecutionDetail({ id: "chapter-1", order: 1, generationState: "approved" }),
+          withExecutionDetail({ id: "chapter-2", order: 2, generationState: pipelineCompleted ? "approved" : "draft" }),
+        ];
+      },
+    },
+    novelService: {
+      async startPipelineJob() {
+        calls.push(["startPipelineJob"]);
+        throw new Error("should reuse the active job instead of starting a new one");
+      },
+      async findActivePipelineJobForRange(novelId, startOrder, endOrder) {
+        calls.push(["findActivePipelineJobForRange", startOrder, endOrder]);
+        return { id: "job-active", status: "running" };
+      },
+      async getPipelineJobById(jobId) {
+        calls.push(["getPipelineJobById", jobId]);
+        pipelineCompleted = true;
+        return {
+          id: jobId,
+          status: "succeeded",
+          progress: 1,
+          currentStage: null,
+          currentItemLabel: null,
+          error: null,
+        };
+      },
+      async cancelPipelineJob() {},
+    },
+    workflowService: {
+      async bootstrapTask(input) {
+        calls.push(["bootstrapTask", input.seedPayload.autoExecution.circuitBreaker?.status ?? null]);
+      },
+      async getTaskById() {
+        return { status: "running" };
+      },
+      async markTaskRunning() {},
+      async recordCheckpoint(_taskId, input) {
+        calls.push(["recordCheckpoint", input.checkpointType ?? null]);
+      },
+      async markTaskFailed() {
+        calls.push(["markTaskFailed"]);
+      },
+      async requeueTaskForRecovery() {
+        calls.push(["requeueTaskForRecovery"]);
+      },
+    },
+    buildDirectorSeedPayload(_request, _novelId, extra) {
+      return extra ?? {};
+    },
+    automationLedgerEventService: {
+      async recordCircuitBreakerOpened() {},
+      async recordEvent() {},
+    },
+  });
+
+  try {
+    await runtime.runFromReady({
+      taskId: "task-breaker-continue",
+      novelId: "novel-1",
+      request: buildRequest({
+        runMode: "full_book_autopilot",
+        issueGovernanceVersion: 1,
+        issuePolicy: { noticeThreshold: 5, pauseThreshold: 8, issueActions: {} },
+        issuePolicySource: "novel",
+      }),
+      existingState: {
+        enabled: true,
+        firstChapterId: "chapter-2",
+        startOrder: 1,
+        endOrder: 2,
+        totalChapterCount: 2,
+        circuitBreaker: {
+          status: "open",
+          reason: "auto_repair_exhausted",
+          message: "局部修复已耗尽。",
+          chapterId: "chapter-2",
+          chapterOrder: 2,
+          patchFailureCount: 3,
+        },
+      },
+    });
+  } finally {
+    directorIssueService.reportIssue = originalReportIssue;
+  }
+
+  assert.deepEqual(
+    calls.filter((call) => call[0] === "reportIssue"),
+    [["reportIssue", "quality.local_repair_failed"]],
+    "熔断要先交给 issue 治理裁决",
+  );
+  // 放行的证据：熔断被合上后重新拉起任务。
+  assert.ok(
+    calls.some((call) => call[0] === "bootstrapTask" && call[1] === "closed"),
+    `熔断应当被合上：${JSON.stringify(calls)}`,
+  );
+  // 真正要守的：放行之后继续往下跑，而不是原地返回。
+  assert.ok(
+    calls.some((call) => call[0] === "findActivePipelineJobForRange"),
+    `放行后必须继续推进章节执行：${JSON.stringify(calls)}`,
+  );
+  assert.equal(
+    calls.some((call) => call[0] === "markTaskFailed"),
+    false,
+    "治理判的是继续，不该把任务判失败",
+  );
+});
+
+test("a failed terminal job waved through by governance actually starts the next chapter", async () => {
+  // 熔断状态变成 closed 不算数：放行的状态是从 failedAutoExecution 上合闸来的，
+  // 仍带着那个已失败的终态 job。要证明的是下一章真的被启动了，而不是回到循环头
+  // 重新捞回同一个失败 job 空转。
+  const originalReportIssue = directorIssueService.reportIssue;
+  const calls = [];
+  let chapterOneDone = false;
+  let chapterTwoDone = false;
+  let firstJobProbes = 0;
+  directorIssueService.reportIssue = async (input) => {
+    calls.push(["reportIssue", input.issueCode]);
+    const decision = {
+      issueCode: input.issueCode,
+      action: "continue_with_warning",
+      reason: "测试放行",
+      locked: false,
+      policySource: "novel",
+      retryExhaustedAction: "pause_for_manual",
+    };
+    await input.applyAction(decision);
+    return { occurrence: null, decision };
+  };
+
+  const runtime = new NovelDirectorAutoExecutionRuntime({
+    novelContextService: {
+      async listChapters() {
+        return [
+          withExecutionDetail({ id: "chapter-1", order: 1, generationState: chapterOneDone ? "approved" : "draft" }),
+          withExecutionDetail({ id: "chapter-2", order: 2, generationState: chapterTwoDone ? "approved" : "draft" }),
+        ];
+      },
+    },
+    novelService: {
+      async startPipelineJob(_novelId, options) {
+        calls.push(["startPipelineJob", options.startOrder ?? null, options.endOrder ?? null]);
+        return { id: "job-next-chapter", status: "queued" };
+      },
+      async findActivePipelineJobForRange() {
+        return null;
+      },
+      async getPipelineJobById(jobId) {
+        calls.push(["getPipelineJobById", jobId]);
+        if (jobId === "job-failed") {
+          firstJobProbes += 1;
+          // 第一次探测必须是运行中：runFromReady 开头看到终态 job 会直接丢弃它并
+          // 清掉熔断，那样根本走不到失败分支。第二次（循环内轮询）才失败。
+          if (firstJobProbes === 1) {
+            return { id: "job-failed", status: "running", progress: 0.5, currentStage: null, currentItemLabel: null, error: null };
+          }
+          // 失败的同时把第一章标记为已完成，这样放行后重解析下一章才会真的前进。
+          chapterOneDone = true;
+          return {
+            id: "job-failed",
+            status: "failed",
+            progress: 0.5,
+            currentStage: null,
+            currentItemLabel: null,
+            error: "章节执行失败",
+            noticeCode: null,
+            payload: null,
+          };
+        }
+        // 下一章的 job 直接给成功终态，并把第二章标记为已完成，让循环收尾退出。
+        chapterTwoDone = true;
+        return { id: jobId, status: "succeeded", progress: 1, currentStage: null, currentItemLabel: null, error: null };
+      },
+      async cancelPipelineJob() {},
+    },
+    workflowService: {
+      async bootstrapTask(input) {
+        calls.push(["bootstrapTask", input.seedPayload.autoExecution.circuitBreaker?.status ?? null]);
+      },
+      async getTaskById() {
+        return { status: "running" };
+      },
+      async markTaskRunning() {},
+      async recordCheckpoint() {},
+      async markTaskFailed() {
+        calls.push(["markTaskFailed"]);
+      },
+      async requeueTaskForRecovery() {
+        calls.push(["requeueTaskForRecovery"]);
+      },
+    },
+    buildDirectorSeedPayload(_request, _novelId, extra) {
+      return extra ?? {};
+    },
+    automationLedgerEventService: {
+      async recordCircuitBreakerOpened() {},
+      async recordEvent() {},
+      async recordRepairTicketCreated() {},
+    },
+  });
+
+  try {
+    await runtime.runFromReady({
+      taskId: "task-failed-job-continue",
+      novelId: "novel-1",
+      // 非全书模式：避开上面那条 defer_and_continue 支线，直接落到失败熔断这一支。
+      request: buildRequest({
+        runMode: "auto_to_execution",
+        issueGovernanceVersion: 1,
+        issuePolicy: { noticeThreshold: 5, pauseThreshold: 8, issueActions: {} },
+        issuePolicySource: "novel",
+      }),
+      existingState: {
+        enabled: true,
+        firstChapterId: "chapter-1",
+        startOrder: 1,
+        endOrder: 2,
+        totalChapterCount: 2,
+        autoRepair: false,
+        pipelineJobId: "job-failed",
+        pipelineStatus: "running",
+        // 再来一次模型失败就到开闸阈值（3 次）。
+        circuitBreaker: { status: "closed", reason: "service_unavailable", modelFailureCount: 2 },
+      },
+      existingPipelineJobId: "job-failed",
+    });
+  } finally {
+    directorIssueService.reportIssue = originalReportIssue;
+  }
+
+  assert.deepEqual(
+    calls.filter((call) => call[0] === "reportIssue"),
+    [["reportIssue", "runtime.service_unavailable"]],
+    "失败熔断要先交给治理裁决",
+  );
+  assert.ok(
+    calls.some((call) => call[0] === "bootstrapTask" && call[1] === "closed"),
+    `熔断应当被合上：${JSON.stringify(calls)}`,
+  );
+  // 真正的验收点：下一章被启动了。
+  const started = calls.filter((call) => call[0] === "startPipelineJob");
+  assert.equal(started.length, 1, `放行后必须启动下一章：${JSON.stringify(calls)}`);
+  assert.deepEqual(started[0].slice(1), [2, 2], "启动的应当是第 2 章，而不是重跑失败的第 1 章");
+  // 不能回到循环头把同一个失败 job 再捞一次：只有开头那次探测 + 循环内那次轮询。
+  assert.equal(
+    calls.filter((call) => call[0] === "getPipelineJobById" && call[1] === "job-failed").length,
+    2,
+    `失败 job 只应被处理一次：${JSON.stringify(calls)}`,
+  );
+  assert.equal(calls.some((call) => call[0] === "markTaskFailed"), false);
+});
+
+test("a waved-through failure that cannot advance stops instead of spinning", async () => {
+  // 治理放行、但下一章没有前进（同一章仍是下一个待写章节）时，必须落到失败处理
+  // 停在安全位置，而不是无限重试——治理那边不会自己收敛：决策是纯函数，既不查
+  // 历史也不看 fingerprint。
+  const originalReportIssue = directorIssueService.reportIssue;
+  const calls = [];
+  let stallJobProbes = 0;
+  directorIssueService.reportIssue = async (input) => {
+    const decision = {
+      issueCode: input.issueCode,
+      action: "continue_with_warning",
+      reason: "测试放行",
+      locked: false,
+      policySource: "novel",
+      retryExhaustedAction: "pause_for_manual",
+    };
+    await input.applyAction(decision);
+    return { occurrence: null, decision };
+  };
+
+  const runtime = new NovelDirectorAutoExecutionRuntime({
+    novelContextService: {
+      // 第一章始终没写完：放行之后下一章仍是它。
+      async listChapters() {
+        return [
+          withExecutionDetail({ id: "chapter-1", order: 1, generationState: "draft" }),
+          withExecutionDetail({ id: "chapter-2", order: 2, generationState: "draft" }),
+        ];
+      },
+    },
+    novelService: {
+      async startPipelineJob(_novelId, options) {
+        calls.push(["startPipelineJob", options.startOrder ?? null]);
+        return { id: "job-restarted", status: "queued" };
+      },
+      async findActivePipelineJobForRange() {
+        return null;
+      },
+      async getPipelineJobById(jobId) {
+        calls.push(["getPipelineJobById", jobId]);
+        stallJobProbes += 1;
+        // 同上：开头那次探测要是运行中，否则终态 job 会被直接丢弃。
+        if (stallJobProbes === 1) {
+          return { id: jobId, status: "running", progress: 0.5, currentStage: null, currentItemLabel: null, error: null };
+        }
+        return {
+          id: jobId,
+          status: "failed",
+          progress: 0.5,
+          currentStage: null,
+          currentItemLabel: null,
+          error: "章节执行失败",
+          noticeCode: null,
+          payload: null,
+        };
+      },
+      async cancelPipelineJob() {},
+    },
+    workflowService: {
+      async bootstrapTask() {},
+      async getTaskById() {
+        return { status: "running" };
+      },
+      async markTaskRunning() {},
+      async recordCheckpoint() {},
+      async markTaskFailed() {
+        calls.push(["markTaskFailed"]);
+      },
+      async requeueTaskForRecovery() {
+        calls.push(["requeueTaskForRecovery"]);
+      },
+    },
+    buildDirectorSeedPayload(_request, _novelId, extra) {
+      return extra ?? {};
+    },
+    automationLedgerEventService: {
+      async recordCircuitBreakerOpened() {},
+      async recordEvent() {},
+      async recordRepairTicketCreated() {},
+    },
+  });
+
+  try {
+    await runtime.runFromReady({
+      taskId: "task-failed-job-stall",
+      novelId: "novel-1",
+      request: buildRequest({
+        runMode: "auto_to_execution",
+        issueGovernanceVersion: 1,
+        issuePolicy: { noticeThreshold: 5, pauseThreshold: 8, issueActions: {} },
+        issuePolicySource: "novel",
+      }),
+      existingState: {
+        enabled: true,
+        firstChapterId: "chapter-1",
+        startOrder: 1,
+        endOrder: 2,
+        totalChapterCount: 2,
+        autoRepair: false,
+        pipelineJobId: "job-failed",
+        pipelineStatus: "running",
+        circuitBreaker: { status: "closed", reason: "service_unavailable", modelFailureCount: 2 },
+      },
+      existingPipelineJobId: "job-failed",
+    });
+  } finally {
+    directorIssueService.reportIssue = originalReportIssue;
+  }
+
+  assert.ok(
+    calls.some((call) => call[0] === "markTaskFailed"),
+    `推进不了就必须停在安全位置：${JSON.stringify(calls)}`,
+  );
+  assert.equal(
+    calls.filter((call) => call[0] === "startPipelineJob").length,
+    0,
+    "没有前进就不该再启动同一章",
+  );
+});
 
 test("runFromReady completes immediately when repaired chapters leave no remaining auto-execution work", async () => {
   const calls = [];

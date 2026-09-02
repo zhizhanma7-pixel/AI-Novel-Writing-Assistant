@@ -24,6 +24,7 @@ import genreRouter from "./routes/genre";
 import healthRouter from "./routes/health";
 import imagesRouter from "./routes/images";
 import knowledgeRouter from "./routes/knowledge";
+import sillyTavernRouter from "./routes/sillytavern";
 import llmRouter from "./routes/llm";
 import llmLiveRouter from "./platform/llm/live/http/llmLiveRoutes";
 import novelRouter from "./modules/novel/http/novel";
@@ -88,6 +89,8 @@ export function createApp() {
   getSharedNovelServices();
   const app = express();
   const jsonBodyLimit = process.env.API_JSON_LIMIT ?? "20mb";
+  // 容得下 20MB 原始文件 base64 之后的体积，留一点信封余量。
+  const sillyTavernBodyLimit = process.env.SILLYTAVERN_JSON_LIMIT ?? "32mb";
   const corsOriginEnv = process.env.CORS_ORIGIN;
   const corsAllowList = corsOriginEnv
     ? corsOriginEnv
@@ -123,6 +126,10 @@ export function createApp() {
     const errorSuffix = errorMessage ? ` | error: ${errorMessage}` : "";
     return `${method} ${url} ${status} ${responseTime} ms - ${contentLength}${errorSuffix}`;
   }));
+  // 导入 SillyTavern 资产时，一张 PNG 角色卡要经 base64 送上来，体积会膨胀
+  // 约 4/3。按 20MB 的原始文件算就是 ~26.7MB，用全局上限会在进入解析器之前
+  // 就被拒掉。这条路径单独放宽，且必须挂在全局 json 解析器之前才生效。
+  app.use("/api/sillytavern", express.json({ limit: sillyTavernBodyLimit }));
   app.use(express.json({ limit: jsonBodyLimit }));
 
   app.use("/api/health", healthRouter);
@@ -132,6 +139,7 @@ export function createApp() {
   app.use("/api/genres", genreRouter);
   app.use("/api/story-modes", storyModeRouter);
   app.use("/api/knowledge", knowledgeRouter);
+  app.use("/api/sillytavern", sillyTavernRouter);
   app.use("/api/llm", llmRouter);
   app.use("/api/llm-live", llmLiveRouter);
   app.use("/api/title-library", titleLibraryRouter);

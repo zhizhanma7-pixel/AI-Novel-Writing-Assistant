@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { ApiResponse } from "@ai-novel/shared/types/api";
 import { z } from "zod";
+import { STYLE_BINDING_AGENTS } from "@ai-novel/shared/types/styleEngine";
 import { llmProviderSchema } from "../llm/providerSchema";
 import { authMiddleware } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -14,6 +15,10 @@ import { styleRecommendationService } from "../services/styleEngine/StyleRecomme
 import { StyleRewriteService } from "../services/styleEngine/StyleRewriteService";
 
 const router = Router();
+import { AppError } from "../middleware/errorHandler";
+import { SillyTavernPresetImportService } from "../services/sillytavern/SillyTavernPresetImportService";
+import { SillyTavernParseError } from "../services/sillytavern/sillyTavernCardParser";
+
 const styleProfileService = new StyleProfileService();
 const antiAiRuleService = new AntiAiRuleService();
 const antiAiPolicyResolver = new AntiAiPolicyResolver();
@@ -124,15 +129,24 @@ const antiAiRuleAiDraftSchema = z.object({
 
 const bindingSchema = z.object({
   styleProfileId: z.string().trim().min(1),
-  targetType: z.enum(["novel", "chapter", "task"]),
+  targetType: z.enum(["novel", "chapter", "task", "agent"]),
   targetId: z.string().trim().min(1),
   priority: z.number().int().min(0).default(1),
   weight: z.number().min(0.3).max(1).default(1),
   enabled: z.boolean().default(true),
-});
+}).refine(
+  // 环节绑定的 targetId 必须是已接线的环节名。放任意字符串通过，绑定会存下来
+  // 却永远不生效——拼错一个字母就是一条静默失效的配置，用户无从察觉。
+  (value) => value.targetType !== "agent"
+    || (STYLE_BINDING_AGENTS as readonly string[]).includes(value.targetId),
+  {
+    path: ["targetId"],
+    message: `按环节绑定时，目标必须是 ${STYLE_BINDING_AGENTS.join(" / ")} 之一。`,
+  },
+);
 
 const bindingQuerySchema = z.object({
-  targetType: z.enum(["novel", "chapter", "task"]).optional(),
+  targetType: z.enum(["novel", "chapter", "task", "agent"]).optional(),
   targetId: z.string().trim().optional(),
   styleProfileId: z.string().trim().optional(),
 });
@@ -220,6 +234,71 @@ router.post("/style-profiles", validate({ body: manualProfileSchema }), async (r
     next(error);
   }
 });
+
+const sillyTavernPresetSchema = z.object({
+  preset: z.unknown(),
+  name: z.string().trim().min(1).max(120).optional(),
+});
+
+// 同上：延迟到首次调用，别把导入链路拖进模块加载期。
+let sillyTavernPresetImportServiceInstance: SillyTavernPresetImportService | null = null;
+
+function getSillyTavernPresetImportService(): SillyTavernPresetImportService {
+  sillyTavernPresetImportServiceInstance ??= new SillyTavernPresetImportService();
+  return sillyTavernPresetImportServiceInstance;
+}
+
+function forwardSillyTavernError(error: unknown, next: (error?: unknown) => void): void {
+  if (error instanceof SillyTavernParseError) {
+    next(new AppError(error.code, 400, error.message));
+    return;
+  }
+  next(error);
+}
+
+// 预览是纯读：解析并展示会生效的内容，不写任何库。
+router.post(
+  "/style-profiles/sillytavern/preview",
+  validate({ body: sillyTavernPresetSchema }),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof sillyTavernPresetSchema>;
+      const data = getSillyTavernPresetImportService().preview(body.preset);
+      res.status(200).json({
+        success: true,
+        data,
+        message: data.enabledCount > 0
+          ? "已读出这份预设的写作指令，确认后可导入为写法资产。"
+          : "这份预设里没有会生效的写作指令。",
+      } satisfies ApiResponse<typeof data>);
+    } catch (error) {
+      forwardSillyTavernError(error, next);
+    }
+  },
+);
+
+router.post(
+  "/style-profiles/from-sillytavern",
+  validate({ body: sillyTavernPresetSchema }),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof sillyTavernPresetSchema>;
+      const data = await getSillyTavernPresetImportService().importPreset({
+        rawJson: body.preset,
+        name: body.name,
+      });
+      res.status(201).json({
+        success: true,
+        data,
+        message: data.longInstructions
+          ? "已导入为写法资产。这份预设的指令较长，建议在写法编辑里精简后再绑定使用。"
+          : "已导入为写法资产，可在写法绑定里指定它作用于哪本书。",
+      } satisfies ApiResponse<typeof data>);
+    } catch (error) {
+      forwardSillyTavernError(error, next);
+    }
+  },
+);
 
 router.post("/style-profiles/from-book-analysis", validate({ body: fromBookAnalysisSchema }), async (req, res, next) => {
   try {

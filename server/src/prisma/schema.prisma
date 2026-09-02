@@ -300,6 +300,9 @@ enum StyleBindingTargetType {
   novel
   chapter
   task
+  // 按环节绑定写法：targetId 存环节名（writer / planner / …）。
+  // 让「正文用一种写法、规划用另一种」成为可能，优先级仍由 priority 决定。
+  agent
 }
 
 enum AntiAiRuleType {

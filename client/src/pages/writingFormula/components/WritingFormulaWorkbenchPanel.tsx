@@ -1,4 +1,8 @@
-import type { StyleBinding } from "@ai-novel/shared/types/styleEngine";
+import type { StyleBinding, StyleBindingAgent } from "@ai-novel/shared/types/styleEngine";
+import {
+  STYLE_BINDING_AGENT_LABELS,
+  STYLE_BINDING_AGENTS,
+} from "@ai-novel/shared/types/styleEngine";
 import { BookOpenText, FlaskConical, Link2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +10,7 @@ import SelectControl from "@/components/common/SelectControl";
 
 interface BindingFormState {
   targetType: StyleBinding["targetType"];
+  agent: StyleBindingAgent;
   novelId: string;
   chapterId: string;
   taskTargetId: string;
@@ -57,6 +62,8 @@ export default function WritingFormulaWorkbenchPanel(props: WritingFormulaWorkbe
 
   const bindingTargetLabel: Record<StyleBinding["targetType"], string> = {
     novel: "整本书",
+    // 按环节绑定：targetId 是环节名（写正文 / 做规划）。
+    agent: "指定环节",
     chapter: "章节",
     task: "本次任务",
   };
@@ -100,21 +107,29 @@ export default function WritingFormulaWorkbenchPanel(props: WritingFormulaWorkbe
                 onChange={(event) => onBindingFormChange({ targetType: event.target.value as StyleBinding["targetType"] })}
               >
                 <option value="novel">整本书</option>
+                <option value="agent">指定环节</option>
                 <option value="chapter">章节</option>
                 <option value="task">本次任务</option>
               </SelectControl>
             </label>
 
-            <label className="space-y-2">
-              <div className="text-sm font-medium text-slate-900">所属小说</div>
-              <SelectControl
-                className="w-full rounded-md border p-2 text-sm"
-                value={bindingForm.novelId}
-                onChange={(event) => onBindingFormChange({ novelId: event.target.value, chapterId: "" })}
-              >
-                {novelOptions.map((novel) => <option key={novel.id} value={novel.id}>{novel.title}</option>)}
-              </SelectControl>
-            </label>
+            {/*
+              环节绑定是**全局**的：库里只存环节名，不带小说范围。
+              仍然显示「所属小说」会让人以为是给这本书的某个环节绑写法，
+              而实际会影响所有作品——选的值还会被直接忽略。
+            */}
+            {bindingForm.targetType !== "agent" ? (
+              <label className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">所属小说</div>
+                <SelectControl
+                  className="w-full rounded-md border p-2 text-sm"
+                  value={bindingForm.novelId}
+                  onChange={(event) => onBindingFormChange({ novelId: event.target.value, chapterId: "" })}
+                >
+                  {novelOptions.map((novel) => <option key={novel.id} value={novel.id}>{novel.title}</option>)}
+                </SelectControl>
+              </label>
+            ) : null}
 
             {bindingForm.targetType === "chapter" ? (
               <label className="space-y-2">
@@ -131,6 +146,25 @@ export default function WritingFormulaWorkbenchPanel(props: WritingFormulaWorkbe
                     </option>
                   ))}
                 </SelectControl>
+              </label>
+            ) : null}
+
+            {bindingForm.targetType === "agent" ? (
+              <label className="space-y-2">
+                <div className="text-sm font-medium text-slate-900">选择环节</div>
+                <SelectControl
+                  className="w-full rounded-md border p-2 text-sm"
+                  value={bindingForm.agent}
+                  onChange={(event) => onBindingFormChange({ agent: event.target.value as StyleBindingAgent })}
+                >
+                  {STYLE_BINDING_AGENTS.map((agent) => (
+                    <option key={agent} value={agent}>{STYLE_BINDING_AGENT_LABELS[agent]}</option>
+                  ))}
+                </SelectControl>
+                <div className="text-xs leading-5 text-slate-500">
+                  <strong>对所有作品生效</strong>：环节绑定不区分小说，所有书的这个环节都会用上这套写法。
+                  需要只作用于某一本书时，请改用「整本书」层级。
+                </div>
               </label>
             ) : null}
 

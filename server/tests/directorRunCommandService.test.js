@@ -797,6 +797,7 @@ test("director command stale recovery applies the task policy instead of only re
   let reportedPolicy = null;
   directorIssueService.reportIssue = async (input) => {
     reportedPolicy = input.policy;
+    // 真实服务只把 decision 交给 applyAction，不是整个结果对象。
     await input.applyAction({
       issueCode: input.issueCode,
       action: "fail_task",

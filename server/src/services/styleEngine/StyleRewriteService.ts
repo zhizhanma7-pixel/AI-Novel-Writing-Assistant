@@ -31,6 +31,8 @@ export class StyleRewriteService {
       novelId: input.novelId,
       chapterId: input.chapterId,
       taskStyleProfileId: input.taskStyleProfileId,
+      // 审校修正环节：绑到 reviewer 的写法在这里生效。
+      agent: "reviewer",
     });
     const previewRules = await listPreviewAntiAiRules(input.previewAntiAiRuleIds);
     const existingRuleIds = new Set(resolved.antiAiRules.map((rule) => rule.id));

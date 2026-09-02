@@ -206,6 +206,8 @@ export class ChapterExecutionContractService {
       novelId,
       chapterId,
       taskStyleProfileId,
+      // 这份合同是给正文生成用的，与 writer 环节同源。
+      agent: "writer",
     }).catch(() => null);
     return buildWriterStyleContractText(resolvedStyleContext?.compiledBlocks?.contract ?? null) || null;
   }

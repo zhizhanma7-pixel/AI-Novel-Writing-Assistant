@@ -24,6 +24,7 @@ const routedPaths = [
   "/tasks",
   "/auto-director/follow-ups",
   "/knowledge",
+  "/sillytavern-import",
   "/genres",
   "/story-modes",
   "/titles",
@@ -64,24 +65,28 @@ test("mobile primary nav keeps core beginner actions visible", () => {
   );
 });
 
-test("mobile more menu contains all non-primary registered pages", () => {
+test("mobile more menu lists every page reachable outside the primary bar", () => {
   const morePaths = getMobileMoreNavGroups().flatMap((group) => group.items.map((item) => item.to));
 
+  // /tasks 在底栏是「任务」，在这里以「运行记录」的身份归到「世界与系统」，
+  // 是刻意的双入口，不是重复项。
   assert.deepEqual(
     morePaths,
     [
       "/help",
       "/drama",
       "/book-analysis",
-      "/auto-director/follow-ups",
       "/chat-legacy",
       "/knowledge",
+      "/sillytavern-import",
       "/genres",
       "/story-modes",
       "/titles",
       "/style-engine",
       "/anti-ai-rules",
       "/base-characters",
+      "/tasks",
+      "/auto-director/follow-ups",
       "/worlds",
       "/worlds/generator",
       "/prompt-workbench",

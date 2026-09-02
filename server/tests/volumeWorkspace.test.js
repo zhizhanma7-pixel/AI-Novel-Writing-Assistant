@@ -138,7 +138,9 @@ test("volume workspace v2 roundtrip keeps strategy, beat sheet and rebalance ass
   assert.equal(reparsed.workspaceVersion, "v2");
   assert.equal(reparsed.strategyPlan?.recommendedVolumeCount, 3);
   assert.equal(reparsed.critiqueReport?.overallRisk, "medium");
-  assert.equal(reparsed.beatSheets[0]?.beats[0]?.key, "opening_hook");
+  // 标准槽位名是 open_hook；fixture 里写的 opening_hook 是模型常吐的变体，
+  // 归一化必须把它收敛回标准键，否则下游按槽位取节拍会取不到。
+  assert.equal(reparsed.beatSheets[0]?.beats[0]?.key, "open_hook");
   assert.equal(reparsed.rebalanceDecisions[0]?.direction, "push_back");
 });
 

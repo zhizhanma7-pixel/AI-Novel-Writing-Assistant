@@ -599,10 +599,16 @@ test("StyleRewriteService includes preview anti-ai rules in the repair prompt", 
     promptInstruction: "Preview rewrite instruction.",
     rewriteSuggestion: "改成具体动作和对白。",
   })];
+  // 文本类 prompt 现在走流式（runTextPrompt 用 llm.stream 把增量喂给 liveSession），
+  // 假 LLM 也得提供 stream，只留 invoke 会在运行时炸。
   promptRunner.setPromptRunnerLLMFactoryForTests(async () => ({
-    invoke: async (messages) => {
+    stream: async (messages) => {
       capturedPrompt = messages.map((message) => String(message.content)).join("\n");
-      return { content: "他扶住桌沿，半晌才开口。" };
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { content: "他扶住桌沿，半晌才开口。" };
+        },
+      };
     },
   }));
 

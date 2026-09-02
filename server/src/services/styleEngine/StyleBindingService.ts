@@ -1,4 +1,4 @@
-import type { ResolvedStyleContext, StyleBinding, StyleProfile, StyleRuleSet } from "@ai-novel/shared/types/styleEngine";
+import type { ResolvedStyleContext, StyleBinding, StyleBindingAgent, StyleProfile, StyleRuleSet } from "@ai-novel/shared/types/styleEngine";
 import { prisma } from "../../db/prisma";
 import { AntiAiPolicyResolver } from "./AntiAiPolicyResolver";
 import { StyleCompiler } from "./StyleCompiler";
@@ -13,8 +13,10 @@ import { sanitizeStyleContextForGeneration } from "./styleGenerationSanitizer";
 
 const TARGET_PRIORITY: Record<StyleBinding["targetType"], number> = {
   novel: 1,
-  chapter: 2,
-  task: 3,
+  // 环节绑定比「整本书」具体，但比「这一章」通用。
+  agent: 2,
+  chapter: 3,
+  task: 4,
 };
 
 type StyleSectionKey = keyof StyleRuleSet;
@@ -127,6 +129,13 @@ export class StyleBindingService {
     novelId: string;
     chapterId?: string;
     taskStyleProfileId?: string;
+    /**
+     * 当前环节（`writer` / `planner` / …）。
+     *
+     * 传了才会把该环节的绑定纳入解析——不传就完全是原来的行为，
+     * 没接线的调用方不受影响。
+     */
+    agent?: StyleBindingAgent;
   }): Promise<ResolvedStyleContext> {
     await ensureStyleEngineSeedData();
 
@@ -136,6 +145,8 @@ export class StyleBindingService {
         OR: [
           { targetType: "novel", targetId: input.novelId },
           ...(input.chapterId ? [{ targetType: "chapter" as const, targetId: input.chapterId }] : []),
+          // 环节绑定与作品/章节并列，谁先生效由 priority 决定。
+          ...(input.agent ? [{ targetType: "agent" as const, targetId: input.agent }] : []),
         ],
       },
       include: {

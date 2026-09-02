@@ -643,6 +643,7 @@ test("runPipelineChapterWithRuntime does not rewrite the chapter when a patch ta
       escalationReason: null,
     },
   });
+  // 文本类 prompt 走流式：runTextPrompt 用 llm.stream 把增量喂给 liveSession。
   promptRunner.setPromptRunnerLLMFactoryForTests(async () => ({
     stream: async () => {
       heavyRewriteCalls += 1;
@@ -825,6 +826,7 @@ test("runPipelineChapterWithRuntime uses the selected light repair for style sou
       },
     };
   };
+  // 文本类 prompt 走流式：runTextPrompt 用 llm.stream 把增量喂给 liveSession。
   promptRunner.setPromptRunnerLLMFactoryForTests(async () => ({
     stream: async () => {
       heavyRewriteCalls += 1;

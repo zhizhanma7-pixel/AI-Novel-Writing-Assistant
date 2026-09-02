@@ -58,18 +58,19 @@ async function applyCircuitBreakerDecision(
   deps: CircuitBreakerWorkflowPort,
   input: Parameters<typeof applyCircuitBreakerStop>[1],
   action: DirectorIssueAction,
-): Promise<void> {
+): Promise<DirectorAutoExecutionState | null> {
   if (action === "auto_retry" || action === "continue_with_warning") {
+    const continuedState = withCircuitBreakerState(
+      input.autoExecution,
+      buildClosedDirectorCircuitBreakerState(input.circuitBreaker),
+    );
     await syncAutoExecutionTaskState(deps, {
       ...input,
-      autoExecution: withCircuitBreakerState(
-        input.autoExecution,
-        buildClosedDirectorCircuitBreakerState(input.circuitBreaker),
-      ),
+      autoExecution: continuedState,
       isBackgroundRunning: true,
       resumeStage: input.resumeStage ?? "pipeline",
     });
-    return;
+    return continuedState;
   }
   if (action === "pause_for_manual") {
     await deps.workflowService.requeueTaskForRecovery(
@@ -82,9 +83,10 @@ async function applyCircuitBreakerDecision(
       isBackgroundRunning: false,
       resumeStage: input.resumeStage ?? "pipeline",
     });
-    return;
+    return null;
   }
   await applyCircuitBreakerStop(deps, input);
+  return null;
 }
 
 async function applyCircuitBreakerStop(
@@ -149,10 +151,14 @@ function issueCodeForCircuitBreaker(
   }
 }
 
+function hasUsableOutputForCircuitBreaker(reason: DirectorCircuitBreakerState["reason"]): boolean {
+  return reason === "auto_repair_exhausted" || reason === "replan_loop";
+}
+
 export async function stopAutoExecutionForCircuitBreaker(
   deps: CircuitBreakerWorkflowPort,
   input: Parameters<typeof applyCircuitBreakerStop>[1],
-): Promise<void> {
+): Promise<DirectorAutoExecutionState | null> {
   const requestPolicy = input.request.issueGovernanceVersion === 1
     ? directorIssuePolicySchema.safeParse(input.request.issuePolicy)
     : null;
@@ -165,7 +171,7 @@ export async function stopAutoExecutionForCircuitBreaker(
     : await loadDirectorIssueTaskContext(input.taskId).catch(() => null);
   if (!governance) {
     await applyCircuitBreakerStop(deps, input);
-    return;
+    return null;
   }
   const failureCount = Math.max(
     input.circuitBreaker.failureCount ?? 0,
@@ -176,6 +182,7 @@ export async function stopAutoExecutionForCircuitBreaker(
     1,
   );
   const issueCode = issueCodeForCircuitBreaker(input.circuitBreaker.reason);
+  let continuedState: DirectorAutoExecutionState | null = null;
   await directorIssueService.reportIssue({
     issueGovernanceVersion: governance.issueGovernanceVersion,
     taskId: input.taskId,
@@ -190,7 +197,7 @@ export async function stopAutoExecutionForCircuitBreaker(
     chapterId: input.circuitBreaker.chapterId ?? undefined,
     chapterOrder: input.circuitBreaker.chapterOrder ?? undefined,
     attempt: failureCount,
-    hasUsableOutput: issueCode.startsWith("quality."),
+    hasUsableOutput: hasUsableOutputForCircuitBreaker(input.circuitBreaker.reason),
     runMode: input.request.runMode,
     fingerprint: [
       "circuit_breaker",
@@ -203,8 +210,11 @@ export async function stopAutoExecutionForCircuitBreaker(
     provider: input.request.provider,
     model: input.request.model,
     temperature: input.request.temperature,
-    applyAction: (decision) => applyCircuitBreakerDecision(deps, input, decision.action),
+    applyAction: async (decision) => {
+      continuedState = await applyCircuitBreakerDecision(deps, input, decision.action);
+    },
   });
+  return continuedState;
 }
 
 export async function resolveUsageCircuitBreaker(input: {

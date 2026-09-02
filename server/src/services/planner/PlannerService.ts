@@ -678,6 +678,8 @@ export class PlannerService {
         novelId,
         chapterId,
         taskStyleProfileId,
+        // 规划环节：绑到 planner 的写法在这里生效。
+        agent: "planner",
       });
       return buildPlannerStyleEngineSummary(styleContext);
     } catch {
